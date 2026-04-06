@@ -12,11 +12,11 @@
 
 namespace achilles::control {
 
-class Robot {
+class Plant {
     using InertiaMap = std::unordered_map<dynamics::Link::Id, spatial::Inertia>;
 
   public:
-    Robot(
+    Plant(
         geometry::TransformTree transform_tree,
         dynamics::JointTree joint_tree,
         std::vector<dynamics::Link> links,
