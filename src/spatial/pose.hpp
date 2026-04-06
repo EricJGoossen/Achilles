@@ -16,13 +16,13 @@ class Pose {
     Pose& operator=(Pose&&) = default;
     ~Pose() = default;
 
-    Pose(const math::Vector& position, const math::Quaternion& orientation)
-      : position_(position), orientation_(orientation) {}
+    Pose(math::Vector position, math::Quaternion orientation)
+      : position_(std::move(position)), orientation_(std::move(orientation)) {}
     Pose(const Eigen::Matrix3d& rot, const Eigen::Vector3d& pos)
       : position_(pos), orientation_(rot) {}
 
     static Pose identity() {
-        return Pose(math::Vector::zero(), math::Quaternion::identity());
+        return {math::Vector::zero(), math::Quaternion::identity()};
     }
 
     inline const math::Vector& position() const { return position_; }
@@ -40,6 +40,6 @@ class Pose {
   private:
     math::Vector position_;
     math::Quaternion orientation_;
-};  // class Pose
+};
 
 }  // namespace achilles::spatial

@@ -1,0 +1,4 @@
+# Custom Dictionary Words
+Eigen
+coeffs
+Makefiles

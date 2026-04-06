@@ -22,10 +22,10 @@ class Twist : public math::Dual<Twist> {
 
     Twist(math::Vector linear, math::Vector angular)
       : Base(std::move(linear), std::move(angular)) {}
-    Twist(Eigen::Matrix<double, 6, 1> vec) : Base(vec) {}
+    Twist(const Eigen::Matrix<double, 6, 1>& vec) : Base(vec) {}
     Twist(const Storage& storage) : Base(storage) {}
 
-    static Twist identity() { return Twist(math::Vector(), math::Vector()); }
+    static Twist identity() { return {math::Vector(), math::Vector()}; }
 
     inline void propagate(const Jerk& derivative, double dt) {
         Storage::linear.propagate(derivative.linear(), dt);

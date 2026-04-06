@@ -16,7 +16,7 @@ class Vector {
     Vector(double x, double y, double z) : data_(x, y, z) {}
     Vector(Eigen::Vector3d vec) : data_(std::move(vec)) {}
 
-    inline static Vector zero() { return Vector(0, 0, 0); }
+    inline static Vector zero() { return {0, 0, 0}; }
 
     inline const Eigen::Vector3d& mat() const { return data_; }
     inline double x() const { return data_.x(); }
@@ -40,26 +40,41 @@ class Vector {
         return *this;
     }
 
-    inline Vector operator+(const Vector& other) const { return Vector(*this) += other; }
-    inline Vector operator-(const Vector& other) const { return Vector(*this) -= other; }
-    inline Vector operator*(double scalar) const { return Vector(*this) *= scalar; }
-    inline Vector operator/(double scalar) const { return Vector(*this) /= scalar; }
+    inline Vector operator+(const Vector& other) const {
+        return Vector(*this) += other;
+    }
+    inline Vector operator-(const Vector& other) const {
+        return Vector(*this) -= other;
+    }
+    inline Vector operator*(double scalar) const {
+        return Vector(*this) *= scalar;
+    }
+    inline Vector operator/(double scalar) const {
+        return Vector(*this) /= scalar;
+    }
 
-    inline double dot(const Vector& other) const { return data_.dot(other.data_); }
-    inline Vector cross(const Vector& other) const { return Vector(data_.cross(other.data_)); }
+    inline double dot(const Vector& other) const {
+        return data_.dot(other.data_);
+    }
+    inline Vector cross(const Vector& other) const {
+        return data_.cross(other.data_);
+    }
 
     inline Eigen::Matrix3d skew() const {
         Eigen::Matrix3d m;
-        m << 0, -data_.z(), data_.y(), data_.z(), 0, -data_.x(), -data_.y(), data_.x(), 0;
+        m << 0, -data_.z(), data_.y(), data_.z(), 0, -data_.x(), -data_.y(),
+            data_.x(), 0;
         return m;
     }
 
     inline double mag() const { return data_.norm(); }
     inline void normalize() { data_.normalize(); }
-    inline Vector normalized() const { return Vector(data_.normalized()); }
+    inline Vector normalized() const { return data_.normalized(); }
 
-    inline Vector inverse() const { return Vector(-data_); }
-    inline void propagate(const Vector& derivative, double dt) { (*this) += derivative * dt; }
+    inline Vector inverse() const { return {-data_}; }
+    inline void propagate(const Vector& derivative, double dt) {
+        (*this) += derivative * dt;
+    }
 
   private:
     Eigen::Vector3d data_;

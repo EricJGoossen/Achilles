@@ -1,9 +1,7 @@
 #pragma once
 
 #include <memory>
-#include <stdexcept>
 #include <unordered_map>
-#include <utility>
 
 #include "frame.hpp"
 #include "spatial/pose.hpp"

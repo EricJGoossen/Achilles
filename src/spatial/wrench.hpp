@@ -18,7 +18,7 @@ class Wrench : public math::Dual<Wrench> {
 
     Wrench(math::Vector linear, math::Vector angular)
       : Base(std::move(linear), std::move(angular)) {}
-    Wrench(Eigen::Matrix<double, 6, 1> vec) : Base(vec) {}
+    Wrench(const Eigen::Matrix<double, 6, 1>& vec) : Base(vec) {}
     Wrench(const Storage& storage) : Base(storage) {}
 };  // class Wrench
 }  // namespace achilles::spatial

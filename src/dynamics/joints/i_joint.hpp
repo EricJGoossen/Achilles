@@ -2,7 +2,6 @@
 
 #include "dynamics/link.hpp"
 #include "geometry/frame.hpp"
-#include "geometry/transform.hpp"
 #include "spatial/inertia.hpp"
 #include "spatial/jerk.hpp"
 #include "spatial/pose.hpp"
@@ -12,9 +11,16 @@ namespace achilles::dynamics::joints {
 
 class IJoint {
   public:
+    IJoint() = default;
+    IJoint(const IJoint&) = default;
+    IJoint(IJoint&&) = default;
+    IJoint& operator=(const IJoint&) = default;
+    IJoint& operator=(IJoint&&) = default;
+    virtual ~IJoint() = default;
+
     virtual const geometry::Frame& frame() = 0;
-    virtual const Link& parent_link() = 0;
-    virtual const Link& child_link() = 0;
+    virtual const Link& parentLink() = 0;
+    virtual const Link& childLink() = 0;
 
     virtual const spatial::Pose& position() = 0;
     virtual const spatial::Twist& velocity() = 0;

@@ -3,8 +3,6 @@
 #include <Eigen/Dense>
 #include <utility>
 
-#include "math/vector.hpp"
-
 namespace achilles::spatial {
 
 class Inertia {
@@ -17,13 +15,11 @@ class Inertia {
     Inertia& operator=(Inertia&&) = default;
     ~Inertia() = default;
 
-    Inertia(Inertia3d inrt) : data_(std::move(inrt)) {}
+    Inertia(Inertia3d inertia) : data_(std::move(inertia)) {}
 
     inline Inertia3d mat() const { return data_; }
 
-    static Inertia identity() {
-        return Inertia(Eigen::Matrix<double, 6, 6>::Identity());
-    }
+    static Inertia identity() { return {Inertia3d::Identity()}; }
 
     inline Inertia operator+=(const Inertia& other) {
         data_ += other.data_;

@@ -21,7 +21,7 @@ class Quaternion {
     Quaternion(Eigen::Quaterniond quat) : data_(std::move(quat)) {}
     Quaternion(const Eigen::Matrix3d& rot) : data_(rot) {}
 
-    inline static Quaternion identity() { return Quaternion(1, 0, 0, 0); }
+    inline static Quaternion identity() { return {1, 0, 0, 0}; }
 
     inline const Eigen::Quaterniond& mat() const { return data_; }
     inline double w() const { return data_.w(); }
@@ -45,9 +45,7 @@ class Quaternion {
         return Quaternion(*this) *= other;
     }
 
-    inline Quaternion conjugate() const {
-        return Quaternion(data_.conjugate());
-    }
+    inline Quaternion conjugate() const { return data_.conjugate(); }
     Quaternion inverse() const { return data_.inverse(); }
 
     Vector rotate(const Vector& vec) const;
@@ -55,9 +53,7 @@ class Quaternion {
 
     inline double mag() const { return data_.norm(); }
     inline void normalize() { data_.normalize(); }
-    inline Quaternion normalized() const {
-        return Quaternion(data_.normalized());
-    }
+    inline Quaternion normalized() const { return data_.normalized(); }
 
   private:
     Eigen::Quaterniond data_;

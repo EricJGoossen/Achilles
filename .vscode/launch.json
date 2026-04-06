@@ -2,24 +2,13 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Achilles",
-            "type": "cppdbg",
+            "name": "Achilles (LLDB)",
+            "type": "lldb",
             "request": "launch",
-            "program": "${workspaceFolder}/build/achilles.exe",
+            "program": "${workspaceFolder}/build/achilles",
             "args": [],
-            "stopAtEntry": false,
+            "stopOnEntry": false,
             "cwd": "${workspaceFolder}",
-            "environment": [],
-            "externalConsole": false,
-            "MIMode": "gdb",
-            "miDebuggerPath": "C:/mingw64/bin/gdb.exe",
-            "setupCommands": [
-                {
-                    "description": "Enable pretty-printing for gdb",
-                    "text": "-enable-pretty-printing",
-                    "ignoreFailures": true
-                }
-            ],
             "preLaunchTask": "cmake-build"
         }
     ]

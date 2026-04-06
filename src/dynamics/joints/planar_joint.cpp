@@ -27,9 +27,9 @@ PlanarJoint::PlanarJoint(
 
 PlanarJoint::PlanarBasis PlanarJoint::makeBasis(const math::UnitVector& normal
 ) {
-    Eigen::Matrix3d k = normal.skew();
-    Eigen::Vector3d n = normal.mat();
+    const Eigen::Vector3d& n = normal.mat();
     Eigen::Vector3d t1 = n.unitOrthogonal();
+    Eigen::Matrix3d k = normal.skew();
     return {k, k * k, n, t1, n.cross(t1)};
 }
 

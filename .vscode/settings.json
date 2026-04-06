@@ -5,5 +5,20 @@
     "C_Cpp.codeAnalysis.clangTidy.enabled": true,
     "C_Cpp.codeAnalysis.runAutomatically": true,
     "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json",
-    "editor.tabSize": 4
+    "editor.tabSize": 4,
+    "clangd.path": "/usr/bin/clangd",
+    "cSpell.enabled": true,
+    "cSpell.enabledFileTypes": {
+        "yaml": false
+    },
+    "cSpell.customDictionaries": {
+        "custom-dictionary-workspace": {
+            "name": "custom-dictionary-workspace",
+            "path": "${workspaceFolder:Achilles}/.cspell/custom-dictionary-workspace.txt",
+            "addWords": true,
+            "scope": "workspace"
+        }
+    },
+    "gitlens.codeLens.enabled": false,
+    "gitlens.currentLine.enabled": false
 }

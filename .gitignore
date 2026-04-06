@@ -1,4 +1,5 @@
 build/
+.cache/
 .vscode/*
 !.vscode/tasks.json
 !.vscode/launch.json

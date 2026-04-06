@@ -1,0 +1,15 @@
+{
+  "recommendations": [
+    "ms-vscode.cpptools",
+    "ms-vscode.cpptools-extension-pack",
+    "xaver.clang-format",
+    "ms-vscode.cmake-tools",
+    "redhat.vscode-yaml",
+    "llvm-vs-code-extensions.vscode-clangd",
+    "eamodio.gitlens",
+    "usernamehw.errorlens",
+    "vadimcn.vscode-lldb",
+    "ajshort.include-autocomplete",
+    "streetsidesoftware.code-spell-checker"
+  ]
+}

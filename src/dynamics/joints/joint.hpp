@@ -2,18 +2,13 @@
 
 #include <Eigen/Dense>
 #include <functional>
-#include <utility>
-#include <vector>
 
 #include "dynamics/joints/i_joint.hpp"
 #include "dynamics/link.hpp"
 #include "geometry/frame.hpp"
-#include "geometry/transform.hpp"
-#include "math/dual.hpp"
 #include "spatial/jerk.hpp"
 #include "spatial/pose.hpp"
 #include "spatial/twist.hpp"
-
 
 namespace achilles::dynamics::joints {
 
@@ -36,9 +31,9 @@ class Joint : public IJoint {
         spatial::Twist initial_velocity
     );
 
-    inline const geometry::Frame& frame() override { return frame_; }
-    inline const Link& parent_link() override { return parent_link_; }
-    inline const Link& child_link() override { return child_link_; }
+    inline const geometry::Frame& frame() override { return *frame_; }
+    inline const Link& parentLink() override { return *parent_link_; }
+    inline const Link& childLink() override { return *child_link_; }
     inline const spatial::Pose& position() override { return position_cache_; }
     inline const spatial::Twist& velocity() override { return velocity_cache_; }
     inline const spatial::Jerk& acceleration() override {
@@ -58,9 +53,9 @@ class Joint : public IJoint {
     Eigen::Matrix<double, DOF, 1> projectAcceleration(const spatial::Jerk& force
     ) const;
 
-    const geometry::Frame& frame_;
-    const Link& parent_link_;
-    const Link& child_link_;
+    const geometry::Frame* frame_;
+    const Link* parent_link_;
+    const Link* child_link_;
 
     Eigen::Matrix<double, 6, DOF> motion_subspace_;
     Eigen::Matrix<double, DOF, 6> projection_matrix_;

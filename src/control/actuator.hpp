@@ -24,22 +24,22 @@ class Actuator {
 
   public:
     Actuator(const WrenchBasis& dof, dynamics::joints::IJoint& joint)
-      : dof_(dof.normalized()), joint_(joint) {}
+      : dof_(dof.normalized()), joint_(&joint) {}
 
     void actuate(const spatial::Inertia& composite_inertia) {
         spatial::Jerk acceleration{dof_.toWrench(effort_), composite_inertia};
-        joint_.applyAcceleration(acceleration);
+        joint_->applyAcceleration(acceleration);
         effort_ = 0;
     }
 
-    const dynamics::Link& childLink() { return joint_.child_link(); }
+    const dynamics::Link& childLink() { return joint_->childLink(); }
 
     void applyEffort(double effort) { effort_ = effort; }
 
   private:
-    const WrenchBasis dof_;
+    WrenchBasis dof_;
 
-    dynamics::joints::IJoint& joint_;
+    dynamics::joints::IJoint* joint_;
     double effort_ = 0;
 };  // class actuator
 

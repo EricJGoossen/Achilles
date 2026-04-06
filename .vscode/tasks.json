@@ -14,11 +14,7 @@
         {
             "label": "clang-tidy",
             "type": "shell",
-            "command": "powershell",
-            "args": [
-                "-Command",
-                "Get-ChildItem -Recurse -Filter *.cpp src | ForEach-Object { clang-tidy $_.FullName -p build }"
-            ],
+            "command": "if ! command -v run-clang-tidy >/dev/null 2>&1; then echo \"run-clang-tidy not found in PATH. Install clang-tidy and rerun.\"; exit 127; fi; files=$(git diff --name-only --diff-filter=d HEAD | grep 'src/.*\\.cpp$'); if [ -z \"$files\" ]; then echo \"No changed .cpp files to lint.\"; exit 0; fi; run-clang-tidy -p build -quiet $(echo $files | tr '\\n' ' ')",
             "group": "build",
             "problemMatcher": ["$gcc"]
         }

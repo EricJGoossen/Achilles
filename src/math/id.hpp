@@ -9,13 +9,13 @@ struct Id {
   public:
     class IdManager {
       public:
-        IdManager() : next_id_(0) {}
+        IdManager() = default;
 
       private:
         friend class Id;
         size_t nextId() { return next_id_++; }
 
-        size_t next_id_;
+        size_t next_id_ = 0;
     };
 
     Id(const Id&) = default;

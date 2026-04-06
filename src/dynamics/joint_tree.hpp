@@ -2,12 +2,10 @@
 
 #include <memory>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include "dynamics/joints/i_joint.hpp"
 #include "dynamics/link.hpp"
-#include "geometry/frame.hpp"
 #include "geometry/transform_tree.hpp"
 #include "spatial/inertia.hpp"
 

@@ -13,9 +13,9 @@ Joint<N>::Joint(
     spatial::Pose initial_position,
     spatial::Twist initial_velocity
 )
-  : frame_(frame),
-    parent_link_(parent_link),
-    child_link_(child_link),
+  : frame_(&frame),
+    parent_link_(&parent_link),
+    child_link_(&child_link),
     motion_subspace_(std::move(motion_subspace)),
     projection_matrix_(
         (motion_subspace_.transpose() * motion_subspace_).inverse() *

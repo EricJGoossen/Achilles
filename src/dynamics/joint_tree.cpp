@@ -4,8 +4,8 @@ namespace achilles::dynamics {
 using InertiaMap = std::unordered_map<Link::Id, spatial::Inertia>;
 
 void JointTree::addJoint(std::unique_ptr<joints::IJoint> joint) {
-    Link::Id child = joint->child_link().id();
-    Link::Id parent = joint->parent_link().id();
+    Link::Id child = joint->childLink().id();
+    Link::Id parent = joint->parentLink().id();
 
     auto [it, inserted] = child_to_joint_.emplace(child, std::move(joint));
 
@@ -44,7 +44,7 @@ void JointTree::integrate(double dt) {
 void JointTree::updateTransforms(geometry::TransformTree& transform_tree) {
     for (auto& [_, joint] : child_to_joint_) {
         const geometry::Frame& joint_frame = joint->frame();
-        const geometry::Frame& child_frame = joint->child_link().frame();
+        const geometry::Frame& child_frame = joint->childLink().frame();
         transform_tree.updateTransform(
             joint_frame, child_frame, joint->position()
         );
@@ -58,7 +58,7 @@ void JointTree::recursiveInertia(
 
     for (Link::Id child : parent_to_children_.at(link.id())) {
         auto& joint = *child_to_joint_.at(child);
-        const Link& child_link = joint.child_link();
+        const Link& child_link = joint.childLink();
 
         recursiveInertia(child_link, composite_inertias);
         composite_inertia += joint.solveInertia(composite_inertias.at(child));
@@ -72,7 +72,7 @@ void JointTree::recursiveAcceleration(
 ) {
     joint.applyAcceleration(parent_acceleration);
 
-    for (Link::Id child : parent_to_children_[joint.child_link().id()]) {
+    for (Link::Id child : parent_to_children_[joint.childLink().id()]) {
         joints::IJoint& child_joint = *child_to_joint_.at(child);
         recursiveAcceleration(child_joint, joint.acceleration());
     }

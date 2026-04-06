@@ -11,7 +11,7 @@ class Frame {
   public:
     using Id = math::Id<Frame>;
 
-    Frame(std::string name, Id id) : name_(name), id_(std::move(id)) {}
+    Frame(std::string name, Id id) : name_(std::move(name)), id_(id) {}
 
     inline std::string name() const { return name_; }
     inline Id id() const { return id_; }
