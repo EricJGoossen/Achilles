@@ -45,6 +45,3 @@ A typical simulation step consists of:
 - Collision detection and response  
 - Constraint solvers  
 - Visualization tools  
-
-## License
-This project is provided for educational and experimental use. Add a license here as appropriate.
