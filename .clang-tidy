@@ -1,0 +1,55 @@
+---
+Checks: >
+    -*,
+    google-*,
+    bugprone-*,
+    modernize-*,
+    performance-*,
+    cppcoreguidelines-*,
+    readability-qualified-auto,
+    readability-use-anyofallof,
+    readability-identifier-naming,
+    -google-objc-*,
+    -google-readability-todo,
+    -cppcoreguidelines-avoid-magic-numbers,
+    -cppcoreguidelines-non-private-member-variables-in-classes,
+    -modernize-use-trailing-return-type,
+    -modernize-use-nodiscard,
+    -bugprone-easily-swappable-parameters
+
+HeaderFilterRegex: 'src/.*'
+
+CheckOptions:
+    # Naming conventions
+    - key: readability-identifier-naming.ClassCase
+      value: CamelCase
+    - key: readability-identifier-naming.MethodCase
+      value: camelCase
+    - key: readability-identifer-naming.FunctionCase
+      value: camelCase
+    - key: readability-identifier-naming.MemberCase
+      value: lower_case
+    - key: readability-identifier-naming.MemberSuffix
+      value: _
+    - key: readability-identifier-naming.ParameterCase
+      value: lower_case
+    - key: readability-identifier-naming.NamespaceCase
+      value: lower_case
+    - key: readability-identifier-naming.TemplateParameterCase
+      value: CamelCase
+    - key: readability-identifier-naming.TypeTemplateParameterCase
+      value: CamelCase
+    - key: readability-identifier-naming.ValueTemplateParameterCase
+      value: CamelCase
+    - key: readability-identifier-naming.ConstantCase
+      value: lower_case
+    - key: readability-identifier-naming.StaticConstantCase
+      value: UPPER_CASE
+    - key: readability-identifier-naming.ClassConstantCase
+      value: lower_case
+    - key: readability-identifier-naming.ConstexprVariableCase
+      value: UPPER_CASE
+    - key: readability-identifier-naming.AbstractClassCase
+      value: CamelCase
+    - key: readability-identifier-naming.AbstractClassPrefix
+      value: I

@@ -1,28 +1,24 @@
 #pragma once
 
 #include <string>
+#include <utility>
 
-#include "math/Id.hpp"
+#include "math/id.hpp"
 
-namespace achilles::geometry 
-{
+namespace achilles::geometry {
 
-class Frame 
-{
-public:
+class Frame {
+  public:
     using Id = math::Id<Frame>;
 
-    Frame(
-        std::string name,
-        int id) : 
-        name_(name),
-        id_(Id(id)) {}
+    Frame(std::string name, Id id) : name_(name), id_(std::move(id)) {}
 
     inline std::string name() const { return name_; }
     inline Id id() const { return id_; }
-private:
+
+  private:
     std::string name_;
     Id id_;
-}; // class Frame
+};  // class Frame
 
-} // namespace achilles::geometry
+}  // namespace achilles::geometry

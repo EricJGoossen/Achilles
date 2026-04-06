@@ -4,24 +4,44 @@
 
 namespace achilles::math {
 
-template <typename tag>
+template <typename Tag>
 struct Id {
-public:
-    Id(int id) : id_(id) {}
+  public:
+    class IdManager {
+      public:
+        IdManager() : next_id_(0) {}
+
+      private:
+        friend class Id;
+        size_t nextId() { return next_id_++; }
+
+        size_t next_id_;
+    };
+
+    Id(const Id&) = default;
+    Id(Id&&) = default;
+    Id& operator=(const Id&) = default;
+    Id& operator=(Id&&) = default;
+    ~Id() = default;
+
+    Id(IdManager& manager) : id_(manager.nextId()) {}
+
     bool operator==(const Id& other) const { return id_ == other.id_; }
     bool operator!=(const Id& other) const { return id_ != other.id_; }
-    constexpr int id() const { return id_; }
-private:
-    int id_;
-}; // class Id
-} // namespace achilles::math
+
+    constexpr size_t id() const { return id_; }
+
+  private:
+    size_t id_;
+};
+}  // namespace achilles::math
 
 namespace std {
 
-template <typename tag>
-struct hash<achilles::math::Id<tag>> {
-    std::size_t operator()(const achilles::math::Id<tag>& id) const noexcept {
+template <typename Tag>
+struct hash<achilles::math::Id<Tag>> {
+    std::size_t operator()(const achilles::math::Id<Tag>& id) const noexcept {
         return std::hash<int>{}(id.id());
     }
-}; // struct hash
-} // namespace std
+};  // struct hash
+}  // namespace std

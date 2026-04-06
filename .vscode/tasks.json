@@ -10,6 +10,17 @@
                 "isDefault": true
             },
             "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "clang-tidy",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-Command",
+                "Get-ChildItem -Recurse -Filter *.cpp src | ForEach-Object { clang-tidy $_.FullName -p build }"
+            ],
+            "group": "build",
+            "problemMatcher": ["$gcc"]
         }
     ]
 }

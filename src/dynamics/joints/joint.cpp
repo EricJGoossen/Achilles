@@ -4,39 +4,46 @@ namespace achilles::dynamics::joints {
 
 template <int N>
 Joint<N>::Joint(
-    const geometry::Frame frame,
+    const geometry::Frame& frame,
     const Link& parent_link,
     const Link& child_link,
-    const Eigen::Matrix<double, 6, N> motion_subspace,
-    const Joint<N>::ChildPoseFunc make_child_pose,
-    const Joint<N>::JointPoseFunc make_joint_pose,
-    const spatial::Pose initial_position,
-    const spatial::Twist initial_velocity) : 
-    frame_(std::move(frame)),
+    Eigen::Matrix<double, 6, N> motion_subspace,
+    Joint<N>::ChildPoseFunc make_child_pose,
+    Joint<N>::JointPoseFunc make_joint_pose,
+    spatial::Pose initial_position,
+    spatial::Twist initial_velocity
+)
+  : frame_(frame),
     parent_link_(parent_link),
     child_link_(child_link),
     motion_subspace_(std::move(motion_subspace)),
-    projection_matrix_((motion_subspace_.transpose() * motion_subspace_).inverse() * motion_subspace_.transpose()),
+    projection_matrix_(
+        (motion_subspace_.transpose() * motion_subspace_).inverse() *
+        motion_subspace_.transpose()
+    ),
     make_child_pose_(std::move(make_child_pose)),
     make_joint_pose_(std::move(make_joint_pose)),
-    q_(make_joint_pose(initial_position)),
+    q_(make_joint_pose_(initial_position)),
     q_dot_(projection_matrix_ * initial_velocity.mat()),
     q_ddot_(Eigen::Matrix<double, N, 1>::Zero()),
     position_cache_(std::move(initial_position)),
     velocity_cache_(std::move(initial_velocity)),
-    acceleration_cache_(spatial::Jerk::identity()) {}
+    acceleration_cache_(spatial::Jerk::zero()) {}
 
 template <int N>
-spatial::Inertia Joint<N>::solveInertia(const spatial::Inertia& child_inertia) const {
+spatial::Inertia Joint<N>::solveInertia(const spatial::Inertia& child_inertia
+) const {
     Eigen::Matrix<double, 6, N> IS = child_inertia.mat() * motion_subspace_;
     Eigen::Matrix<double, N, N> SIS = motion_subspace_.transpose() * IS;
 
-    return spatial::Inertia(child_inertia.mat() - IS * SIS.inverse() * IS.transpose());
+    return spatial::Inertia(
+        child_inertia.mat() - IS * SIS.inverse() * IS.transpose()
+    );
 }
 
 template <int N>
 void Joint<N>::applyAcceleration(const spatial::Jerk& delta_acceleration) {
-    q_ddot_ += projectAcceleration(delta_acceleration); 
+    q_ddot_ += projectAcceleration(delta_acceleration);
 
     updateAccelerationCache();
 }
@@ -50,8 +57,7 @@ void Joint<N>::integrate(double dt) {
     updatePositionCache();
     updateVelocityCache();
     updateAccelerationCache();
-}  
-
+}
 template <int N>
 void Joint<N>::updateVelocityCache() {
     velocity_cache_ = spatial::Twist(motion_subspace_ * q_dot_);
@@ -68,7 +74,9 @@ void Joint<N>::updatePositionCache() {
 }
 
 template <int N>
-Eigen::Matrix<double, N, 1> Joint<N>::projectAcceleration(const spatial::Jerk& acceleration) const {
+Eigen::Matrix<double, N, 1> Joint<N>::projectAcceleration(
+    const spatial::Jerk& acceleration
+) const {
     return projection_matrix_ * acceleration.mat();
 }
 
@@ -76,4 +84,4 @@ template class Joint<1>;
 template class Joint<3>;
 template class Joint<6>;
 
-} // namespace achilles::dynamics::joints
+}  // namespace achilles::dynamics::joints
