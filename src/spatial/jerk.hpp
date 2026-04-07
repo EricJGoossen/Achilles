@@ -27,9 +27,12 @@ class Jerk : public math::Dual<Jerk> {
     Jerk(const Storage& storage) : Base(storage) {}
 
     static Jerk zero() { return {math::Vector(), math::Vector()}; }
+    static Jerk fromWrench(const Wrench& wrench, const Inertia& inertia) {
+        return {inertia.mat() * wrench.mat()};
+    }
 
     inline void propagate(const Wrench& wrench, const Inertia& inertia) {
-        *this += Jerk(inertia.mat() * wrench.mat());
+        *this += fromWrench(wrench, inertia);
     }
 };
 }  // namespace achilles::spatial

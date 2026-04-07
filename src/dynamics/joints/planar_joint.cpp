@@ -7,7 +7,7 @@ PlanarJoint::PlanarJoint(
     const Link& parent_link,
     const Link& child_link,
     const math::UnitVector& normal,
-    spatial::Pose initial_position,  // NOLINT
+    spatial::Pose initial_position,
     spatial::Twist initial_velocity
 )
   : BaseJoint<PlanarJoint, PlanarJoint::DOF>(

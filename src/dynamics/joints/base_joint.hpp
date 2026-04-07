@@ -41,7 +41,7 @@ class BaseJoint : public AbstractJoint {
         q_(),
         q_dot_(projection_matrix_ * velocity_cache_.mat()),
         q_ddot_(Eigen::Matrix<double, DOF, 1>::Zero()) {
-        derived()->makeJointPose(position_cache_);
+        q_ = derived()->makeJointPose(position_cache_);
     }
 
     spatial::Inertia solveInertia(const spatial::Inertia& child_inertia
