@@ -35,9 +35,7 @@ class PlanarJoint : public BaseJoint<PlanarJoint, 3> {
     };
 
     spatial::Pose makeChildPose(const Eigen::Matrix<double, DOF, 1>& q);
-    static Eigen::Matrix<double, DOF, 1> makeJointPose(
-        const spatial::Pose& pose, const PlanarBasis& b
-    );
+    Eigen::Matrix<double, DOF, 1> makeJointPose(const spatial::Pose& pose);
 
     static Eigen::Matrix<double, 6, DOF> makeMotionSubspace(const PlanarBasis& b
     );

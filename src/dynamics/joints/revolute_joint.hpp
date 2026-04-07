@@ -34,9 +34,7 @@ class RevoluteJoint : public BaseJoint<RevoluteJoint, 1> {
     };
 
     spatial::Pose makeChildPose(const Eigen::Matrix<double, DOF, 1>& q);
-    static Eigen::Matrix<double, DOF, 1> makeJointPose(
-        const spatial::Pose& pose, const math::UnitVector& a
-    );
+    Eigen::Matrix<double, DOF, 1> makeJointPose(const spatial::Pose& pose);
 
     static Eigen::Matrix<double, 6, DOF> makeMotionSubspace(
         const math::UnitVector& axis

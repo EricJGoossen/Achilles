@@ -2,3 +2,4 @@
 Eigen
 coeffs
 Makefiles
+ldlt

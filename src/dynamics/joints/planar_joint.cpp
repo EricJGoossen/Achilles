@@ -7,7 +7,7 @@ PlanarJoint::PlanarJoint(
     const Link& parent_link,
     const Link& child_link,
     const math::UnitVector& normal,
-    spatial::Pose initial_position,
+    spatial::Pose initial_position,  // NOLINT
     spatial::Twist initial_velocity
 )
   : BaseJoint<PlanarJoint, PlanarJoint::DOF>(
@@ -42,14 +42,14 @@ spatial::Pose PlanarJoint::makeChildPose(
 }
 
 Eigen::Matrix<double, PlanarJoint::DOF, 1> PlanarJoint::makeJointPose(
-    const spatial::Pose& pose, const PlanarBasis& b
+    const spatial::Pose& pose
 ) {
     Eigen::AngleAxisd aa(pose.orientation().mat().toRotationMatrix());
 
     return {
-        pose.position().dot(b.t1),
-        pose.position().dot(b.t2),
-        aa.angle() * aa.axis().dot(b.n)
+        pose.position().dot(b_.t1),
+        pose.position().dot(b_.t2),
+        aa.angle() * aa.axis().dot(b_.n)
     };
 }
 
@@ -57,9 +57,9 @@ Eigen::Matrix<double, 6, PlanarJoint::DOF> PlanarJoint::makeMotionSubspace(
     const PlanarBasis& b
 ) {
     Eigen::Matrix<double, 6, PlanarJoint::DOF> S;
-    S.col(0) << Eigen::Matrix3d::Zero(), b.t1;
-    S.col(1) << Eigen::Matrix3d::Zero(), b.t2;
-    S.col(2) << b.n, Eigen::Matrix3d::Zero();
+    S.col(0) << b.t1, Eigen::Vector3d::Zero();
+    S.col(1) << b.t2, Eigen::Vector3d::Zero();
+    S.col(2) << Eigen::Vector3d::Zero(), b.n;
 
     return S;
 }

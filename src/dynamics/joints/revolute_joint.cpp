@@ -1,7 +1,5 @@
 #include "revolute_joint.hpp"
 
-#include "math/unit_vector.hpp"
-
 namespace achilles::dynamics::joints {
 
 RevoluteJoint::RevoluteJoint(
@@ -38,12 +36,12 @@ spatial::Pose RevoluteJoint::makeChildPose(
 }
 
 Eigen::Matrix<double, RevoluteJoint::DOF, 1> RevoluteJoint::makeJointPose(
-    const spatial::Pose& pose, const math::UnitVector& a
+    const spatial::Pose& pose
 ) {
     Eigen::AngleAxisd aa(pose.orientation().mat().toRotationMatrix());
 
     return {Eigen::Matrix<double, RevoluteJoint::DOF, 1>(
-        aa.angle() * aa.axis().dot(a.mat())
+        aa.angle() * aa.axis().dot(b_.n)
     )};
 }
 
@@ -51,7 +49,7 @@ Eigen::Matrix<double, 6, RevoluteJoint::DOF> RevoluteJoint::makeMotionSubspace(
     const math::UnitVector& axis
 ) {
     Eigen::Matrix<double, 6, RevoluteJoint::DOF> motion_subspace;
-    motion_subspace << axis.x(), axis.y(), axis.z(), 0, 0, 0;
+    motion_subspace << Eigen::Vector3d::Zero(), axis.mat();
     return motion_subspace;
 }
 

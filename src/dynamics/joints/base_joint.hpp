@@ -16,7 +16,7 @@ class BaseJoint : public AbstractJoint {
     BaseJoint(BaseJoint&&) = default;
     BaseJoint& operator=(const BaseJoint&) = delete;
     BaseJoint& operator=(BaseJoint&&) = default;
-    ~BaseJoint() = default;
+    ~BaseJoint() override = default;
 
     BaseJoint(
         const geometry::Frame& frame,
@@ -38,9 +38,11 @@ class BaseJoint : public AbstractJoint {
             (motion_subspace_.transpose() * motion_subspace_).inverse() *
             motion_subspace_.transpose()
         ),
-        q_(static_cast<Derived*>(this)->makeJointPose(initial_position)),
-        q_dot_(projection_matrix_ * initial_velocity.mat()),
-        q_ddot_(Eigen::Matrix<double, DOF, 1>::Zero()) {}
+        q_(),
+        q_dot_(projection_matrix_ * velocity_cache_.mat()),
+        q_ddot_(Eigen::Matrix<double, DOF, 1>::Zero()) {
+        derived()->makeJointPose(position_cache_);
+    }
 
     spatial::Inertia solveInertia(const spatial::Inertia& child_inertia
     ) const override {
@@ -49,7 +51,7 @@ class BaseJoint : public AbstractJoint {
         Eigen::Matrix<double, DOF, DOF> SIS = motion_subspace_.transpose() * IS;
 
         return spatial::Inertia(
-            child_inertia.mat() - IS * SIS.inverse() * IS.transpose()
+            child_inertia.mat() - IS * SIS.ldlt().solve(IS.transpose())
         );
     }
 
@@ -66,9 +68,11 @@ class BaseJoint : public AbstractJoint {
 
         updatePositionCache();
         updateVelocityCache();
-        updateAccelerationCache();
+
+        acceleration_cache_ = spatial::Jerk::zero();
     }
 
+  private:
     void updatePositionCache() {
         position_cache_ = derived()->makeChildPose(q_);
     }
@@ -79,7 +83,6 @@ class BaseJoint : public AbstractJoint {
         acceleration_cache_ = {motion_subspace_ * q_ddot_};
     }
 
-  private:
     Derived* derived() { return static_cast<Derived*>(this); }
     const Derived* derived() const { return static_cast<const Derived*>(this); }
 
