@@ -2,12 +2,12 @@
 
 #include <Eigen/Dense>
 
-#include "dynamics/joints/joint.hpp"
+#include "dynamics/joints/base_joint.hpp"
 #include "math/unit_vector.hpp"
 
 namespace achilles::dynamics::joints {
 
-class RevoluteJoint : public Joint<1> {
+class RevoluteJoint : public BaseJoint<RevoluteJoint, 1> {
     static constexpr int DOF = 1;
 
   public:
@@ -20,24 +20,28 @@ class RevoluteJoint : public Joint<1> {
         spatial::Twist initial_velocity
     );
 
+    constexpr static int dof() { return DOF; }
+
   private:
-    struct PlanarBasis {
+    friend BaseJoint<RevoluteJoint, DOF>;
+
+    struct RevoluteBasis {
+        RevoluteBasis(const math::UnitVector& axis);
+
         Eigen::Matrix3d k;
         Eigen::Matrix3d k2;
+        Eigen::Vector3d n;
     };
 
-    static PlanarBasis makeBasis(const math::UnitVector& axis);
-
-    static spatial::Pose makeChildPose(
-        const Eigen::Matrix<double, DOF, 1>& q, const PlanarBasis& b
-    );
-
+    spatial::Pose makeChildPose(const Eigen::Matrix<double, DOF, 1>& q);
     static Eigen::Matrix<double, DOF, 1> makeJointPose(
-        const spatial::Pose& pose, const Eigen::Vector3d& a
+        const spatial::Pose& pose, const math::UnitVector& a
     );
 
     static Eigen::Matrix<double, 6, DOF> makeMotionSubspace(
         const math::UnitVector& axis
     );
+
+    RevoluteBasis b_;
 };  // class RevoluteJoint
 }  // namespace achilles::dynamics::joints

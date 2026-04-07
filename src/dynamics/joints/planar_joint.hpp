@@ -2,13 +2,13 @@
 
 #include <Eigen/Dense>
 
-#include "dynamics/joints/joint.hpp"
+#include "dynamics/joints/base_joint.hpp"
 #include "dynamics/link.hpp"
 #include "math/unit_vector.hpp"
 
 namespace achilles::dynamics::joints {
 
-class PlanarJoint : public Joint<3> {
+class PlanarJoint : public BaseJoint<PlanarJoint, 3> {
     static constexpr int DOF = 3;
 
   public:
@@ -22,7 +22,11 @@ class PlanarJoint : public Joint<3> {
     );
 
   private:
+    friend BaseJoint<PlanarJoint, DOF>;
+
     struct PlanarBasis {
+        PlanarBasis(const math::UnitVector& normal);
+
         Eigen::Matrix3d k;
         Eigen::Matrix3d k2;
         Eigen::Vector3d n;
@@ -30,17 +34,14 @@ class PlanarJoint : public Joint<3> {
         Eigen::Vector3d t2;
     };
 
-    static PlanarBasis makeBasis(const math::UnitVector& normal);
-
-    static spatial::Pose makeChildPose(
-        const Eigen::Matrix<double, DOF, 1>& q, const PlanarBasis& b
-    );
+    spatial::Pose makeChildPose(const Eigen::Matrix<double, DOF, 1>& q);
     static Eigen::Matrix<double, DOF, 1> makeJointPose(
         const spatial::Pose& pose, const PlanarBasis& b
     );
 
-    static Eigen::Matrix<double, 6, DOF> makeMotionSubspace(
-        const math::UnitVector& normal
+    static Eigen::Matrix<double, 6, DOF> makeMotionSubspace(const PlanarBasis& b
     );
+
+    PlanarBasis b_;
 };
 }  // namespace achilles::dynamics::joints

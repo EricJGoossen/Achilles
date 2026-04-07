@@ -4,7 +4,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "dynamics/joints/i_joint.hpp"
+#include "dynamics/joints/abstract_joint.hpp"
 #include "dynamics/link.hpp"
 #include "geometry/transform_tree.hpp"
 #include "spatial/inertia.hpp"
@@ -17,8 +17,8 @@ class JointTree {
   public:
     JointTree() = default;
 
-    void addJoint(std::unique_ptr<joints::IJoint> joint);
-    const joints::IJoint& getJoint(const Link& child_link) const;
+    void addJoint(std::unique_ptr<joints::AbstractJoint> joint);
+    const joints::AbstractJoint& getJoint(const Link& child_link) const;
 
     InertiaMap computeCompositeInertias(const dynamics::Link& root) const;
     void propagateAccelerations(const Link& root);
@@ -31,10 +31,10 @@ class JointTree {
         const;
 
     void recursiveAcceleration(
-        joints::IJoint& joint, const spatial::Jerk& parent_acceleration
+        joints::AbstractJoint& joint, const spatial::Jerk& parent_acceleration
     );
 
-    std::unordered_map<Link::Id, std::unique_ptr<joints::IJoint>>
+    std::unordered_map<Link::Id, std::unique_ptr<joints::AbstractJoint>>
         child_to_joint_;
     std::unordered_map<Link::Id, std::vector<Link::Id>> parent_to_children_;
 };

@@ -1,13 +1,12 @@
 #pragma once
 
 #include <Eigen/Dense>
-#include <utility>
+
+#include "math/vector.hpp"
 
 namespace achilles::spatial {
 
 class Inertia {
-    using Inertia3d = Eigen::Matrix<double, 6, 6>;
-
   public:
     Inertia(const Inertia&) = default;
     Inertia(Inertia&&) = default;
@@ -15,11 +14,28 @@ class Inertia {
     Inertia& operator=(Inertia&&) = default;
     ~Inertia() = default;
 
-    Inertia(Inertia3d inertia) : data_(std::move(inertia)) {}
+    Inertia(
+        const Eigen::Matrix3d& inertia,
+        const math::Vector& com_offset,
+        double mass
+    )
+      : data_() {
+        Eigen::Matrix3d k = com_offset.skew();
+        Eigen::Matrix3d kT = k.transpose();
 
-    inline Inertia3d mat() const { return data_; }
+        data_.block<3, 3>(0, 0) = inertia + mass * k * kT;
+        data_.block<3, 3>(0, 3) = mass * k;
+        data_.block<3, 3>(3, 0) = mass * kT;
+        data_.block<3, 3>(3, 3) = mass * Eigen::Matrix3d::Identity();
+    }
 
-    static Inertia identity() { return {Inertia3d::Identity()}; }
+    Inertia(Eigen::Matrix<double, 6, 6> inertia) : data_(std::move(inertia)) {}
+
+    inline Eigen::Matrix<double, 6, 6> mat() const { return data_; }
+
+    static Inertia identity() {
+        return {Eigen::Matrix<double, 6, 6>::Identity()};
+    }
 
     inline Inertia operator+=(const Inertia& other) {
         data_ += other.data_;
@@ -38,7 +54,7 @@ class Inertia {
     }
 
   private:
-    Inertia3d data_;
+    Eigen::Matrix<double, 6, 6> data_;
 };  // class Inertia
 
 }  // namespace achilles::spatial

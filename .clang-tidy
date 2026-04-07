@@ -32,6 +32,8 @@ CheckOptions:
       value: lower_case
     - key: readability-identifier-naming.PrivateMemberSuffix
       value: '_'
+    - key: readability-identifier-naming.ProtectedMemberSuffix
+      value: '_'
     - key: readability-identifier-naming.PublicMemberSuffix
       value: ''
     - key: readability-identifier-naming.MemberSuffix
@@ -56,5 +58,3 @@ CheckOptions:
       value: UPPER_CASE
     - key: readability-identifier-naming.AbstractClassCase
       value: CamelCase
-    - key: readability-identifier-naming.AbstractClassPrefix
-      value: I

@@ -24,8 +24,6 @@ class Jerk : public math::Dual<Jerk> {
     Jerk(math::Vector linear, math::Vector angular)
       : Base(std::move(linear), std::move(angular)) {}
     Jerk(const Eigen::Matrix<double, 6, 1>& vec) : Base(vec) {}
-    Jerk(const Wrench& wrench, const Inertia& inertia)
-      : Base(inertia.mat() * wrench.mat()) {}
     Jerk(const Storage& storage) : Base(storage) {}
 
     static Jerk zero() { return {math::Vector(), math::Vector()}; }

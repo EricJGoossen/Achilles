@@ -1,9 +1,11 @@
 #include "joint_tree.hpp"
 
+#include "dynamics/joints/abstract_joint.hpp"
+
 namespace achilles::dynamics {
 using InertiaMap = std::unordered_map<Link::Id, spatial::Inertia>;
 
-void JointTree::addJoint(std::unique_ptr<joints::IJoint> joint) {
+void JointTree::addJoint(std::unique_ptr<joints::AbstractJoint> joint) {
     Link::Id child = joint->childLink().id();
     Link::Id parent = joint->parentLink().id();
 
@@ -17,7 +19,7 @@ void JointTree::addJoint(std::unique_ptr<joints::IJoint> joint) {
     parent_to_children_[parent].push_back(child);
 }
 
-const joints::IJoint& JointTree::getJoint(const Link& child_link) const {
+const joints::AbstractJoint& JointTree::getJoint(const Link& child_link) const {
     return *child_to_joint_.at(child_link.id());
 }
 
@@ -30,7 +32,7 @@ InertiaMap JointTree::computeCompositeInertias(const dynamics::Link& root
 
 void JointTree::propagateAccelerations(const Link& root) {
     for (Link::Id child : parent_to_children_[root.id()]) {
-        joints::IJoint& joint = *child_to_joint_.at(child);
+        joints::AbstractJoint& joint = *child_to_joint_.at(child);
         recursiveAcceleration(joint, spatial::Jerk::zero());
     }
 }
@@ -68,12 +70,12 @@ void JointTree::recursiveInertia(
 }
 
 void JointTree::recursiveAcceleration(
-    joints::IJoint& joint, const spatial::Jerk& parent_acceleration
+    joints::AbstractJoint& joint, const spatial::Jerk& parent_acceleration
 ) {
     joint.applyAcceleration(parent_acceleration);
 
     for (Link::Id child : parent_to_children_[joint.childLink().id()]) {
-        joints::IJoint& child_joint = *child_to_joint_.at(child);
+        joints::AbstractJoint& child_joint = *child_to_joint_.at(child);
         recursiveAcceleration(child_joint, joint.acceleration());
     }
 }

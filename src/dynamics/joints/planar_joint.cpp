@@ -10,40 +10,33 @@ PlanarJoint::PlanarJoint(
     spatial::Pose initial_position,
     spatial::Twist initial_velocity
 )
-  : Joint<PlanarJoint::DOF>(
+  : BaseJoint<PlanarJoint, PlanarJoint::DOF>(
         frame,
         parent_link,
         child_link,
         makeMotionSubspace(normal),
-        [b = makeBasis(normal)](
-            const Eigen::Matrix<double, PlanarJoint::DOF, 1>& q
-        ) { return makeChildPose(q, b); },
-        [b = makeBasis(normal)](const spatial::Pose& pose) {
-            return makeJointPose(pose, b);
-        },
         std::move(initial_position),
         std::move(initial_velocity)
-    ) {}
+    ),
+    b_(normal) {}
 
-PlanarJoint::PlanarBasis PlanarJoint::makeBasis(const math::UnitVector& normal
-) {
-    const Eigen::Vector3d& n = normal.mat();
-    Eigen::Vector3d t1 = n.unitOrthogonal();
-    Eigen::Matrix3d k = normal.skew();
-    return {k, k * k, n, t1, n.cross(t1)};
-}
+PlanarJoint::PlanarBasis::PlanarBasis(const math::UnitVector& normal)
+  : k(normal.skew()),
+    k2(k * k),
+    n(normal.mat()),
+    t1(n.unitOrthogonal()),
+    t2(n.cross(t1)) {}
 
 spatial::Pose PlanarJoint::makeChildPose(
-    const Eigen::Matrix<double, PlanarJoint::DOF, 1>& q, const PlanarBasis& b
+    const Eigen::Matrix<double, PlanarJoint::DOF, 1>& q
 ) {
-    double x = q(0);
-    double y = q(1);
-    double theta = q(2);
+    // clang-format off
+    Eigen::Matrix3d R = Eigen::Matrix3d::Identity() 
+                      + std::sin(q(2)) * b_.k 
+                      + (1.0 - std::cos(q(2))) * b_.k2;
+    // clang-format on
 
-    Eigen::Matrix3d R = Eigen::Matrix3d::Identity() + std::sin(theta) * b.k;
-    +(1.0 - std::cos(theta)) * b.k2;
-
-    Eigen::Vector3d t = x * b.t1 + y * b.t2;
+    Eigen::Vector3d t = q(0) * b_.t1 + q(1) * b_.t2;
 
     return {R, t};
 }
@@ -51,30 +44,22 @@ spatial::Pose PlanarJoint::makeChildPose(
 Eigen::Matrix<double, PlanarJoint::DOF, 1> PlanarJoint::makeJointPose(
     const spatial::Pose& pose, const PlanarBasis& b
 ) {
-    Eigen::Matrix3d R = pose.orientation().mat().toRotationMatrix();
-    Eigen::Vector3d t = pose.position().mat();
+    Eigen::AngleAxisd aa(pose.orientation().mat().toRotationMatrix());
 
-    double x = t.dot(b.t1);
-    double y = t.dot(b.t2);
-
-    Eigen::AngleAxisd aa(R);
-    double theta = aa.angle() * aa.axis().dot(b.n);
-
-    return (Eigen::Matrix<double, PlanarJoint::DOF, 1>() << x, y, theta)
-        .finished();
+    return {
+        pose.position().dot(b.t1),
+        pose.position().dot(b.t2),
+        aa.angle() * aa.axis().dot(b.n)
+    };
 }
 
 Eigen::Matrix<double, 6, PlanarJoint::DOF> PlanarJoint::makeMotionSubspace(
-    const math::UnitVector& normal
+    const PlanarBasis& b
 ) {
-    Eigen::Vector3d n = normal.mat();
-    Eigen::Vector3d t1 = n.unitOrthogonal();
-    Eigen::Vector3d t2 = n.cross(t1);
-
     Eigen::Matrix<double, 6, PlanarJoint::DOF> S;
-    S.col(0) << 0, 0, 0, t1.x(), t1.y(), t1.z();
-    S.col(1) << 0, 0, 0, t2.x(), t2.y(), t2.z();
-    S.col(2) << n.x(), n.y(), n.z(), 0, 0, 0;
+    S.col(0) << Eigen::Matrix3d::Zero(), b.t1;
+    S.col(1) << Eigen::Matrix3d::Zero(), b.t2;
+    S.col(2) << b.n, Eigen::Matrix3d::Zero();
 
     return S;
 }
