@@ -1,0 +1,21 @@
+{
+  "name": "Achilles",
+  "build": { "dockerfile": "Dockerfile" },
+  "remoteUser": "root",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cpptools-extension-pack",
+        "xaver.clang-format",
+        "ms-vscode.cmake-tools",
+        "redhat.vscode-yaml",
+        "llvm-vs-code-extensions.vscode-clangd",
+        "eamodio.gitlens",
+        "usernamehw.errorlens",
+        "ajshort.include-autocomplete",
+        "streetsidesoftware.code-spell-checker"
+      ]
+    }
+  }
+}

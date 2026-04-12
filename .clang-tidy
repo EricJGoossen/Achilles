@@ -16,7 +16,8 @@ Checks: >
     -modernize-use-trailing-return-type,
     -modernize-use-nodiscard,
     -bugprone-easily-swappable-parameters,
-    -google-explicit-constructor
+    -google-explicit-constructor,
+    -performance-noexcept-move-constructor
 
 HeaderFilterRegex: 'src/.*'
 
@@ -46,6 +47,8 @@ CheckOptions:
       value: CamelCase
     - key: readability-identifier-naming.TypeTemplateParameterCase
       value: CamelCase
+    - key: readability-identifier-naming.TypeTemplateParameterIgnoredRegexp
+      value: '^(expr-type)$'
     - key: readability-identifier-naming.ValueTemplateParameterCase
       value: CamelCase
     - key: readability-identifier-naming.ConstantCase

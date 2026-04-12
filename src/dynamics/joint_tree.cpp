@@ -8,6 +8,7 @@ using InertiaMap = std::unordered_map<Link::Id, spatial::Inertia>;
 void JointTree::addJoint(std::unique_ptr<joints::AbstractJoint> joint) {
     Link::Id child = joint->childLink().id();
     Link::Id parent = joint->parentLink().id();
+    int foo = 0;
 
     auto [it, inserted] = child_to_joint_.emplace(child, std::move(joint));
 

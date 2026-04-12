@@ -14,7 +14,7 @@
         {
             "label": "clang-tidy",
             "type": "shell",
-            "command": "if ! command -v run-clang-tidy >/dev/null 2>&1; then echo \"run-clang-tidy not found in PATH. Install clang-tidy and rerun.\"; exit 127; fi; files=$(git diff --name-only --diff-filter=d HEAD | grep 'src/.*\\.cpp$'); if [ -z \"$files\" ]; then echo \"No changed .cpp files to lint.\"; exit 0; fi; run-clang-tidy -p build -quiet $(echo $files | tr '\\n' ' ')",
+            "command": "if ! command -v run-clang-tidy >/dev/null 2>&1; then echo \"run-clang-tidy not found in PATH. Install clang-tidy and rerun.\"; exit 127; fi; files=$(git diff --name-only --diff-filter=d HEAD | grep '^src/.*\\.cpp$' | grep -v '^build/'); if [ -z \"$files\" ]; then echo \"No changed .cpp files to lint.\"; exit 0; fi; run-clang-tidy -p build -quiet -header-filter='^/workspaces/Achilles/src/' -extra-arg=-isystem/workspaces/Achilles/build -extra-arg=-isystem/workspaces/Achilles/build/_deps/eigen-src $(echo $files | tr '\\n' ' ') 2>&1 | grep -vE '^[0-9]+ warnings generated\\.$' || true",
             "group": "build",
             "problemMatcher": ["$gcc"]
         }
