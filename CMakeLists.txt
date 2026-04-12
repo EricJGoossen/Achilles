@@ -15,23 +15,23 @@ if (ENABLE_CCACHE)
     endif ()
 endif ()
 
-# For single-config generators (e.g. MinGW Makefiles), default to Debug so
-# generated binaries include symbols and debugger breakpoints bind correctly.
 if (NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
 endif ()
 
-# Resolve Eigen for both compiler and IntelliSense include paths.
-find_package(Eigen3 QUIET NO_MODULE)
-if (NOT Eigen3_FOUND)
-    find_path(EIGEN3_INCLUDE_DIR Eigen/Dense
-        PATH_SUFFIXES eigen3
-    )
-
-    if (NOT EIGEN3_INCLUDE_DIR)
-        message(FATAL_ERROR "Eigen3 not found. Install Eigen and/or set EIGEN3_INCLUDE_DIR.")
-    endif ()
-endif ()
+# Fetch Eigen automatically
+include(FetchContent)
+FetchContent_Declare(
+    Eigen
+    GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
+    GIT_TAG 3.4.0
+    GIT_SHALLOW TRUE       # only fetch the tagged commit, not full history
+)
+# Disable Eigen's own tests and install targets
+set(EIGEN_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(EIGEN_BUILD_DOC OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(Eigen)
 
 # Recursively find all .cpp files under src/
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS
@@ -49,8 +49,4 @@ target_include_directories(achilles PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
 
-if (Eigen3_FOUND)
-    target_link_libraries(achilles PRIVATE Eigen3::Eigen)
-else ()
-    target_include_directories(achilles PRIVATE "${EIGEN3_INCLUDE_DIR}")
-endif ()
+target_link_libraries(achilles PRIVATE Eigen3::Eigen)
