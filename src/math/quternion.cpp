@@ -21,10 +21,10 @@ void Quaternion::propagate(const Vector& angular_velocity, double dt) {
             angular_velocity.y() * sin,
             angular_velocity.z() * sin
         );
-    }
 
-    this->operator*=(dq);
-    this->normalize();
+        this->operator*=(dq);
+        this->normalize();
+    }
 }
 
 }  // namespace achilles::math

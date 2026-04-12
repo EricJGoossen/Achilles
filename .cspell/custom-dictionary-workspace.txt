@@ -3,3 +3,4 @@ Eigen
 coeffs
 Makefiles
 ldlt
+endforeach

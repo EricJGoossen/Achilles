@@ -26,6 +26,58 @@
                     "ignoreFailures": true
                 }
             ]
+        },
+        {
+            "name": "C++ GDB Debug Tests (Helpers)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/tests/test_helpers",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "preLaunchTask": "cmake-build",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Load Eigen pretty printers",
+                    "text": "-interpreter-exec console \"source /home/fadag/.gdbinit\"",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "C++ GDB Debug Tests (Kinematics)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/tests/test_kinematics",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "preLaunchTask": "cmake-build",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Load Eigen pretty printers",
+                    "text": "-interpreter-exec console \"source /home/fadag/.gdbinit\"",
+                    "ignoreFailures": true
+                }
+            ]
         }
     ]
 }

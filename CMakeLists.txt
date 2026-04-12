@@ -27,26 +27,39 @@ FetchContent_Declare(
     GIT_TAG 3.4.0
     GIT_SHALLOW TRUE       # only fetch the tagged commit, not full history
 )
+
 # Disable Eigen's own tests and install targets
 set(EIGEN_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(EIGEN_BUILD_DOC OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(Eigen)
 
+option(BUILD_TESTS "Build test suite" ON)
+if(BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
+
 # Recursively find all .cpp files under src/
-file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS
+file(GLOB_RECURSE ACHILLES_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
 )
 
-add_executable(achilles ${SOURCES})
+set(ACHILLES_LIB_SOURCES ${ACHILLES_SOURCES})
+list(FILTER ACHILLES_LIB_SOURCES EXCLUDE REGEX ".*/main\\.cpp$")
 
-target_compile_options(achilles PRIVATE
+add_library(achilles_lib ${ACHILLES_LIB_SOURCES})
+
+target_compile_options(achilles_lib PRIVATE
     $<$<CONFIG:Debug>:-g -O0>
     $<$<CONFIG:Release>:-O3>
 )
 
-target_include_directories(achilles PRIVATE
+target_include_directories(achilles_lib PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
 
-target_link_libraries(achilles PRIVATE Eigen3::Eigen)
+target_link_libraries(achilles_lib PUBLIC Eigen3::Eigen)
+
+add_executable(achilles "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
+target_link_libraries(achilles PRIVATE achilles_lib)
