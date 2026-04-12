@@ -40,6 +40,11 @@ file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS
 
 add_executable(achilles ${SOURCES})
 
+target_compile_options(achilles PRIVATE
+    $<$<CONFIG:Debug>:-g -O0>
+    $<$<CONFIG:Release>:-O3>
+)
+
 target_include_directories(achilles PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )

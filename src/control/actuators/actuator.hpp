@@ -18,7 +18,7 @@ class Actuator {
             spatial::Jerk::fromWrench(dof_, composite_inertia)
         };
 
-        joint_->applyAcceleration(acceleration);
+        joint_->applyAcceleration(acceleration * effort_);
         effort_ = 0;
     }
 

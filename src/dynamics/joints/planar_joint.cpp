@@ -16,7 +16,8 @@ PlanarJoint::PlanarJoint(
         child_link,
         makeMotionSubspace(normal),
         std::move(initial_position),
-        std::move(initial_velocity)
+        std::move(initial_velocity),
+        makeJointPose(initial_position)
     ),
     b_(normal) {}
 

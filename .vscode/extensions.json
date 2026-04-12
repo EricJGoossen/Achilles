@@ -8,7 +8,6 @@
     "llvm-vs-code-extensions.vscode-clangd",
     "eamodio.gitlens",
     "usernamehw.errorlens",
-    "vadimcn.vscode-lldb",
     "ajshort.include-autocomplete",
     "streetsidesoftware.code-spell-checker"
   ]

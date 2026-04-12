@@ -20,5 +20,6 @@
         }
     },
     "gitlens.codeLens.enabled": false,
-    "gitlens.currentLine.enabled": false
+    "gitlens.currentLine.enabled": false,
+    "editor.detectIndentation": false
 }

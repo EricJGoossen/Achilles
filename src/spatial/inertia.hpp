@@ -36,6 +36,7 @@ class Inertia {
     static Inertia identity() {
         return {Eigen::Matrix<double, 6, 6>::Identity()};
     }
+    static Inertia zero() { return {Eigen::Matrix<double, 6, 6>::Zero()}; }
 
     inline Inertia operator+=(const Inertia& other) {
         data_ += other.data_;
