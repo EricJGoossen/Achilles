@@ -31,7 +31,7 @@ class JointTree {
         const;
 
     void recursiveAcceleration(
-        joints::AbstractJoint& joint, const spatial::Jerk& parent_acceleration
+        joints::AbstractJoint& joint, const spatial::Surge& parent_acceleration
     );
 
     std::unordered_map<Link::Id, std::unique_ptr<joints::AbstractJoint>>

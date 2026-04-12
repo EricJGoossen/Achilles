@@ -19,26 +19,29 @@ class Plant {
     Plant(
         geometry::TransformTree transform_tree,
         dynamics::JointTree joint_tree,
-        std::vector<std::unique_ptr<dynamics::Link>> links,
+        std::unordered_map<dynamics::Link::Id, std::unique_ptr<dynamics::Link>>
+            links,
         std::vector<std::unique_ptr<geometry::Frame>> frames,
-        std::vector<std::unique_ptr<actuators::Actuator>> actuators
+        std::vector<std::unique_ptr<actuators::Actuator>> actuators,
+        dynamics::Link::Id base_link_id
     )
       : transform_tree_(std::move(transform_tree)),
         joint_tree_(std::move(joint_tree)),
         links_(std::move(links)),
         frames_(std::move(frames)),
-        actuators_(std::move(actuators)) {}
+        actuators_(std::move(actuators)),
+        base_link_(links_[base_link_id].get()) {}
 
     void update(double dt) {
         InertiaMap composite_inertias =
-            joint_tree_.computeCompositeInertias(*links_[0]);
+            joint_tree_.computeCompositeInertias(*base_link_);
 
         for (auto& actuator : actuators_) {
             actuator->actuate(composite_inertias.at(actuator->childLink().id())
             );
         }
 
-        joint_tree_.propagateAccelerations(*links_[0]);
+        joint_tree_.propagateAccelerations(*base_link_);
         joint_tree_.integrate(dt);
         joint_tree_.updateTransforms(transform_tree_);
     }
@@ -57,8 +60,11 @@ class Plant {
   private:
     geometry::TransformTree transform_tree_;
     dynamics::JointTree joint_tree_;
-    std::vector<std::unique_ptr<dynamics::Link>> links_;
+    std::unordered_map<dynamics::Link::Id, std::unique_ptr<dynamics::Link>>
+        links_;
     std::vector<std::unique_ptr<geometry::Frame>> frames_;
     std::vector<std::unique_ptr<actuators::Actuator>> actuators_;
+
+    const dynamics::Link* base_link_;
 };
 }  // namespace achilles::control

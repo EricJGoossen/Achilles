@@ -27,8 +27,8 @@
 #include "math/unit_vector.hpp"
 #include "math/vector.hpp"
 #include "spatial/inertia.hpp"
-#include "spatial/jerk.hpp"
 #include "spatial/pose.hpp"
+#include "spatial/surge.hpp"
 #include "spatial/twist.hpp"
 
 // ─────────────────────────────────────────────────────────────
@@ -246,7 +246,7 @@ TEST(RevoluteJoint, IntegrateZeroAccelerationNoChange) {
 TEST(RevoluteJoint, ApplyAccelerationUpdatesCache) {
     RevoluteFixture f;
     f.joint.applyAcceleration(
-        spatial::Jerk(math::Vector(0, 0, 0), math::Vector(0, 0, 1))
+        spatial::Surge(math::Vector(0, 0, 0), math::Vector(0, 0, 1))
     );
     EXPECT_GT(f.joint.acceleration().norm(), 0.0);
 }
@@ -254,7 +254,7 @@ TEST(RevoluteJoint, ApplyAccelerationUpdatesCache) {
 TEST(RevoluteJoint, IntegrateWithAccelerationProducesRotation) {
     RevoluteFixture f;
     f.joint.applyAcceleration(
-        spatial::Jerk(math::Vector(0, 0, 0), math::Vector(0, 0, 1))
+        spatial::Surge(math::Vector(0, 0, 0), math::Vector(0, 0, 1))
     );
     f.joint.integrate(1.0);
     EXPECT_GT(f.joint.position().angle(), 0.0);
@@ -263,7 +263,7 @@ TEST(RevoluteJoint, IntegrateWithAccelerationProducesRotation) {
 TEST(RevoluteJoint, AccelerationClearedAfterIntegrate) {
     RevoluteFixture f;
     f.joint.applyAcceleration(
-        spatial::Jerk(math::Vector(0, 0, 0), math::Vector(0, 0, 1))
+        spatial::Surge(math::Vector(0, 0, 0), math::Vector(0, 0, 1))
     );
     f.joint.integrate(0.01);
     EXPECT_NEAR(f.joint.acceleration().norm(), 0.0, LOOSE);
@@ -306,7 +306,7 @@ TEST(PlanarJoint, InitialStateIsIdentity) {
 TEST(PlanarJoint, LinearAccelerationProducesTranslation) {
     PlanarFixture f;
     f.joint.applyAcceleration(
-        spatial::Jerk(math::Vector(1, 0, 0), math::Vector(0, 0, 0))
+        spatial::Surge(math::Vector(1, 0, 0), math::Vector(0, 0, 0))
     );
     f.joint.integrate(1.0);
     EXPECT_GT(f.joint.position().position().x(), 0.0);
@@ -315,7 +315,7 @@ TEST(PlanarJoint, LinearAccelerationProducesTranslation) {
 TEST(PlanarJoint, AngularAccelerationProducesRotation) {
     PlanarFixture f;
     f.joint.applyAcceleration(
-        spatial::Jerk(math::Vector(0, 0, 0), math::Vector(0, 0, 1))
+        spatial::Surge(math::Vector(0, 0, 0), math::Vector(0, 0, 1))
     );
     f.joint.integrate(1.0);
     EXPECT_GT(f.joint.position().angle(), 0.0);
@@ -559,9 +559,11 @@ auto makeSingleJointPlant() {
     frames.push_back(std::move(joint_frame));
     frames.push_back(std::move(child_frame));
 
-    std::vector<std::unique_ptr<dynamics::Link>> links;
-    links.push_back(std::move(root_link));
-    links.push_back(std::move(child_link));
+    dynamics::Link::Id base_link_id = root_link->id();
+    std::unordered_map<dynamics::Link::Id, std::unique_ptr<dynamics::Link>>
+        links;
+    links.emplace(root_link->id(), std::move(root_link));
+    links.emplace(child_link->id(), std::move(child_link));
 
     std::vector<std::unique_ptr<control::actuators::Actuator>> actuators;
     actuators.push_back(std::move(actuator));
@@ -571,7 +573,8 @@ auto makeSingleJointPlant() {
         std::move(joint_tree),
         std::move(links),
         std::move(frames),
-        std::move(actuators)
+        std::move(actuators),
+        base_link_id
     );
 }
 
@@ -582,10 +585,11 @@ TEST(Plant, UpdateCycleDoesNotThrow) {
 
 TEST(Plant, MultipleUpdateCyclesStable) {
     auto plant = makeSingleJointPlant();
-    for (auto* act : plant.getActuators()) {
-        act->applyEffort(1.0);
-    }
     for (int i = 0; i < 100; ++i) {
+        for (auto* act : plant.getActuators()) {
+            act->applyEffort(1.0);
+        }
+
         ASSERT_NO_THROW(plant.update(0.01));
     }
 }

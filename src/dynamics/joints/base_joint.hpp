@@ -12,12 +12,6 @@ namespace achilles::dynamics::joints {
 template <typename Derived, int DOF>
 class BaseJoint : public AbstractJoint {
   public:
-    BaseJoint(const BaseJoint&) = delete;
-    BaseJoint(BaseJoint&&) = default;
-    BaseJoint& operator=(const BaseJoint&) = delete;
-    BaseJoint& operator=(BaseJoint&&) = default;
-    ~BaseJoint() override = default;
-
     BaseJoint(
         const geometry::Frame& frame,
         const Link& parent_link,
@@ -54,7 +48,7 @@ class BaseJoint : public AbstractJoint {
         );
     }
 
-    void applyAcceleration(const spatial::Jerk& delta_acceleration) override {
+    void applyAcceleration(const spatial::Surge& delta_acceleration) override {
         q_ddot_ += projection_matrix_ * delta_acceleration.mat();
 
         updateAccelerationCache();
@@ -68,7 +62,7 @@ class BaseJoint : public AbstractJoint {
         updatePositionCache();
         updateVelocityCache();
 
-        acceleration_cache_ = spatial::Jerk::zero();
+        acceleration_cache_ = spatial::Surge::zero();
     }
 
   private:

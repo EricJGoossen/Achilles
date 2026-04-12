@@ -3,7 +3,7 @@
  *
  * Covers:
  *   - Math:    Vector, UnitVector, Quaternion, Id
- *   - Spatial: Pose, Twist, Jerk, Wrench, Inertia
+ *   - Spatial: Pose, Twist, Surge, Wrench, Inertia
  */
 
 #include <gtest/gtest.h>
@@ -16,8 +16,8 @@
 #include "math/unit_vector.hpp"
 #include "math/vector.hpp"
 #include "spatial/inertia.hpp"
-#include "spatial/jerk.hpp"
 #include "spatial/pose.hpp"
+#include "spatial/surge.hpp"
 #include "spatial/twist.hpp"
 #include "spatial/wrench.hpp"
 
@@ -248,13 +248,15 @@ TEST(Twist, MatRoundTrip) {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  7. Jerk
+//  7. Surge
 // ══════════════════════════════════════════════════════════════
 
-TEST(Jerk, ZeroIsZero) { EXPECT_NEAR(spatial::Jerk::zero().norm(), 0.0, EPS); }
+TEST(Surge, ZeroIsZero) {
+    EXPECT_NEAR(spatial::Surge::zero().norm(), 0.0, EPS);
+}
 
-TEST(Jerk, FromWrenchIdentityInertia) {
-    spatial::Jerk j = spatial::Jerk::fromWrench(
+TEST(Surge, FromWrenchIdentityInertia) {
+    spatial::Surge j = spatial::Surge::fromWrench(
         spatial::Wrench(math::Vector(1, 0, 0), math::Vector(0, 0, 0)),
         spatial::Inertia::identity()
     );

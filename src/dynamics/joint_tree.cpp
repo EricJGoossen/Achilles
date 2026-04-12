@@ -33,7 +33,7 @@ InertiaMap JointTree::computeCompositeInertias(const dynamics::Link& root
 void JointTree::propagateAccelerations(const Link& root) {
     for (Link::Id child : parent_to_children_[root.id()]) {
         joints::AbstractJoint& joint = *child_to_joint_.at(child);
-        recursiveAcceleration(joint, spatial::Jerk::zero());
+        recursiveAcceleration(joint, spatial::Surge::zero());
     }
 }
 
@@ -70,7 +70,7 @@ void JointTree::recursiveInertia(
 }
 
 void JointTree::recursiveAcceleration(
-    joints::AbstractJoint& joint, const spatial::Jerk& parent_acceleration
+    joints::AbstractJoint& joint, const spatial::Surge& parent_acceleration
 ) {
     joint.applyAcceleration(parent_acceleration);
 

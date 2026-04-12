@@ -3,9 +3,9 @@
 #include <Eigen/Dense>
 #include <utility>
 
-#include "jerk.hpp"
 #include "math/dual.hpp"
 #include "math/vector.hpp"
+#include "surge.hpp"
 
 namespace achilles::spatial {
 
@@ -27,7 +27,7 @@ class Twist : public math::Dual<Twist> {
 
     static Twist identity() { return {math::Vector(), math::Vector()}; }
 
-    inline void propagate(const Jerk& derivative, double dt) {
+    inline void propagate(const Surge& derivative, double dt) {
         Storage::linear.propagate(derivative.linear(), dt);
         Storage::angular.propagate(derivative.angular(), dt);
     }

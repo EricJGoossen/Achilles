@@ -11,6 +11,20 @@
 namespace achilles::dynamics::joints {
 
 template <int DOF, typename ChildPoseGenerator, typename JointPoseGenerator>
+concept Generators = requires(
+    ChildPoseGenerator make_child_pose,
+    JointPoseGenerator make_joint_pose,
+    const spatial::Pose& pose,
+    const Eigen::Matrix<double, DOF, 1>& q
+) {
+    { make_child_pose(q) } -> std::convertible_to<spatial::Pose>;
+    {
+        make_joint_pose(pose)
+        } -> std::convertible_to<Eigen::Matrix<double, DOF, 1>>;
+};
+
+template <int DOF, typename ChildPoseGenerator, typename JointPoseGenerator>
+requires Generators<DOF, ChildPoseGenerator, JointPoseGenerator>
 class GeneralJoint
   : public BaseJoint<
         GeneralJoint<DOF, ChildPoseGenerator, JointPoseGenerator>,
@@ -40,11 +54,6 @@ class GeneralJoint
             std::move(initial_position),
             std::move(initial_velocity)
         ),
-        motion_subspace_(std::move(motion_subspace)),
-        projection_matrix_(
-            (motion_subspace_.transpose() * motion_subspace_).inverse() *
-            motion_subspace_.transpose()
-        ),
         make_child_pose_(std::move(make_child_pose)),
         make_joint_pose_(std::move(make_joint_pose)) {}
 
@@ -60,9 +69,6 @@ class GeneralJoint
         return make_joint_pose_(q_dot);
     }
 
-  private:
-    Eigen::Matrix<double, 6, DOF> motion_subspace_;
-    Eigen::Matrix<double, DOF, 6> projection_matrix_;
     ChildPoseGenerator make_child_pose_;
     JointPoseGenerator make_joint_pose_;
 };

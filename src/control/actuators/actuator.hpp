@@ -3,7 +3,7 @@
 #include "dynamics/joints/abstract_joint.hpp"
 #include "dynamics/link.hpp"
 #include "spatial/inertia.hpp"
-#include "spatial/jerk.hpp"
+#include "spatial/surge.hpp"
 #include "spatial/wrench.hpp"
 
 namespace achilles::control::actuators {
@@ -14,9 +14,8 @@ class Actuator {
       : dof_(dof.normalized()), joint_(&joint) {}
 
     void actuate(const spatial::Inertia& composite_inertia) {
-        spatial::Jerk acceleration{
-            spatial::Jerk::fromWrench(dof_, composite_inertia)
-        };
+        spatial::Surge acceleration{
+            spatial::Surge::fromWrench(dof_, composite_inertia)};
 
         joint_->applyAcceleration(acceleration * effort_);
         effort_ = 0;
