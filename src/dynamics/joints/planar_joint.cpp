@@ -16,8 +16,7 @@ PlanarJoint::PlanarJoint(
         child_link,
         makeMotionSubspace(normal),
         std::move(initial_position),
-        std::move(initial_velocity),
-        makeJointPose(initial_position)
+        std::move(initial_velocity)
     ),
     b_(normal) {}
 
@@ -50,8 +49,7 @@ Eigen::Matrix<double, PlanarJoint::DOF, 1> PlanarJoint::makeJointPose(
     return {
         pose.position().dot(b_.t1),
         pose.position().dot(b_.t2),
-        aa.angle() * aa.axis().dot(b_.n)
-    };
+        aa.angle() * aa.axis().dot(b_.n)};
 }
 
 Eigen::Matrix<double, 6, PlanarJoint::DOF> PlanarJoint::makeMotionSubspace(

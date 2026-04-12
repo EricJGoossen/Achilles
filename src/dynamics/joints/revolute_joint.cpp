@@ -16,8 +16,7 @@ RevoluteJoint::RevoluteJoint(
         child_link,
         makeMotionSubspace(axis),
         std::move(initial_position),
-        std::move(initial_velocity),
-        makeJointPose(initial_position)
+        std::move(initial_velocity)
     ),
     b_(axis) {}
 

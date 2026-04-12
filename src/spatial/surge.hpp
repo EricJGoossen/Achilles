@@ -28,7 +28,7 @@ class Surge : public math::Dual<Surge> {
 
     static Surge zero() { return {math::Vector(), math::Vector()}; }
     static Surge fromWrench(const Wrench& wrench, const Inertia& inertia) {
-        return {inertia.mat() * wrench.mat()};
+        return {inertia.mat().ldlt().solve(wrench.mat())};
     }
 
     inline void propagate(const Wrench& wrench, const Inertia& inertia) {

@@ -18,8 +18,7 @@ class BaseJoint : public AbstractJoint {
         const Link& child_link,
         Eigen::Matrix<double, 6, DOF> motion_subspace,
         spatial::Pose initial_position,
-        spatial::Twist initial_velocity,
-        Eigen::Matrix<double, DOF, 1> initial_q
+        spatial::Twist initial_velocity
     )
       : AbstractJoint(
             frame,
@@ -33,7 +32,7 @@ class BaseJoint : public AbstractJoint {
             (motion_subspace_.transpose() * motion_subspace_).inverse() *
             motion_subspace_.transpose()
         ),
-        q_(initial_q),
+        q_(static_cast<Derived*>(this)->makeJointPose(position_cache_)),
         q_dot_(projection_matrix_ * velocity_cache_.mat()),
         q_ddot_(Eigen::Matrix<double, DOF, 1>::Zero()) {}
 

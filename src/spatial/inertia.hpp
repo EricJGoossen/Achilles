@@ -23,10 +23,12 @@ class Inertia {
         Eigen::Matrix3d k = com_offset.skew();
         Eigen::Matrix3d kT = k.transpose();
 
-        data_.block<3, 3>(0, 0) = inertia + mass * k * kT;
-        data_.block<3, 3>(0, 3) = mass * k;
-        data_.block<3, 3>(3, 0) = mass * kT;
-        data_.block<3, 3>(3, 3) = mass * Eigen::Matrix3d::Identity();
+        // Dual vectors are ordered [linear; angular], so inertia follows
+        // that same block layout.
+        data_.block<3, 3>(0, 0) = mass * Eigen::Matrix3d::Identity();
+        data_.block<3, 3>(0, 3) = mass * kT;
+        data_.block<3, 3>(3, 0) = mass * k;
+        data_.block<3, 3>(3, 3) = inertia + mass * k * kT;
     }
 
     Inertia(Eigen::Matrix<double, 6, 6> inertia) : data_(std::move(inertia)) {}
