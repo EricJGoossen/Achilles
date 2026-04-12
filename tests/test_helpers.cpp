@@ -123,7 +123,6 @@ TEST(UnitVector, AxisAligned) {
 TEST(Quaternion, IdentityRotatesVectorUnchanged) {
     math::Vector r = math::Quaternion::identity().rotate(math::Vector(1, 2, 3));
     EXPECT_NEAR(r.x(), 1.0, EPS);
-    int foo = 0;
     EXPECT_NEAR(r.y(), 2.0, EPS);
     EXPECT_NEAR(r.z(), 3.0, EPS);
 }

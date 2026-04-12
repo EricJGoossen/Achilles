@@ -372,7 +372,6 @@ TEST(JointTree, GetJointForChildLink) {
 
 TEST(JointTree, DuplicateChildThrows) {
     TreeFixture f;
-    int foo = 0;
     EXPECT_THROW(
         f.tree.addJoint(std::make_unique<dynamics::joints::RevoluteJoint>(
             f.joint1_frame,

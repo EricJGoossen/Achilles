@@ -48,11 +48,10 @@ class GeneralJoint
             frame,
             parent_link,
             child_link,
-            make_joint_pose(initial_position),
-            (motion_subspace.transpose() * motion_subspace).inverse() *
-                motion_subspace.transpose() * initial_velocity.mat(),
+            motion_subspace,
             std::move(initial_position),
-            std::move(initial_velocity)
+            std::move(initial_velocity),
+            make_joint_pose(initial_position)
         ),
         make_child_pose_(std::move(make_child_pose)),
         make_joint_pose_(std::move(make_joint_pose)) {}
