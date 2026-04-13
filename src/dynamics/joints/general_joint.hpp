@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Eigen/Dense>
+#include <string>
 
 #include "dynamics/joints/base_joint.hpp"
 #include "dynamics/link.hpp"
@@ -35,7 +36,7 @@ class GeneralJoint
 
   public:
     GeneralJoint(
-        const geometry::Frame& frame,
+        const char* frame,
         const Link& parent_link,
         const Link& child_link,
         spatial::Pose initial_position,

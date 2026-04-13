@@ -5,52 +5,69 @@
 #include <vector>
 
 #include "control/actuators/actuator.hpp"
+#include "control/plant_state.hpp"
 #include "dynamics/joint_tree.hpp"
 #include "dynamics/link.hpp"
 #include "geometry/frame.hpp"
+#include "geometry/transform.hpp"
 #include "geometry/transform_tree.hpp"
 
 namespace achilles::control {
 
 class Plant {
-    using InertiaMap = std::unordered_map<dynamics::Link::Id, spatial::Inertia>;
+    using InertiaMap =
+        std::unordered_map<dynamics::Link::Frame, spatial::Inertia>;
 
   public:
+    using Frame = geometry::Frame<Plant>;
+
     Plant(
+        const char* frame,
         geometry::TransformTree transform_tree,
         dynamics::JointTree joint_tree,
-        std::unordered_map<dynamics::Link::Id, std::unique_ptr<dynamics::Link>>
-            links,
-        std::vector<std::unique_ptr<geometry::Frame>> frames,
-        std::vector<std::unique_ptr<actuators::Actuator>> actuators,
-        dynamics::Link::Id base_link_id
+        std::unique_ptr<geometry::Transform> base_link_transform,
+        std::unique_ptr<geometry::Transform> world_transform,
+        std::unordered_map<
+            actuators::Actuator::Frame,
+            std::unique_ptr<actuators::Actuator>> actuators,
+        std::unordered_map<
+            dynamics::Link::Frame,
+            std::unique_ptr<dynamics::Link>> links
     )
-      : transform_tree_(std::move(transform_tree)),
-        joint_tree_(std::move(joint_tree)),
-        links_(std::move(links)),
-        frames_(std::move(frames)),
+      : frame_(frame),
+        state_{
+            std::move(transform_tree),
+            std::move(joint_tree),
+            std::move(world_transform)},
         actuators_(std::move(actuators)),
-        base_link_(links_[base_link_id].get()) {}
+        links_(std::move(links)),
+        base_link_(
+            *links_.at(base_link_transform->childFrame().as<dynamics::Link>())
+        ) {
+        state_.transform_tree.addTransform(std::move(base_link_transform));
+    }
+
+    const Frame& frame() const { return frame_; }
 
     void update(double dt) {
         InertiaMap composite_inertias =
-            joint_tree_.computeCompositeInertias(*base_link_);
+            state_.joint_tree.computeCompositeInertias(base_link_);
 
-        for (auto& actuator : actuators_) {
-            actuator->actuate(composite_inertias.at(actuator->childLink().id())
-            );
+        for (auto& [_, actuator] : actuators_) {
+            actuator->actuate(composite_inertias.at(actuator->childLink().frame(
+            )));
         }
 
-        joint_tree_.propagateAccelerations(*base_link_);
-        joint_tree_.integrate(dt);
-        joint_tree_.updateTransforms(transform_tree_);
+        state_.joint_tree.propagateAccelerations(base_link_);
+        state_.joint_tree.integrate(dt);
+        state_.joint_tree.updateTransforms(state_.transform_tree);
     }
 
     std::vector<control::actuators::Actuator*> getActuators() {
         std::vector<control::actuators::Actuator*> actuator_ptrs;
         actuator_ptrs.reserve(actuators_.size());
 
-        for (const auto& actuator : actuators_) {
+        for (const auto& [_, actuator] : actuators_) {
             actuator_ptrs.push_back(actuator.get());
         }
 
@@ -58,13 +75,17 @@ class Plant {
     }
 
   private:
-    geometry::TransformTree transform_tree_;
-    dynamics::JointTree joint_tree_;
-    std::unordered_map<dynamics::Link::Id, std::unique_ptr<dynamics::Link>>
-        links_;
-    std::vector<std::unique_ptr<geometry::Frame>> frames_;
-    std::vector<std::unique_ptr<actuators::Actuator>> actuators_;
+    Frame frame_;
 
-    const dynamics::Link* base_link_;
+    PlantState state_;
+
+    std::unordered_map<
+        actuators::Actuator::Frame,
+        std::unique_ptr<actuators::Actuator>>
+        actuators_;
+    std::unordered_map<dynamics::Link::Frame, std::unique_ptr<dynamics::Link>>
+        links_;
+
+    const dynamics::Link& base_link_;
 };
 }  // namespace achilles::control

@@ -12,7 +12,7 @@ class RevoluteJoint : public BaseJoint<RevoluteJoint, 1> {
 
   public:
     RevoluteJoint(
-        const geometry::Frame& frame,
+        const char* frame,
         const Link& parent_link,
         const Link& child_link,
         const math::UnitVector& axis,

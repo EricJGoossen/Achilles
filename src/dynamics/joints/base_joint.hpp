@@ -13,7 +13,7 @@ template <typename Derived, int DOF>
 class BaseJoint : public AbstractJoint {
   public:
     BaseJoint(
-        const geometry::Frame& frame,
+        const char* frame,
         const Link& parent_link,
         const Link& child_link,
         Eigen::Matrix<double, 6, DOF> motion_subspace,

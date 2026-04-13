@@ -11,6 +11,8 @@ namespace achilles::dynamics::joints {
 
 class AbstractJoint {
   public:
+    using Frame = geometry::Frame<AbstractJoint>;
+
     AbstractJoint(const AbstractJoint&) = delete;
     AbstractJoint(AbstractJoint&&) = default;
     AbstractJoint& operator=(const AbstractJoint&) = delete;
@@ -18,20 +20,20 @@ class AbstractJoint {
     virtual ~AbstractJoint() = default;
 
     AbstractJoint(
-        const geometry::Frame& frame,
+        const char* frame,
         const Link& parent_link,
         const Link& child_link,
         spatial::Pose initial_position,
         spatial::Twist initial_velocity
     )
-      : frame_(&frame),
+      : frame_(frame),
         parent_link_(&parent_link),
         child_link_(&child_link),
         position_cache_(std::move(initial_position)),
         velocity_cache_(std::move(initial_velocity)),
         acceleration_cache_(spatial::Surge::zero()) {}
 
-    inline const geometry::Frame& frame() const { return *frame_; }
+    inline const Frame& frame() const { return frame_; }
     inline const Link& parentLink() const { return *parent_link_; }
     inline const Link& childLink() const { return *child_link_; }
 
@@ -48,7 +50,7 @@ class AbstractJoint {
     virtual void integrate(double dt) = 0;
 
   protected:
-    const geometry::Frame* frame_;
+    Frame frame_;
     const Link* parent_link_;
     const Link* child_link_;
 

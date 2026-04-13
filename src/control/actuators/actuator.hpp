@@ -10,6 +10,8 @@ namespace achilles::control::actuators {
 
 class Actuator {
   public:
+    using Frame = geometry::Frame<Actuator>;
+
     Actuator(const spatial::Wrench& dof, dynamics::joints::AbstractJoint& joint)
       : dof_(dof.normalized()), joint_(&joint) {}
 

@@ -16,16 +16,16 @@ class TransformTree {
     void addTransform(std::unique_ptr<Transform> transform);
 
     void updateTransform(
-        const Frame& parent_frame,
-        const Frame& child_frame,
+        const AbstractFrame& parent_frame,
+        const AbstractFrame& child_frame,
         const spatial::Pose& new_pose
     );
     const Transform& getTransform(
-        const Frame& parent_frame, const Frame& child_frame
+        const AbstractFrame& parent_frame, const AbstractFrame& child_frame
     ) const;
 
   private:
-    std::unordered_map<Frame::Id, std::unique_ptr<Transform>> tree_;
+    std::unordered_map<AbstractFrame, std::unique_ptr<Transform>> tree_;
 };  // class TransformTree
 
 }  // namespace achilles::geometry

@@ -1,12 +1,13 @@
+#include "geometry/frame.hpp"
 #include "transform_tree.hpp"
 
 namespace achilles::geometry {
 
 void TransformTree::addTransform(std::unique_ptr<Transform> transform) {
-    geometry::Frame child_frame = transform->childFrame();
+    geometry::AbstractFrame child_frame = transform->childFrame();
 
     auto [it, inserted] =
-        tree_.emplace(transform->childFrame().id(), std::move(transform));
+        tree_.emplace(transform->childFrame(), std::move(transform));
 
     if (!inserted) {
         throw std::runtime_error("Transform already exists for frame");
@@ -14,13 +15,13 @@ void TransformTree::addTransform(std::unique_ptr<Transform> transform) {
 }
 
 void TransformTree::updateTransform(
-    const Frame& parent_frame,
-    const Frame& child_frame,
+    const AbstractFrame& parent_frame,
+    const AbstractFrame& child_frame,
     const spatial::Pose& new_pose
 ) {
-    Transform& transform = *tree_.at(child_frame.id());
+    Transform& transform = *tree_.at(child_frame);
 
-    if (transform.parentFrame().id() != parent_frame.id()) {
+    if (transform.parentFrame() != parent_frame) {
         throw std::runtime_error(
             "No frame exists for the given parent-child pair"
         );
@@ -30,11 +31,11 @@ void TransformTree::updateTransform(
 }
 
 const Transform& TransformTree::getTransform(
-    const Frame& parent_frame, const Frame& child_frame
+    const AbstractFrame& parent_frame, const AbstractFrame& child_frame
 ) const {
-    Transform& transform = *tree_.at(child_frame.id());
+    Transform& transform = *tree_.at(child_frame);
 
-    if (transform.parentFrame().id() != parent_frame.id()) {
+    if (transform.parentFrame() != parent_frame) {
         throw std::runtime_error(
             "No frame exists for the given parent-child pair"
         );

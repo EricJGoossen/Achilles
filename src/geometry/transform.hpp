@@ -9,21 +9,25 @@ class Transform {
     using Pose = spatial::Pose;
 
   public:
-    Transform(const Frame& parent_frame, const Frame& child_frame, Pose pose)
+    Transform(
+        const AbstractFrame& parent_frame,
+        const AbstractFrame& child_frame,
+        Pose pose
+    )
       : parent_frame_(&parent_frame),
         child_frame_(&child_frame),
         pose_(std::move(pose)) {}
 
     inline const Pose& pose() const { return pose_; }
-    inline const Frame& parentFrame() const { return *parent_frame_; }
-    inline const Frame& childFrame() const { return *child_frame_; }
+    inline const AbstractFrame& parentFrame() const { return *parent_frame_; }
+    inline const AbstractFrame& childFrame() const { return *child_frame_; }
 
     inline void update(const Pose& pose) { pose_ = pose; }
     inline void add(const Pose& delta) { pose_ = pose_ * delta; }
 
   private:
-    const Frame* parent_frame_;
-    const Frame* child_frame_;
+    const AbstractFrame* parent_frame_;
+    const AbstractFrame* child_frame_;
 
     Pose pose_;
 };  // class Transform

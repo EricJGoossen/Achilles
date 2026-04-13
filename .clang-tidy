@@ -17,7 +17,8 @@ Checks: >
     -modernize-use-nodiscard,
     -bugprone-easily-swappable-parameters,
     -google-explicit-constructor,
-    -performance-noexcept-move-constructor
+    -performance-noexcept-move-constructor,
+    -cppcoreguidelines-pro-bounds-array-to-pointer-decay
 
 HeaderFilterRegex: 'src/.*'
 

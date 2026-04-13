@@ -12,7 +12,7 @@
 namespace achilles::dynamics {
 
 class JointTree {
-    using InertiaMap = std::unordered_map<Link::Id, spatial::Inertia>;
+    using InertiaMap = std::unordered_map<Link::Frame, spatial::Inertia>;
 
   public:
     JointTree() = default;
@@ -20,7 +20,7 @@ class JointTree {
     void addJoint(std::unique_ptr<joints::AbstractJoint> joint);
     const joints::AbstractJoint& getJoint(const Link& child_link) const;
 
-    InertiaMap computeCompositeInertias(const dynamics::Link& root) const;
+    InertiaMap computeCompositeInertias(const Link& root) const;
     void propagateAccelerations(const Link& root);
 
     void integrate(double dt);
@@ -34,8 +34,9 @@ class JointTree {
         joints::AbstractJoint& joint, const spatial::Surge& parent_acceleration
     );
 
-    std::unordered_map<Link::Id, std::unique_ptr<joints::AbstractJoint>>
+    std::unordered_map<Link::Frame, std::unique_ptr<joints::AbstractJoint>>
         child_to_joint_;
-    std::unordered_map<Link::Id, std::vector<Link::Id>> parent_to_children_;
+    std::unordered_map<Link::Frame, std::vector<Link::Frame>>
+        parent_to_children_;
 };
 }  // namespace achilles::dynamics

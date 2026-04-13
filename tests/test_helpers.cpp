@@ -11,7 +11,6 @@
 #include <Eigen/Dense>
 #include <cmath>
 
-#include "math/id.hpp"
 #include "math/quaternion.hpp"
 #include "math/unit_vector.hpp"
 #include "math/vector.hpp"
@@ -162,27 +161,7 @@ TEST(Quaternion, PropagateNormPreserved) {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  4. Id
-// ══════════════════════════════════════════════════════════════
-
-TEST(Id, SequentialIds) {
-    math::Id<int>::IdManager mgr;
-    auto id0 = math::Id<int>(mgr);
-    auto id1 = math::Id<int>(mgr);
-    EXPECT_NE(id0, id1);
-    EXPECT_EQ(id0.id(), 0U);
-    EXPECT_EQ(id1.id(), 1U);
-}
-
-TEST(Id, EqualityOnCopy) {
-    math::Id<int>::IdManager mgr;
-    auto id = math::Id<int>(mgr);
-    auto copy = id;
-    EXPECT_EQ(id, copy);
-}
-
-// ══════════════════════════════════════════════════════════════
-//  5. Pose
+//  4. Pose
 // ══════════════════════════════════════════════════════════════
 
 TEST(Pose, IdentityCompose) {
@@ -223,7 +202,7 @@ TEST(Pose, PropagateLinearVelocity) {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  6. Twist
+//  5. Twist
 // ══════════════════════════════════════════════════════════════
 
 TEST(Twist, Addition) {
@@ -247,7 +226,7 @@ TEST(Twist, MatRoundTrip) {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  7. Surge
+//  6. Surge
 // ══════════════════════════════════════════════════════════════
 
 TEST(Surge, ZeroIsZero) {
@@ -263,7 +242,7 @@ TEST(Surge, FromWrenchIdentityInertia) {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  8. Inertia
+//  7. Inertia
 // ══════════════════════════════════════════════════════════════
 
 TEST(Inertia, ZeroMatrixIsZero) {
@@ -284,7 +263,7 @@ TEST(Inertia, SphereIsPositiveDefinite) {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  9. Wrench
+//  8. Wrench
 // ══════════════════════════════════════════════════════════════
 
 TEST(Wrench, NormalizedHasUnitNorm) {
