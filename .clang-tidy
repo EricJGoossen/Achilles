@@ -26,24 +26,54 @@ CheckOptions:
     # Naming conventions
     - key: readability-identifier-naming.ClassCase
       value: CamelCase
+    - key: readability-identifier-naming.AbstractClassCase
+      value: CamelCase
     - key: readability-identifier-naming.MethodCase
-      value: camelBack
+      value: camelCase                    
     - key: readability-identifier-naming.FunctionCase
-      value: camelBack
-    - key: readability-identifier-naming.MemberCase
-      value: lower_case
-    - key: readability-identifier-naming.PrivateMemberSuffix
-      value: '_'
-    - key: readability-identifier-naming.ProtectedMemberSuffix
-      value: '_'
-    - key: readability-identifier-naming.PublicMemberSuffix
-      value: ''
-    - key: readability-identifier-naming.MemberSuffix
-      value: ''
+      value: camelCase                    
     - key: readability-identifier-naming.ParameterCase
       value: lower_case
     - key: readability-identifier-naming.NamespaceCase
       value: lower_case
+
+    # Member variables
+    - key: readability-identifier-naming.PrivateMemberCase
+      value: lower_case
+    - key: readability-identifier-naming.PrivateMemberSuffix
+      value: '_'
+    - key: readability-identifier-naming.ProtectedMemberCase
+      value: lower_case
+    - key: readability-identifier-naming.ProtectedMemberSuffix
+      value: '_'
+    - key: readability-identifier-naming.PublicMemberCase
+      value: lower_case
+    - key: readability-identifier-naming.PublicMemberSuffix
+      value: ''
+
+    # Constants — only constexpr and static const get k prefix
+    - key: readability-identifier-naming.ConstexprVariableCase
+      value: CamelCase
+    - key: readability-identifier-naming.ConstexprVariablePrefix
+      value: 'k'
+    - key: readability-identifier-naming.StaticConstantCase
+      value: CamelCase
+    - key: readability-identifier-naming.StaticConstantPrefix
+      value: 'k'
+
+    # Non-static const members follow member variable rules (trailing underscore)
+    - key: readability-identifier-naming.ConstantCase
+      value: lower_case
+    - key: readability-identifier-naming.ConstantSuffix
+      value: '_'
+    - key: readability-identifier-naming.ConstantPrefix
+      value: ''
+    - key: readability-identifier-naming.ClassConstantCase
+      value: CamelCase
+    - key: readability-identifier-naming.ClassConstantPrefix
+      value: 'k'
+
+    # Template parameters
     - key: readability-identifier-naming.TemplateParameterCase
       value: CamelCase
     - key: readability-identifier-naming.TypeTemplateParameterCase
@@ -51,14 +81,4 @@ CheckOptions:
     - key: readability-identifier-naming.TypeTemplateParameterIgnoredRegexp
       value: '^(expr-type)$'
     - key: readability-identifier-naming.ValueTemplateParameterCase
-      value: CamelCase
-    - key: readability-identifier-naming.ConstantCase
-      value: lower_case
-    - key: readability-identifier-naming.StaticConstantCase
-      value: UPPER_CASE
-    - key: readability-identifier-naming.ClassConstantCase
-      value: lower_case
-    - key: readability-identifier-naming.ConstexprVariableCase
-      value: UPPER_CASE
-    - key: readability-identifier-naming.AbstractClassCase
       value: CamelCase

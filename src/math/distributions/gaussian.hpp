@@ -31,6 +31,11 @@ class Gaussian : public IDistribution {
 
     double sample() const override { return dist_(gen_); }
 
+    static double unitSample() {
+        static std::mt19937 gen(std::random_device{}());
+        return std::normal_distribution<double>(0, 1)(gen);
+    }
+
   private:
     mutable std::normal_distribution<double> dist_;
     std::mt19937 gen_;

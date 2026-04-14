@@ -33,15 +33,15 @@ class AbstractJoint {
         velocity_cache_(std::move(initial_velocity)),
         acceleration_cache_(spatial::Surge::zero()) {}
 
-    inline const Frame& frame() const { return frame_; }
-    inline const Link& parentLink() const { return *parent_link_; }
-    inline const Link& childLink() const { return *child_link_; }
+    const Frame& frame() const { return frame_; }
+    const Link& parentLink() const { return *parent_link_; }
+    const Link& childLink() const { return *child_link_; }
 
-    inline const spatial::Pose& position() const { return position_cache_; }
-    inline const spatial::Twist& velocity() const { return velocity_cache_; }
-    inline const spatial::Surge& acceleration() const {
-        return acceleration_cache_;
-    }
+    const spatial::Pose& position() const { return position_cache_; }
+    const spatial::Twist& velocity() const { return velocity_cache_; }
+    const spatial::Surge& acceleration() const { return acceleration_cache_; }
+
+    const double Angle() const { return position_cache_.angle(); }
 
     virtual spatial::Inertia solveInertia(const spatial::Inertia& child_inertia
     ) const = 0;
