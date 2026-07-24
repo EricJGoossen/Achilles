@@ -8,22 +8,22 @@
 namespace achilles::dynamics::joints {
 
 class RevoluteJoint : public BaseJoint<RevoluteJoint, 1> {
-    static constexpr int DOF = 1;
+    static constexpr int kDOF = 1;
 
   public:
     RevoluteJoint(
         const char* frame,
-        const Link& parent_link,
-        const Link& child_link,
+        Link::Frame parent_link,
+        Link::Frame child_link,
         const math::UnitVector& axis,
         spatial::Pose initial_position,
         spatial::Twist initial_velocity
     );
 
-    constexpr static int dof() { return DOF; }
+    constexpr static int dof() { return kDOF; }
 
   private:
-    friend BaseJoint<RevoluteJoint, DOF>;
+    friend BaseJoint<RevoluteJoint, kDOF>;
 
     struct RevoluteBasis {
         RevoluteBasis(const math::UnitVector& axis);
@@ -33,10 +33,10 @@ class RevoluteJoint : public BaseJoint<RevoluteJoint, 1> {
         Eigen::Vector3d n;
     };
 
-    spatial::Pose makeChildPose(const Eigen::Matrix<double, DOF, 1>& q);
-    Eigen::Matrix<double, DOF, 1> makeJointPose(const spatial::Pose& pose);
+    spatial::Pose makeChildPose(const Eigen::Matrix<double, kDOF, 1>& q);
+    Eigen::Matrix<double, kDOF, 1> makeJointPose(const spatial::Pose& pose);
 
-    static Eigen::Matrix<double, 6, DOF> makeMotionSubspace(
+    static Eigen::Matrix<double, 6, kDOF> makeMotionSubspace(
         const math::UnitVector& axis
     );
 

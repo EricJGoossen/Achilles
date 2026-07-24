@@ -41,9 +41,7 @@ class Plant {
             std::move(world_transform)},
         actuators_(std::move(actuators)),
         links_(std::move(links)),
-        base_link_(
-            *links_.at(base_link_transform->childFrame().as<dynamics::Link>())
-        ) {
+        base_link_(base_link_transform->childFrame().as<dynamics::Link>()) {
         state_.transform_tree.addTransform(std::move(base_link_transform));
     }
 
@@ -51,7 +49,7 @@ class Plant {
 
     void update(double dt) {
         InertiaMap composite_inertias =
-            state_.joint_tree.computeCompositeInertias(base_link_);
+            state_.joint_tree.computeCompositeInertias(links_, base_link_);
 
         for (auto& [_, actuator] : actuators_) {
             actuator->actuate(composite_inertias.at(actuator->childLink().frame(
@@ -86,6 +84,6 @@ class Plant {
     std::unordered_map<dynamics::Link::Frame, std::unique_ptr<dynamics::Link>>
         links_;
 
-    const dynamics::Link& base_link_;
+    dynamics::Link::Frame base_link_;
 };
 }  // namespace achilles::control

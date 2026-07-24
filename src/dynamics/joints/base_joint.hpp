@@ -14,8 +14,8 @@ class BaseJoint : public AbstractJoint {
   public:
     BaseJoint(
         const char* frame,
-        const Link& parent_link,
-        const Link& child_link,
+        Link::Frame parent_link,
+        Link::Frame child_link,
         Eigen::Matrix<double, 6, DOF> motion_subspace,
         spatial::Pose initial_position,
         spatial::Twist initial_velocity

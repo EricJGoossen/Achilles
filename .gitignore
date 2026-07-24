@@ -1,8 +1,2 @@
-build/
 .cache/
-.vscode/*
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-!.vscode/settings.json
-src/main.cpp
+build/

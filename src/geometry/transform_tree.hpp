@@ -13,15 +13,15 @@ class TransformTree {
   public:
     TransformTree() = default;
 
-    void addTransform(std::unique_ptr<Transform> transform);
+    void addTransform(Transform transform);
 
     void updateTransform(
-        const AbstractFrame& parent_frame,
-        const AbstractFrame& child_frame,
+        AbstractFrame parent_frame,
+        AbstractFrame child_frame,
         const spatial::Pose& new_pose
     );
     const Transform& getTransform(
-        const AbstractFrame& parent_frame, const AbstractFrame& child_frame
+        AbstractFrame parent_frame, AbstractFrame child_frame
     ) const;
 
   private:

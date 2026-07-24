@@ -4,13 +4,13 @@ namespace achilles::dynamics::joints {
 
 RevoluteJoint::RevoluteJoint(
     const char* frame,
-    const Link& parent_link,
-    const Link& child_link,
+    Link::Frame parent_link,
+    Link::Frame child_link,
     const math::UnitVector& axis,
     spatial::Pose initial_position,
     spatial::Twist initial_velocity
 )
-  : BaseJoint<RevoluteJoint, RevoluteJoint::DOF>(
+  : BaseJoint<RevoluteJoint, RevoluteJoint::kDOF>(
         frame,
         parent_link,
         child_link,
@@ -24,7 +24,7 @@ RevoluteJoint::RevoluteBasis::RevoluteBasis(const math::UnitVector& axis)
   : k(axis.skew()), k2(k * k), n(axis.mat()) {}
 
 spatial::Pose RevoluteJoint::makeChildPose(
-    const Eigen::Matrix<double, RevoluteJoint::DOF, 1>& q
+    const Eigen::Matrix<double, RevoluteJoint::kDOF, 1>& q
 ) {
     // clang-format off
     Eigen::Matrix3d R = Eigen::Matrix3d::Identity() 
@@ -35,20 +35,20 @@ spatial::Pose RevoluteJoint::makeChildPose(
     return {R, Eigen::Vector3d::Zero()};
 }
 
-Eigen::Matrix<double, RevoluteJoint::DOF, 1> RevoluteJoint::makeJointPose(
+Eigen::Matrix<double, RevoluteJoint::kDOF, 1> RevoluteJoint::makeJointPose(
     const spatial::Pose& pose
 ) {
     Eigen::AngleAxisd aa(pose.orientation().mat().toRotationMatrix());
 
-    return {Eigen::Matrix<double, RevoluteJoint::DOF, 1>(
+    return {Eigen::Matrix<double, RevoluteJoint::kDOF, 1>(
         aa.angle() * aa.axis().dot(b_.n)
     )};
 }
 
-Eigen::Matrix<double, 6, RevoluteJoint::DOF> RevoluteJoint::makeMotionSubspace(
+Eigen::Matrix<double, 6, RevoluteJoint::kDOF> RevoluteJoint::makeMotionSubspace(
     const math::UnitVector& axis
 ) {
-    Eigen::Matrix<double, 6, RevoluteJoint::DOF> motion_subspace;
+    Eigen::Matrix<double, 6, RevoluteJoint::kDOF> motion_subspace;
     motion_subspace << Eigen::Vector3d::Zero(), axis.mat();
     return motion_subspace;
 }

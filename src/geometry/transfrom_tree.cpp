@@ -3,11 +3,9 @@
 
 namespace achilles::geometry {
 
-void TransformTree::addTransform(std::unique_ptr<Transform> transform) {
-    geometry::AbstractFrame child_frame = transform->childFrame();
-
-    auto [it, inserted] =
-        tree_.emplace(transform->childFrame(), std::move(transform));
+void TransformTree::addTransform(Transform transform) {
+    auto [it, inserted] = 
+        tree_.emplace(transform.childFrame(), std::move(transform));
 
     if (!inserted) {
         throw std::runtime_error("Transform already exists for frame");
@@ -15,8 +13,8 @@ void TransformTree::addTransform(std::unique_ptr<Transform> transform) {
 }
 
 void TransformTree::updateTransform(
-    const AbstractFrame& parent_frame,
-    const AbstractFrame& child_frame,
+    AbstractFrame parent_frame,
+    AbstractFrame child_frame,
     const spatial::Pose& new_pose
 ) {
     Transform& transform = *tree_.at(child_frame);
@@ -31,7 +29,7 @@ void TransformTree::updateTransform(
 }
 
 const Transform& TransformTree::getTransform(
-    const AbstractFrame& parent_frame, const AbstractFrame& child_frame
+    AbstractFrame parent_frame, AbstractFrame child_frame
 ) const {
     Transform& transform = *tree_.at(child_frame);
 

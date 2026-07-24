@@ -37,8 +37,8 @@ class GeneralJoint
   public:
     GeneralJoint(
         const char* frame,
-        const Link& parent_link,
-        const Link& child_link,
+        Link::Frame parent_link,
+        Link::Frame child_link,
         spatial::Pose initial_position,
         spatial::Twist initial_velocity,
         Eigen::Matrix<double, 6, DOF> motion_subspace,

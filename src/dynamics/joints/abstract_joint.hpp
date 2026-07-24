@@ -21,21 +21,21 @@ class AbstractJoint {
 
     AbstractJoint(
         const char* frame,
-        const Link& parent_link,
-        const Link& child_link,
+        Link::Frame parent_link,
+        Link::Frame child_link,
         spatial::Pose initial_position,
         spatial::Twist initial_velocity
     )
       : frame_(frame),
-        parent_link_(&parent_link),
-        child_link_(&child_link),
+        parent_link_(parent_link),
+        child_link_(child_link),
         position_cache_(std::move(initial_position)),
         velocity_cache_(std::move(initial_velocity)),
         acceleration_cache_(spatial::Surge::zero()) {}
 
     const Frame& frame() const { return frame_; }
-    const Link& parentLink() const { return *parent_link_; }
-    const Link& childLink() const { return *child_link_; }
+    const Link::Frame parentLink() const { return parent_link_; }
+    const Link::Frame childLink() const { return child_link_; }
 
     const spatial::Pose& position() const { return position_cache_; }
     const spatial::Twist& velocity() const { return velocity_cache_; }
@@ -51,8 +51,8 @@ class AbstractJoint {
 
   protected:
     Frame frame_;
-    const Link* parent_link_;
-    const Link* child_link_;
+    Link::Frame parent_link_;
+    Link::Frame child_link_;
 
     spatial::Pose position_cache_;
     spatial::Twist velocity_cache_;
