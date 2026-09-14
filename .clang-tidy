@@ -20,7 +20,8 @@ Checks: >
     -performance-noexcept-move-constructor,
     -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
     -cppcoreguidelines-pro-bounds-pointer-arithmetic,
-    -cppcoreguidelines-pro-bounds-constant-array-index
+    -cppcoreguidelines-pro-bounds-constant-array-index,
+    -cppcoreguidelines-missing-std-forward
 
 HeaderFilterRegex: '(src|include|tests)/.*'
 

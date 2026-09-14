@@ -1,4 +1,18 @@
 {
   "version": "0.2",
-  "words": ["xsimd", "simd", "slerp", "nlerp", "Schur", "qdot", "qddot", "Assemblable"]
+  "words": [
+    "ajshort",
+    "Assemblable",
+    "eamodio",
+    "errorlens",
+    "nlerp",
+    "qddot",
+    "qdot",
+    "Schur",
+    "simd",
+    "slerp",
+    "usernamehw",
+    "xaver",
+    "xsimd"
+  ]
 }

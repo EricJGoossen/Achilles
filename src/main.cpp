@@ -22,6 +22,7 @@
 #include "engine/view/planar_view.hpp"
 #include "engine/view/view_contract.hpp"
 #include "engine/view/view_factory.hpp"
+#include "io_stream.hpp"
 #include "util/simd_ops.hpp"
 #include "util/tmp.hpp"
 

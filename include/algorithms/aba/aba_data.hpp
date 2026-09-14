@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+
 #include "algorithms/conventions.hpp"
 #include "domain/math/activation_mask.hpp"
 #include "domain/math/matrix.hpp"
@@ -16,7 +18,7 @@
 
 namespace achilles::algorithms::aba {
 
-enum class ABAField {
+enum class ABAField : uint8_t {
   // --- Model/kinematic inputs ---
   kJointSubspace,        // S
   kJointActivationMask,  // mask

@@ -71,7 +71,7 @@ class OpInvokerBase {
 
  protected:
   explicit OpInvokerBase(View& view, const Op& op)
-      : op_(op),
+      : op_(&op),
         input_cursors_(MakeInputCursors(view, InputSeq{})),
         output_cursors_(MakeOutputCursors(view, OutputSeq{})) {}
 
@@ -93,7 +93,7 @@ class OpInvokerBase {
       const {
     std::tuple<OutputParam<OutIs>...> outputs;
 
-    this->op_(
+    this->op_->operator()(
         std::get<InIs>(this->input_cursors_)
             .template Load<typename InputParam<InIs>::ScalarType>(
                 Op::kInputs[InIs].use_target ? target_index : parent_index
@@ -115,7 +115,7 @@ class OpInvokerBase {
       const {
     std::tuple<OutputParam<OutIs>...> outputs;
 
-    this->op_(
+    this->op_->operator()(
         std::get<InIs>(this->input_cursors_)
             .template Load<typename InputParam<InIs>::ScalarType>(target_index
             )...,
@@ -129,7 +129,7 @@ class OpInvokerBase {
      ...);
   }
 
-  const Op& op_;
+  const Op* op_;
   InputCursors input_cursors_;
   OutputCursors output_cursors_;
 };
@@ -200,7 +200,7 @@ class OpInitInvoker<Op, View, true> {
 
  protected:
   explicit OpInitInvoker(View& view, const Op& op)
-      : init_op_(op),
+      : init_op_(&op),
         init_input_cursors_(MakeInitInputCursors(view, InitInputSeq{})),
         init_output_cursors_(MakeInitOutputCursors(view, InitOutputSeq{})) {}
 
@@ -215,7 +215,7 @@ class OpInitInvoker<Op, View, true> {
       const {
     std::tuple<InitOutputParam<OutIs>...> outputs;
 
-    init_op_.Initialize(
+    init_op_->Initialize(
         std::get<InIs>(init_input_cursors_)
             .template Load<typename InitInputParam<InIs>::ScalarType>(base_index
             )...,
@@ -229,7 +229,7 @@ class OpInitInvoker<Op, View, true> {
      ...);
   }
 
-  const Op& init_op_;
+  const Op* init_op_;
   InitInputCursors init_input_cursors_;
   InitOutputCursors init_output_cursors_;
 };

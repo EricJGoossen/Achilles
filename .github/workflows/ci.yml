@@ -18,8 +18,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install clang-format
-        run: sudo apt-get update && sudo apt-get install -y clang-format
+      # Pinned to the same LLVM version as .devcontainer/Dockerfile via the
+      # official apt.llvm.org script -- ubuntu-latest's default
+      # "clang-format" package can be a different version than whatever
+      # the devcontainer resolves it to, and different clang-format
+      # versions format some constructs differently, so an unpinned
+      # install here can disagree with a clean local check-format.sh run.
+      - name: Install clang-format (pinned to LLVM 18)
+        run: |
+          wget https://apt.llvm.org/llvm.sh -O /tmp/llvm.sh
+          chmod +x /tmp/llvm.sh
+          sudo /tmp/llvm.sh 18
+          sudo apt-get install -y clang-format-18
+          sudo update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-18 100
 
       - name: Check formatting (src/, include/)
         run: ./scripts/check-format.sh
@@ -33,7 +44,17 @@ jobs:
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang clang-tidy cmake ninja-build
+          sudo apt-get install -y clang cmake ninja-build
+
+      # Pinned to the same LLVM version as .devcontainer/Dockerfile (see
+      # the clang-format job above for why an unpinned install is unsafe).
+      - name: Install clang-tidy (pinned to LLVM 18)
+        run: |
+          wget https://apt.llvm.org/llvm.sh -O /tmp/llvm.sh
+          chmod +x /tmp/llvm.sh
+          sudo /tmp/llvm.sh 18
+          sudo apt-get install -y clang-tidy-18
+          sudo update-alternatives --install /usr/bin/clang-tidy clang-tidy /usr/bin/clang-tidy-18 100
 
       - name: Install xsimd
         run: |

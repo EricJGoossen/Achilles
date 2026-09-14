@@ -2,6 +2,7 @@
 
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <span>
 #include <type_traits>
@@ -11,7 +12,7 @@
 
 namespace achilles::engine {
 
-enum class Direction { kForward, kBackward };
+enum class Direction : uint8_t { kForward, kBackward };
 
 namespace detail {
 
