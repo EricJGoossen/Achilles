@@ -48,7 +48,8 @@ else()
 endif()
 
 target_compile_options(achilles_lib ${ACHILLES_LIB_TYPE}
-    $<$<CONFIG:Debug>:-g -O0>
+    $<$<CONFIG:Debug>:-g>
+    $<$<CONFIG:Debug>:-O0>
     $<$<CONFIG:Release>:-O3>
 )
 
