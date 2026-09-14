@@ -18,26 +18,49 @@ Checks: >
     -bugprone-easily-swappable-parameters,
     -google-explicit-constructor,
     -performance-noexcept-move-constructor,
-    -cppcoreguidelines-pro-bounds-array-to-pointer-decay
+    -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+    -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+    -cppcoreguidelines-pro-bounds-constant-array-index
 
-HeaderFilterRegex: 'src/.*'
+HeaderFilterRegex: '(src|include|tests)/.*'
 
 CheckOptions:
-    # Naming conventions
+    # Types: classes, structs, enums, unions, typedefs, aliases — all PascalCase
     - key: readability-identifier-naming.ClassCase
       value: CamelCase
     - key: readability-identifier-naming.AbstractClassCase
       value: CamelCase
+    - key: readability-identifier-naming.StructCase
+      value: CamelCase
+    - key: readability-identifier-naming.UnionCase
+      value: CamelCase
+    - key: readability-identifier-naming.TypedefCase
+      value: CamelCase
+    - key: readability-identifier-naming.TypeAliasCase
+      value: CamelCase
+    - key: readability-identifier-naming.EnumCase
+      value: CamelCase
+
+    # Functions and methods — PascalCase per Google style (was incorrectly camelCase)
     - key: readability-identifier-naming.MethodCase
-      value: camelCase                    
+      value: CamelCase
     - key: readability-identifier-naming.FunctionCase
-      value: camelCase                    
-    - key: readability-identifier-naming.ParameterCase
-      value: lower_case
+      value: CamelCase
+
+    # Parameters and locals — don't enforce naming
+    - key: readability-identifier-naming.ParameterIgnoredRegexp
+      value: '.*'
+    - key: readability-identifier-naming.ParameterPackIgnoredRegexp
+      value: '.*'
+    - key: readability-identifier-naming.VariableIgnoredRegexp
+      value: '.*'
+    - key: readability-identifier-naming.LocalVariableIgnoredRegexp
+      value: '.*'
+
     - key: readability-identifier-naming.NamespaceCase
       value: lower_case
 
-    # Member variables
+    # Member variables — trailing underscore
     - key: readability-identifier-naming.PrivateMemberCase
       value: lower_case
     - key: readability-identifier-naming.PrivateMemberSuffix
@@ -51,7 +74,13 @@ CheckOptions:
     - key: readability-identifier-naming.PublicMemberSuffix
       value: ''
 
-    # Constants — only constexpr and static const get k prefix
+    # Global variables — g_ prefix per Google style
+    - key: readability-identifier-naming.GlobalVariableCase
+      value: lower_case
+    - key: readability-identifier-naming.GlobalVariablePrefix
+      value: 'g_'
+
+    # Constants — constexpr and static const get k prefix
     - key: readability-identifier-naming.ConstexprVariableCase
       value: CamelCase
     - key: readability-identifier-naming.ConstexprVariablePrefix
@@ -59,6 +88,10 @@ CheckOptions:
     - key: readability-identifier-naming.StaticConstantCase
       value: CamelCase
     - key: readability-identifier-naming.StaticConstantPrefix
+      value: 'k'
+    - key: readability-identifier-naming.GlobalConstantCase
+      value: CamelCase
+    - key: readability-identifier-naming.GlobalConstantPrefix
       value: 'k'
 
     # Non-static const members follow member variable rules (trailing underscore)
@@ -82,3 +115,13 @@ CheckOptions:
       value: '^(expr-type)$'
     - key: readability-identifier-naming.ValueTemplateParameterCase
       value: CamelCase
+
+    # Enums
+    - key: readability-identifier-naming.EnumConstantCase
+      value: CamelCase
+    - key: readability-identifier-naming.EnumConstantPrefix
+      value: 'k'
+
+    # Macros — Google style: MACRO_CASE
+    - key: readability-identifier-naming.MacroDefinitionCase
+      value: UPPER_CASE

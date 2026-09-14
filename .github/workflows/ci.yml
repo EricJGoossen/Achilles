@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same branch/PR so pushing a fixup doesn't
+# leave stale runs occupying CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    name: clang-format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: sudo apt-get update && sudo apt-get install -y clang-format
+
+      - name: Check formatting (src/, include/)
+        run: ./scripts/check-format.sh
+
+  tidy:
+    name: clang-tidy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang clang-tidy cmake ninja-build
+
+      - name: Install xsimd
+        run: |
+          git clone --branch 13.0.0 --depth 1 https://github.com/xtensor-stack/xsimd.git /tmp/xsimd
+          cmake -S /tmp/xsimd -B /tmp/xsimd/build -DBUILD_TESTS=OFF
+          sudo cmake --install /tmp/xsimd/build
+
+      # clang-tidy reads compile flags from compile_commands.json, which
+      # CMake writes at configure time -- no need to actually build first.
+      - name: Configure
+        env:
+          CC: clang
+          CXX: clang++
+        run: cmake -S . -B build -G Ninja
+
+      - name: Check clang-tidy (src/, include/)
+        run: ./scripts/check-tidy.sh build
+
+  test:
+    name: build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build
+
+      - name: Install xsimd
+        run: |
+          git clone --branch 13.0.0 --depth 1 https://github.com/xtensor-stack/xsimd.git /tmp/xsimd
+          cmake -S /tmp/xsimd -B /tmp/xsimd/build -DBUILD_TESTS=OFF
+          sudo cmake --install /tmp/xsimd/build
+
+      - name: Configure
+        env:
+          CC: clang
+          CXX: clang++
+        run: cmake -S . -B build -G Ninja
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure

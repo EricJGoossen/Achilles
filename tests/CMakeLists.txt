@@ -1,11 +1,26 @@
 # tests/CMakeLists.txt
 find_package(GTest REQUIRED)
+include(GoogleTest)
 
-foreach(target test_helpers test_kinematics)
-    add_executable(${target} ${target}.cpp)
+# One executable per top-level tests/*.cpp file, named after its stem --
+# tests/domain_math_matrix.cpp becomes the `domain_math_matrix` target.
+# CONFIGURE_DEPENDS (same as the root CMakeLists.txt's own source glob)
+# makes CMake re-scan this directory on the next build after a file is
+# added or removed, so a new test file needs no CMakeLists.txt edit.
+# Non-recursive: tests/support/ holds shared headers only, never its own
+# test executables.
+file(GLOB ACHILLES_TEST_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
+)
+
+foreach(_test_src ${ACHILLES_TEST_SOURCES})
+    get_filename_component(target ${_test_src} NAME_WE)
+
+    add_executable(${target} ${_test_src})
     target_include_directories(${target}
         PRIVATE
             ${CMAKE_SOURCE_DIR}/src
+            ${CMAKE_SOURCE_DIR}/include
     )
     target_link_libraries(${target}
         PRIVATE
