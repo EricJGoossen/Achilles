@@ -125,8 +125,8 @@ Rules:
   assert "this was called with X," that's a fake with instrumentation
   (§5), not an archetype, and it almost never belongs in this codebase
   (§3 — real types make this unnecessary in nearly every case here).
-- Every project level include must feature a concept, which must have '
-its own archetype to verify the code uses only the feature from the concept.
+- Every project-level concept must have its own archetype to verify that
+  generic code uses only the features promised by that concept.
 
 ## 5. Instrumented fakes
 
