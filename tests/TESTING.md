@@ -47,9 +47,7 @@ Naming:
 
 Every `TEST` gets a one-line comment above it stating *why this case
 exists* if that's not obvious from the name — what it would catch, not
-what it does. `test_helpers.cpp`'s existing comments
-(`// Matrix6x6Data<T>: confirms the element type is a genuine free
-parameter, not just a renamed hardcoded float`) are the bar.
+what it does. Existing comments in this directory are the bar.
 
 ## 3. Real code vs. fakes — the decision rule
 
