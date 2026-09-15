@@ -15,22 +15,9 @@ jobs:
   format:
     name: clang-format
     runs-on: ubuntu-latest
+    container: ghcr.io/ericjgoossen/achilles-ci:latest
     steps:
       - uses: actions/checkout@v4
-
-      # Pinned to the same LLVM version as .devcontainer/Dockerfile via the
-      # official apt.llvm.org script -- ubuntu-latest's default
-      # "clang-format" package can be a different version than whatever
-      # the devcontainer resolves it to, and different clang-format
-      # versions format some constructs differently, so an unpinned
-      # install here can disagree with a clean local check-format.sh run.
-      - name: Install clang-format (pinned to LLVM 18)
-        run: |
-          wget https://apt.llvm.org/llvm.sh -O /tmp/llvm.sh
-          chmod +x /tmp/llvm.sh
-          sudo /tmp/llvm.sh 18
-          sudo apt-get install -y clang-format-18
-          sudo update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-18 100
 
       - name: Check formatting (src/, include/)
         run: ./scripts/check-format.sh
@@ -38,29 +25,9 @@ jobs:
   tidy:
     name: clang-tidy
     runs-on: ubuntu-latest
+    container: ghcr.io/ericjgoossen/achilles-ci:latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build
-
-      # Pinned to the same LLVM version as .devcontainer/Dockerfile (see
-      # the clang-format job above for why an unpinned install is unsafe).
-      - name: Install clang-tidy (pinned to LLVM 18)
-        run: |
-          wget https://apt.llvm.org/llvm.sh -O /tmp/llvm.sh
-          chmod +x /tmp/llvm.sh
-          sudo /tmp/llvm.sh 18
-          sudo apt-get install -y clang-tidy-18
-          sudo update-alternatives --install /usr/bin/clang-tidy clang-tidy /usr/bin/clang-tidy-18 100
-
-      - name: Install xsimd
-        run: |
-          git clone --branch 13.0.0 --depth 1 https://github.com/xtensor-stack/xsimd.git /tmp/xsimd
-          cmake -S /tmp/xsimd -B /tmp/xsimd/build -DBUILD_TESTS=OFF
-          sudo cmake --install /tmp/xsimd/build
 
       # clang-tidy reads compile flags from compile_commands.json, which
       # CMake writes at configure time -- no need to actually build first.
@@ -81,29 +48,9 @@ jobs:
   tidy-analyzer:
     name: clang-tidy (analyzer)
     runs-on: ubuntu-latest
+    container: ghcr.io/ericjgoossen/achilles-ci:latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build
-
-      # Pinned to the same LLVM version as .devcontainer/Dockerfile (see
-      # the clang-format job above for why an unpinned install is unsafe).
-      - name: Install clang-tidy (pinned to LLVM 18)
-        run: |
-          wget https://apt.llvm.org/llvm.sh -O /tmp/llvm.sh
-          chmod +x /tmp/llvm.sh
-          sudo /tmp/llvm.sh 18
-          sudo apt-get install -y clang-tidy-18
-          sudo update-alternatives --install /usr/bin/clang-tidy clang-tidy /usr/bin/clang-tidy-18 100
-
-      - name: Install xsimd
-        run: |
-          git clone --branch 13.0.0 --depth 1 https://github.com/xtensor-stack/xsimd.git /tmp/xsimd
-          cmake -S /tmp/xsimd -B /tmp/xsimd/build -DBUILD_TESTS=OFF
-          sudo cmake --install /tmp/xsimd/build
 
       - name: Configure
         env:
@@ -124,19 +71,9 @@ jobs:
   test:
     name: build & test
     runs-on: ubuntu-latest
+    container: ghcr.io/ericjgoossen/achilles-ci:latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build
-
-      - name: Install xsimd
-        run: |
-          git clone --branch 13.0.0 --depth 1 https://github.com/xtensor-stack/xsimd.git /tmp/xsimd
-          cmake -S /tmp/xsimd -B /tmp/xsimd/build -DBUILD_TESTS=OFF
-          sudo cmake --install /tmp/xsimd/build
 
       - name: Configure
         env:
