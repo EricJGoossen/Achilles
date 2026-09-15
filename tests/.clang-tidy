@@ -1,25 +1,215 @@
 # tests/.clang-tidy
+#
+# Inherits the project-wide check list from ../.clang-tidy verbatim as its
+# base (Checks: and CheckOptions: both), then narrows further for checks
+# that don't make sense against test code specifically. This file must
+# never enable anything the root config doesn't already enable -- only
+# remove from it.
+#
+# Checks below `-cppcoreguidelines-owning-memory,` are grouped rather than
+# interleaved because YAML block-scalar folding (`Checks: >`) doesn't allow
+# inline comments on individual entries -- everything indented under it is
+# literal string content, so any `#` there would get folded straight into
+# the check-name list instead of being treated as a comment.
+#
+# - clang-analyzer-*: the Clang Static Analyzer, run separately by
+#   scripts/check-tidy-analyzer.sh / .clang-tidy-analyzer instead of every
+#   routine check-tidy run (see that file for why).
+# - google-objc-*, openmp-*: structurally can't fire on this codebase --
+#   pure C++20, no Objective-C and no -fopenmp/#pragma omp anywhere.
+# - portability-restrict-system-includes: needs a configured
+#   `Includes` allowlist that nothing here sets, so it's a no-op as-is.
+# - Everything after that is one half of a pair/trio that clang-tidy
+#   registers as the *same* check under multiple names (confirmed
+#   empirically: enabling both names merges into one diagnostic tagged
+#   with every enabled alias, not two separate diagnostics) -- see
+#   ../.clang-tidy for the same dedup applied to src/include/. The
+#   avoid-c-arrays/avoid-goto/no-malloc trio isn't repeated here since
+#   this file already disables all of those outright further down (C
+#   arrays and goto show up legitimately in test fixtures/assertions in a
+#   way they shouldn't in production code, so those stay fully off for
+#   tests rather than just deduped).
+---
 Checks: >
-  *,
-  -altera-unroll-loops,
-  -altera-struct-pack-align,
-  -bugprone-easily-swappable-parameters,
-  -cert-err58-cpp,
-  -cppcoreguidelines-avoid-magic-numbers,
-  -cppcoreguidelines-avoid-goto,
-  -cppcoreguidelines-init-variables,
-  -cppcoreguidelines-pro-type-member-init,
-  -fuchsia-statically-constructed-objects,
-  -fuchsia-default-arguments-calls,
-  -fuchsia-default-arguments-calls,
-  -hicpp-member-init,
-  -hicpp-use-equals-default,
-  -llvmlibc-*,
-  -misc-non-private-member-variables-in-classes,
-  -cppcoreguidelines-owning-memory,
-  -cppcoreguidelines-avoid-non-const-global-variables,
-  -modernize-use-equals-default,
-  -modernize-use-trailing-return-type,
-  -readability-identifier-length,
-  -readability-magic-numbers,
-  -hicpp-avoid-goto
+    *,
+    -llvm-*,
+    -llvmlibc-*,
+    -fuchsia-*,
+    -zircon-*,
+    -altera-*,
+    -android-*,
+    -darwin-*,
+    -linuxkernel-*,
+    -objc-*,
+    -mpi-*,
+    -abseil-*,
+    -boost-*,
+    -google-readability-todo,
+    -cppcoreguidelines-avoid-magic-numbers,
+    -cppcoreguidelines-non-private-member-variables-in-classes,
+    -modernize-use-trailing-return-type,
+    -modernize-use-nodiscard,
+    -bugprone-easily-swappable-parameters,
+    -performance-noexcept-move-constructor,
+    -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+    -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+    -cppcoreguidelines-pro-bounds-constant-array-index,
+    -readability-magic-numbers,
+    -readability-identifier-length,
+    -cert-err58-cpp,
+    -misc-definitions-in-headers,
+    -readability-named-parameter,
+    -misc-const-correctness,
+    -hicpp-named-parameter,
+    -hicpp-signed-bitwise,
+    -readability-convert-member-functions-to-static,
+    -misc-unused-using-decls,
+    -google-build-using-namespace,
+    -cppcoreguidelines-no-malloc,
+    -hicpp-no-malloc,
+    -cppcoreguidelines-owning-memory,
+    -cppcoreguidelines-avoid-c-arrays,
+    -modernize-avoid-c-arrays,
+    -hicpp-avoid-c-arrays,
+    -misc-non-private-member-variables-in-classes,
+    -readability-function-cognitive-complexity,
+    -cppcoreguidelines-avoid-non-const-global-variables,
+    -hicpp-avoid-goto,
+    -cert-err33-c,
+    -cppcoreguidelines-pro-type-vararg,
+    -cppcoreguidelines-avoid-goto,
+    -hicpp-vararg,
+    -clang-analyzer-*,
+    -google-objc-*,
+    -openmp-*,
+    -portability-restrict-system-includes,
+    -cppcoreguidelines-narrowing-conversions,
+    -cppcoreguidelines-explicit-virtual-functions,
+    -hicpp-use-override,
+    -cppcoreguidelines-macro-to-enum,
+    -hicpp-special-member-functions,
+    -cppcoreguidelines-use-default-member-init,
+    -google-readability-braces-around-statements,
+    -hicpp-braces-around-statements,
+    -hicpp-deprecated-headers,
+    -hicpp-uppercase-literal-suffix,
+    -hicpp-use-auto,
+    -hicpp-use-emplace,
+    -hicpp-use-equals-default,
+    -hicpp-use-equals-delete,
+    -hicpp-use-noexcept,
+    -hicpp-use-nullptr
+
+HeaderFilterRegex: '(src|include|tests)/.*'
+
+CheckOptions:
+    # xsimd's own convention is to include the <xsimd/xsimd.hpp> umbrella
+    # header, never its internal per-type headers directly -- so
+    # misc-include-cleaner's "use the header that actually declares this"
+    # rule doesn't apply to it; excluding it here avoids fighting the
+    # library's own documented usage pattern.
+    - key: misc-include-cleaner.IgnoreHeaders
+      value: 'xsimd/.*'
+
+    # Types: classes, structs, enums, unions, typedefs, aliases — all PascalCase
+    - key: readability-identifier-naming.ClassCase
+      value: CamelCase
+    - key: readability-identifier-naming.AbstractClassCase
+      value: CamelCase
+    - key: readability-identifier-naming.StructCase
+      value: CamelCase
+    - key: readability-identifier-naming.UnionCase
+      value: CamelCase
+    - key: readability-identifier-naming.TypedefCase
+      value: CamelCase
+    - key: readability-identifier-naming.TypeAliasCase
+      value: CamelCase
+    - key: readability-identifier-naming.EnumCase
+      value: CamelCase
+
+    # Functions and methods — PascalCase per Google style (was incorrectly camelCase)
+    - key: readability-identifier-naming.MethodCase
+      value: CamelCase
+    - key: readability-identifier-naming.FunctionCase
+      value: CamelCase
+
+    # Parameters and locals — don't enforce naming
+    - key: readability-identifier-naming.ParameterIgnoredRegexp
+      value: '.*'
+    - key: readability-identifier-naming.ParameterPackIgnoredRegexp
+      value: '.*'
+    - key: readability-identifier-naming.VariableIgnoredRegexp
+      value: '.*'
+    - key: readability-identifier-naming.LocalVariableIgnoredRegexp
+      value: '.*'
+    - key: readability-identifier-naming.LocalConstantIgnoredRegexp
+      value: '.*'
+
+    - key: readability-identifier-naming.NamespaceCase
+      value: lower_case
+
+    # Member variables — trailing underscore
+    - key: readability-identifier-naming.PrivateMemberCase
+      value: lower_case
+    - key: readability-identifier-naming.PrivateMemberSuffix
+      value: '_'
+    - key: readability-identifier-naming.ProtectedMemberCase
+      value: lower_case
+    - key: readability-identifier-naming.ProtectedMemberSuffix
+      value: '_'
+    - key: readability-identifier-naming.PublicMemberCase
+      value: lower_case
+    - key: readability-identifier-naming.PublicMemberSuffix
+      value: ''
+
+    # Global variables — g_ prefix per Google style
+    - key: readability-identifier-naming.GlobalVariableCase
+      value: lower_case
+    - key: readability-identifier-naming.GlobalVariablePrefix
+      value: 'g_'
+
+    # Constants — constexpr and static const get k prefix
+    - key: readability-identifier-naming.ConstexprVariableCase
+      value: CamelCase
+    - key: readability-identifier-naming.ConstexprVariablePrefix
+      value: 'k'
+    - key: readability-identifier-naming.StaticConstantCase
+      value: CamelCase
+    - key: readability-identifier-naming.StaticConstantPrefix
+      value: 'k'
+    - key: readability-identifier-naming.GlobalConstantCase
+      value: CamelCase
+    - key: readability-identifier-naming.GlobalConstantPrefix
+      value: 'k'
+
+    # Non-static const members follow member variable rules (trailing underscore)
+    - key: readability-identifier-naming.ConstantCase
+      value: lower_case
+    - key: readability-identifier-naming.ConstantSuffix
+      value: '_'
+    - key: readability-identifier-naming.ConstantPrefix
+      value: ''
+    - key: readability-identifier-naming.ClassConstantCase
+      value: CamelCase
+    - key: readability-identifier-naming.ClassConstantPrefix
+      value: 'k'
+
+    # Template parameters
+    - key: readability-identifier-naming.TemplateParameterCase
+      value: CamelCase
+    - key: readability-identifier-naming.TypeTemplateParameterCase
+      value: CamelCase
+    - key: readability-identifier-naming.TypeTemplateParameterIgnoredRegexp
+      value: '^(expr-type)$'
+    - key: readability-identifier-naming.ValueTemplateParameterCase
+      value: CamelCase
+
+    # Enums
+    - key: readability-identifier-naming.EnumConstantCase
+      value: CamelCase
+    - key: readability-identifier-naming.EnumConstantPrefix
+      value: 'k'
+
+    # Macros — Google style: MACRO_CASE
+    - key: readability-identifier-naming.MacroDefinitionCase
+      value: UPPER_CASE

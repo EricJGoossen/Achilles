@@ -1,0 +1,57 @@
+---
+# Analyzer-only clang-tidy config, run in isolation by
+# scripts/check-tidy-analyzer.sh (see that script, and the separate
+# `tidy-analyzer` CI job in .github/workflows/ci.yml, for why: the Clang
+# Static Analyzer is path-sensitive symbolic execution, not an AST-matcher
+# pass like everything in .clang-tidy/tests/.clang-tidy -- an order of
+# magnitude more expensive per translation unit. Folding it into the main
+# lint pass would make every routine check-tidy run pay that cost, and an
+# unrelated .clang-tidy edit would invalidate analyzer results that had
+# nothing to do with the change. Keeping it in its own config, its own
+# cache, and its own CI job means the (fast) AST-matcher lint and the
+# (slow) analyzer pass invalidate and run independently.
+#
+# Deliberately narrower than "all of clang-analyzer-*": this project is
+# pure C++20 with no Objective-C, Fuchsia, macOS/Cocoa, WebKit, MPI, or
+# varargs code, so the checker groups covering those (osx.*, optin.osx.*,
+# optin.mpi.*, fuchsia.*, webkit.*, valist.*, security.insecureAPI.* C
+# string/process functions) can never fire here and would just add
+# path-exploration cost for nothing. What's kept below are the checkers
+# whose targets actually exist in this codebase:
+#   - core.* / cplusplus.* / deadcode.DeadStores: general C++ correctness
+#     (null derefs, use-after-move, leaks, dead stores).
+#   - optin.cplusplus.UninitializedObject, optin.core.EnumCastOutOfRange.
+#   - optin.performance.Padding: struct layout, relevant for this project's
+#     SIMD/alignment-sensitive math types (Vector3, Matrix, Quaternion,
+#     Transform, Inertia).
+#   - unix.{Malloc,MallocSizeof,MismatchedDeallocator,
+#     DynamicMemoryModeling,cstring.*}: this project otherwise avoids raw
+#     C memory/string APIs, but tests/support/planar_view_fixture.hpp does
+#     its own manual aligned_alloc/free buffer management, which is
+#     exactly what these catch mistakes in.
+# apiModeling.* checkers don't themselves report diagnostics; they teach
+# the engine about TrustNonnull/Errno contracts and GTest's
+# EXPECT_/ASSERT_ macros so the checkers above behave correctly (fewer
+# false positives) on this codebase's test files.
+Checks: >
+    -*,
+    clang-analyzer-core.*,
+    clang-analyzer-cplusplus.*,
+    clang-analyzer-deadcode.DeadStores,
+    clang-analyzer-optin.cplusplus.UninitializedObject,
+    clang-analyzer-optin.cplusplus.VirtualCall,
+    clang-analyzer-optin.core.EnumCastOutOfRange,
+    clang-analyzer-optin.performance.Padding,
+    clang-analyzer-unix.Malloc,
+    clang-analyzer-unix.MallocSizeof,
+    clang-analyzer-unix.MismatchedDeallocator,
+    clang-analyzer-unix.DynamicMemoryModeling,
+    clang-analyzer-unix.cstring.BadSizeArg,
+    clang-analyzer-unix.cstring.CStringModeling,
+    clang-analyzer-unix.cstring.NullArg,
+    clang-analyzer-apiModeling.Errno,
+    clang-analyzer-apiModeling.TrustNonnull,
+    clang-analyzer-apiModeling.TrustReturnsNonnull,
+    clang-analyzer-apiModeling.google.GTest,
+
+HeaderFilterRegex: '(src|include|tests)/.*'

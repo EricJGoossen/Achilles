@@ -1,12 +1,18 @@
 {
     "editor.formatOnSave": true,
-    "editor.defaultFormatter": "ms-vscode.cpptools",
-    "C_Cpp.clang_format_style": "file",
+    "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+    "[cpp]": {
+        "editor.defaultFormatter": "xaver.clang-format"
+    },
+    "[c]": {
+        "editor.defaultFormatter": "xaver.clang-format"
+    },
     "C_Cpp.codeAnalysis.clangTidy.enabled": true,
+    "C_Cpp.codeAnalysis.clangTidy.path": "/usr/bin/clang-tidy",
     "C_Cpp.codeAnalysis.runAutomatically": true,
     "C_Cpp.intelliSenseEngine": "disabled",
     "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json",
-    "editor.tabSize": 4,
+    "editor.tabSize": 2,
     "clangd.path": "/usr/bin/clangd",
     "cSpell.enabled": true,
     "cSpell.enabledFileTypes": {
@@ -22,5 +28,8 @@
     },
     "gitlens.codeLens.enabled": false,
     "gitlens.currentLine.enabled": false,
-    "editor.detectIndentation": false
+    "editor.detectIndentation": false,
+    "cSpell.words": [
+      "ericjgoossen"
+    ]
 }

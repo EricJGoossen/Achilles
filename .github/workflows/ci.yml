@@ -1,0 +1,151 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same branch/PR so pushing a fixup doesn't
+# leave stale runs occupying CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    name: clang-format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned to the same LLVM version as .devcontainer/Dockerfile via the
+      # official apt.llvm.org script -- ubuntu-latest's default
+      # "clang-format" package can be a different version than whatever
+      # the devcontainer resolves it to, and different clang-format
+      # versions format some constructs differently, so an unpinned
+      # install here can disagree with a clean local check-format.sh run.
+      - name: Install clang-format (pinned to LLVM 18)
+        run: |
+          wget https://apt.llvm.org/llvm.sh -O /tmp/llvm.sh
+          chmod +x /tmp/llvm.sh
+          sudo /tmp/llvm.sh 18
+          sudo apt-get install -y clang-format-18
+          sudo update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-18 100
+
+      - name: Check formatting (src/, include/)
+        run: ./scripts/check-format.sh
+
+  tidy:
+    name: clang-tidy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build
+
+      # Pinned to the same LLVM version as .devcontainer/Dockerfile (see
+      # the clang-format job above for why an unpinned install is unsafe).
+      - name: Install clang-tidy (pinned to LLVM 18)
+        run: |
+          wget https://apt.llvm.org/llvm.sh -O /tmp/llvm.sh
+          chmod +x /tmp/llvm.sh
+          sudo /tmp/llvm.sh 18
+          sudo apt-get install -y clang-tidy-18
+          sudo update-alternatives --install /usr/bin/clang-tidy clang-tidy /usr/bin/clang-tidy-18 100
+
+      - name: Install xsimd
+        run: |
+          git clone --branch 13.0.0 --depth 1 https://github.com/xtensor-stack/xsimd.git /tmp/xsimd
+          cmake -S /tmp/xsimd -B /tmp/xsimd/build -DBUILD_TESTS=OFF
+          sudo cmake --install /tmp/xsimd/build
+
+      # clang-tidy reads compile flags from compile_commands.json, which
+      # CMake writes at configure time -- no need to actually build first.
+      # BUILD_TESTS stays ON (the default) so add_subdirectory(tests) runs
+      # and compile_commands.json gets entries for tests/*.cpp too --
+      # check-tidy.sh lints those as well now. That means this configure
+      # step fetches googletest via FetchContent (network access), same as
+      # a normal build would.
+      - name: Configure
+        env:
+          CC: clang
+          CXX: clang++
+        run: cmake -S . -B build -G Ninja
+
+      - name: Check clang-tidy (src/, include/, tests/)
+        run: ./scripts/check-tidy.sh build
+
+  tidy-analyzer:
+    name: clang-tidy (analyzer)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build
+
+      # Pinned to the same LLVM version as .devcontainer/Dockerfile (see
+      # the clang-format job above for why an unpinned install is unsafe).
+      - name: Install clang-tidy (pinned to LLVM 18)
+        run: |
+          wget https://apt.llvm.org/llvm.sh -O /tmp/llvm.sh
+          chmod +x /tmp/llvm.sh
+          sudo /tmp/llvm.sh 18
+          sudo apt-get install -y clang-tidy-18
+          sudo update-alternatives --install /usr/bin/clang-tidy clang-tidy /usr/bin/clang-tidy-18 100
+
+      - name: Install xsimd
+        run: |
+          git clone --branch 13.0.0 --depth 1 https://github.com/xtensor-stack/xsimd.git /tmp/xsimd
+          cmake -S /tmp/xsimd -B /tmp/xsimd/build -DBUILD_TESTS=OFF
+          sudo cmake --install /tmp/xsimd/build
+
+      - name: Configure
+        env:
+          CC: clang
+          CXX: clang++
+        run: cmake -S . -B build -G Ninja
+
+      # Kept as its own job rather than folded into the `tidy` job above:
+      # the Clang Static Analyzer (clang-analyzer-*, see
+      # .clang-tidy-analyzer) is path-sensitive symbolic execution, far
+      # more expensive per translation unit than the AST-matcher checks
+      # `tidy` runs -- a separate job lets it run in parallel with `tidy`
+      # instead of serializing behind it, and keeps its own cache
+      # (build/.check-tidy-analyzer-cache) independent of check-tidy.sh's.
+      - name: Check clang-tidy analyzer checks (src/, include/, tests/)
+        run: ./scripts/check-tidy-analyzer.sh build
+
+  test:
+    name: build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build
+
+      - name: Install xsimd
+        run: |
+          git clone --branch 13.0.0 --depth 1 https://github.com/xtensor-stack/xsimd.git /tmp/xsimd
+          cmake -S /tmp/xsimd -B /tmp/xsimd/build -DBUILD_TESTS=OFF
+          sudo cmake --install /tmp/xsimd/build
+
+      - name: Configure
+        env:
+          CC: clang
+          CXX: clang++
+        run: cmake -S . -B build -G Ninja
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure

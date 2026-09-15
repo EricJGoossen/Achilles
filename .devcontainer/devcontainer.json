@@ -2,6 +2,8 @@
   "name": "Achilles",
   "build": { "dockerfile": "Dockerfile" },
   "remoteUser": "root",
+  "workspaceFolder": "/workspaces/Achilles",
+  "postCreateCommand": "git config core.hooksPath .githooks",
   "customizations": {
     "vscode": {
       "extensions": [

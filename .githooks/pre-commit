@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Blocks the commit if src/ or include/ isn't clang-format clean. Fast
+# (sub-second, no build needed), unlike clang-tidy which stays a CI-only
+# check (see .github/workflows/ci.yml) rather than a local hook.
+#
+# Enabled via `git config core.hooksPath .githooks` -- set automatically
+# by the devcontainer's postCreateCommand; run it yourself otherwise.
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if ! "$ROOT_DIR/scripts/check-format.sh"; then
+    echo "" >&2
+    echo "commit blocked: clang-format found formatting issues (above)." >&2
+    echo "fix with 'clang-format -i <file>', or bypass with 'git commit --no-verify'." >&2
+    exit 1
+fi
