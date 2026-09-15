@@ -110,7 +110,7 @@ Rules:
   -> `OpArchetype`, `AssemblerLike` -> `AssemblerArchetype`,
   `TopologyLike` -> `TopologyArchetype`.
 - `static_assert` the concept against the archetype immediately after
-  defining it, in the same scope. A archetype that fails to satisfy its
+  defining it, in the same scope. An archetype that fails to satisfy its
   own concept is a broken test, not a broken concept.
 - Where it lives is purely about reuse, decided by scope, not by which
   concept it's for:
