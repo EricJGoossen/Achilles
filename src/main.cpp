@@ -22,7 +22,6 @@
 #include "engine/view/planar_view.hpp"
 #include "engine/view/view_contract.hpp"
 #include "engine/view/view_factory.hpp"
-#include "io_stream.hpp"
 #include "util/simd_ops.hpp"
 #include "util/tmp.hpp"
 
@@ -30,7 +29,6 @@ int main() {
   using achilles::domain::math::Quaternion;
   using achilles::domain::math::Vector3;
   using achilles::domain::spatial::Transform;
-  using achilles::operator<<;
 
   Quaternion<float> rotation =
       Quaternion<float>(0.0f, 0.0f, 0.0f, 1.0f).Normalize();

@@ -114,10 +114,19 @@ template <Direction Dir>
 struct LinearTraversal {
   static constexpr Direction kDirection = Dir;
 
-  template <typename Callable, typename... Rest>
+  template <typename Callable, typename SizeOrTopology, typename... Rest>
   static constexpr void Apply(
-      Callable&& callable, size_t size, const Rest&...
+      Callable&& callable,
+      const SizeOrTopology& size_or_topology,
+      const Rest&...
   ) {
+    size_t size = [&] {
+      if constexpr (requires { size_or_topology.Size(); }) {
+        return size_or_topology.Size();
+      } else {
+        return size_or_topology;
+      }
+    }();
     if constexpr (Dir == Direction::kForward) {
       for (size_t j = 0; j < size; ++j) {
         callable(j, j);

@@ -10,23 +10,24 @@
 
 namespace achilles::domain::math {
 
-template <util::ArithmeticLike StorageT, std::size_t N>
-  requires(N > 0 && N <= sizeof(StorageT) * 8)
+template <util::StorageLike StorageT, std::size_t N>
+  requires(N > 0 && N <= sizeof(util::StorageLaneT<StorageT>) * 8)
 class ActivationMask {
   using BatchMask = std::conditional_t<
       util::kIsXsimdBatch<StorageT>,
-      xsimd::batch_bool<std::int32_t>,
+      xsimd::batch_bool<util::StorageLaneT<StorageT>>,
       bool>;
+  static constexpr util::StorageLaneT<StorageT> kValidMask = (1 << N) - 1;
 
  public:
   using ScalarType = StorageT;
 
   // Constructors
   constexpr ActivationMask() : m_() {}
-  constexpr ActivationMask(StorageT m) : m_(m) {}
+  constexpr ActivationMask(StorageT m) : m_(m & kValidMask) {}
   constexpr ActivationMask(std::array<bool, N> values) : m_(0) {
     for (std::size_t i = 0; i < N; i++) {
-      m_ |= static_cast<std::int32_t>(values[i]) << i;
+      m_ |= static_cast<StorageT>(values[i]) << i;
     }
   }
   template <typename... Bools>
@@ -35,7 +36,7 @@ class ActivationMask {
     std::array<bool, N> values_array = {static_cast<bool>(values)...};
 
     for (std::size_t i = 0; i < N; i++) {
-      m_ |= static_cast<std::int32_t>(values_array[i]) << i;
+      m_ |= static_cast<StorageT>(values_array[i]) << i;
     }
   }
 
@@ -46,11 +47,9 @@ class ActivationMask {
     return *this;
   }
 
-  static constexpr ActivationMask Ones() {
-    return ActivationMask((1 << N) - 1);
-  }
+  static constexpr ActivationMask Ones() { return StorageT(kValidMask); }
   constexpr ActivationMask& SetOnes() {
-    m_ = (1 << N) - 1;
+    m_ = kValidMask;
     return *this;
   }
 
@@ -61,7 +60,7 @@ class ActivationMask {
   inline constexpr BatchMask operator[](std::size_t i) const {
     return (m_ & (1 << i)) != 0;
   }
-  inline constexpr StorageT AsInt() const { return m_; }
+  inline constexpr StorageT AsStorage() const { return m_; }
   inline static constexpr std::size_t Size() { return N; }
   inline constexpr bool IsBatched() const {
     return util::kIsXsimdBatch<StorageT>;
@@ -78,36 +77,34 @@ class ActivationMask {
   ) {
     return !(a == b);
   }
-  inline constexpr BatchMask AllTrue() const { return m_ == (1 << N) - 1; }
+  inline constexpr BatchMask AllTrue() const { return m_ == kValidMask; }
   inline constexpr BatchMask AllFalse() const { return m_ == 0; }
 
   // Elementwise Operations
   inline constexpr ActivationMask operator&(const ActivationMask& other) const {
-    return ActivationMask(m_ & other.m_);
+    return m_ & other.m_;
   }
   inline constexpr ActivationMask& operator&=(const ActivationMask& other) {
     m_ &= other.m_;
     return *this;
   }
   inline constexpr ActivationMask operator|(const ActivationMask& other) const {
-    return ActivationMask(m_ | other.m_);
+    return m_ | other.m_;
   }
   inline constexpr ActivationMask& operator|=(const ActivationMask& other) {
     m_ |= other.m_;
     return *this;
   }
   inline constexpr ActivationMask operator^(const ActivationMask& other) const {
-    return ActivationMask(m_ ^ other.m_);
+    return m_ ^ other.m_;
   }
   inline constexpr ActivationMask& operator^=(const ActivationMask& other) {
     m_ ^= other.m_;
     return *this;
   }
-  inline constexpr ActivationMask operator~() const {
-    return ActivationMask(~m_);
-  }
+  inline constexpr ActivationMask operator~() const { return ~m_ & kValidMask; }
   inline constexpr ActivationMask& NegateInPlace() {
-    m_ = ~m_;
+    m_ = ~m_ & kValidMask;
     return *this;
   }
 
@@ -128,7 +125,7 @@ concept MaskLike = requires(T a, T ca, const T& other, std::size_t i) {
 
   // Access
   { ca[i] };
-  { ca.AsInt() };
+  { ca.AsStorage() };
   { T::Size() } -> std::same_as<std::size_t>;
   typename std::integral_constant<std::size_t, T::Size()>;
 

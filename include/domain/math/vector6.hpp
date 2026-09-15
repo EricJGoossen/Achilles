@@ -99,6 +99,9 @@ class Vector6 {
 
   // Scalar Algebra
   inline constexpr Vector6 operator*(T scalar) const { return data_ * scalar; }
+  friend inline constexpr Vector6 operator*(T scalar, const Vector6& v) {
+    return v * scalar;
+  }
   inline constexpr Vector6 operator/(T scalar) const { return data_ / scalar; }
   inline constexpr Vector6& operator*=(T scalar) {
     data_ *= scalar;
@@ -113,6 +116,11 @@ class Vector6 {
   inline constexpr T Dot(const Vector6& other) const {
     return data_.Dot(other.data_);
   }
+  friend inline constexpr Vector6 operator*(
+      const Matrix<T, 6, 6>& m, const Vector6& v
+  ) {
+    return m * v.AsMatrix();
+  }
 
   // Norms
   inline constexpr T Norm() const { return data_.Norm(); }
@@ -126,7 +134,7 @@ class Vector6 {
   // Geometry
   inline constexpr Vector6 ProjectOnto(const Vector6& other) const {
     T sq = other.SquaredNorm();
-    return sq > T{0} ? other * (Dot(other) / sq) : Vector6::Zero();
+    return util::Select(sq > T{0}, other * (Dot(other) / sq), Vector6::Zero());
   }
 
   // Interpolation
@@ -136,14 +144,11 @@ class Vector6 {
     return a + (b - a) * t;
   }
 
-  // Friend functions
-  friend inline constexpr Vector6 operator*(T scalar, const Vector6& v) {
-    return v * scalar;
-  }
-  friend inline constexpr Vector6 operator*(
-      const Matrix<T, 6, 6>& m, const Vector6& v
-  ) {
-    return m * v.AsMatrix();
+  // Printing
+  friend std::ostream& operator<<(std::ostream& os, const math::Vector6<T>& v) {
+    os << "Vector6(" << v.A() << ", " << v.B() << ", " << v.C() << ", " << v.D()
+       << ", " << v.E() << ", " << v.F() << ")";
+    return os;
   }
 
  private:

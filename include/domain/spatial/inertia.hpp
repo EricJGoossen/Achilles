@@ -164,7 +164,7 @@ class Inertia {
     result.mass_ = mass_ - other.mass_;
     result.h_ = h_ - other.h_;
 
-    assert(result.mass_ >= T{0});
+    assert(util::AllTrue(result.mass_ >= T{0}));
     return result;
   }
   inline constexpr InertiaOperator<T> operator-(const InertiaOperator<T>& other
@@ -258,6 +258,14 @@ class Inertia {
         m_inv * Matrix3x3::Identity() - (m_inv * m_inv) * (S * P_S);
 
     return mat;
+  }
+
+  // Printing
+  friend std::ostream& operator<<(
+      std::ostream& os, const spatial::Inertia<T>& i
+  ) {
+    os << "Inertia(" << i.AsMatrix() << ")";
+    return os;
   }
 
  private:

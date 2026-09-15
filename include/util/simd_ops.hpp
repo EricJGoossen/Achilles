@@ -125,4 +125,31 @@ using MaskStorageFor = std::conditional_t<
     xsimd::batch<std::int32_t>,
     std::int32_t>;
 
+// A scalar-or-batch type restricted to integer lanes: plain std::int32_t,
+// std::uint8_t, etc., or an xsimd::batch of one. Narrower than
+// ArithmeticLike -- for code doing bitwise/shift operations (masks,
+// bitfields) that are only meaningful on integers, not float/double.
+template <typename StorageT>
+concept StorageLike = std::is_integral_v<StorageT> ||
+                      (kIsXsimdBatch<StorageT> &&
+                       std::is_integral_v<typename StorageT::value_type>);
+
+// The lane type of a StorageLike T: T itself for a scalar, or T's
+// value_type for an xsimd batch. Lets code compute per-lane properties
+// (e.g. bit width via sizeof(StorageLaneT<T>) * 8) uniformly whether T is
+// scalar or batched.
+template <typename T>
+struct StorageLane {
+  using Type = T;
+};
+
+template <typename T>
+  requires kIsXsimdBatch<T>
+struct StorageLane<T> {
+  using Type = typename T::value_type;
+};
+
+template <typename T>
+using StorageLaneT = typename StorageLane<T>::Type;
+
 }  // namespace achilles::util

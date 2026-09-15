@@ -218,6 +218,7 @@ concept OpArgsMatchView =
     ArgTypesMatchViewImpl<Op, View>(
         std::make_index_sequence<Op::kInputs.size()>{},
         std::make_index_sequence<Op::kOutputs.size()>{}
-    );
+    ) &&
+    InitArgsMatchViewIfPresent<Op, View>();
 
 }  // namespace achilles::engine

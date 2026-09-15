@@ -92,7 +92,7 @@ class Transform {
     x.SetSubmatrix(0, 3, t * r);
     x.SetSubmatrix(3, 0, math::Matrix3x3<T>::Zero());
     x.SetSubmatrix(3, 3, r);
-    return x * m * x.TransposeInPlace();
+    return x * m * x.Transpose();
   }
   constexpr SpatialVelocity<T> Apply(const SpatialVelocity<T>& v) const {
     Vector3 omega_dst = rotation_.Rotate(v.Angular());
@@ -115,9 +115,11 @@ class Transform {
   constexpr Inertia<T> Apply(const Inertia<T>& i) const {
     Vector3 h_dst = rotation_.Rotate(i.H()) + translation_ * i.Mass();
     math::Matrix3x3<T> r = rotation_.ToRotationMatrix();
-    math::Matrix3x3<T> i_dst =
-        r * i.RotationalMatrix() * r.TransposeInPlace() +
-        h_dst.Skew() * translation_.Skew().TransposeInPlace();
+    math::Matrix3x3<T> rotated_h_skew = r * i.H().Skew() * r.Transpose();
+    math::Matrix3x3<T> translation_skew = translation_.Skew();
+    math::Matrix3x3<T> i_dst = r * i.RotationalMatrix() * r.Transpose() +
+                               h_dst.Skew() * translation_skew.Transpose() -
+                               translation_skew * rotated_h_skew;
     return {i.Mass(), h_dst, i_dst};
   }
   constexpr InertiaOperator<T> Apply(const InertiaOperator<T>& i) const {

@@ -114,6 +114,9 @@ class Dual {
 
   // Scalar Algebra
   inline constexpr Derived operator*(T scalar) const { return data_ * scalar; }
+  friend inline constexpr Derived operator*(T scalar, const Derived& v) {
+    return {v * scalar};
+  }
   inline constexpr Derived operator/(T scalar) const { return data_ / scalar; }
   inline constexpr Derived& operator*=(T scalar) {
     data_ *= scalar;
@@ -128,6 +131,11 @@ class Dual {
   inline constexpr T Dot(const Derived& other) const {
     return data_.Dot(other.data_);
   }
+  friend inline constexpr Derived operator*(
+      const math::Matrix6x6<T>& m, const Derived& v
+  ) {
+    return {m * v.AsMatrix()};
+  }
 
   // Norms
   inline constexpr T Norm() const { return data_.Norm(); }
@@ -141,7 +149,7 @@ class Dual {
   // Geometry
   inline constexpr Derived ProjectOnto(const Derived& other) const {
     T sq = other.SquaredNorm();
-    return sq > T{0} ? other * (Dot(other) / sq) : Derived::Zero();
+    return util::Select(sq > T{0}, other * (Dot(other) / sq), Derived::Zero());
   }
 
   // Interpolation
@@ -151,14 +159,12 @@ class Dual {
     return a + (b - a) * t;
   }
 
-  // Friend functions
-  friend inline constexpr Derived operator*(T scalar, const Derived& v) {
-    return {v * scalar};
-  }
-  friend inline constexpr Derived operator*(
-      const math::Matrix6x6<T>& m, const Derived& v
+  // Printing
+  friend std::ostream& operator<<(
+      std::ostream& os, const spatial::Dual<DerivedT, T>& d
   ) {
-    return {m * v.AsMatrix()};
+    os << "Dual(" << d.Linear() << ", " << d.Angular() << ")";
+    return os;
   }
 
  private:

@@ -255,6 +255,7 @@ class Matrix {
     }
     return result;
   }
+  friend Matrix operator*(T scalar, const Matrix& m) { return m * scalar; }
   constexpr Matrix operator/(T scalar) const {
     Matrix result;
     for (std::size_t i = 0; i < M * N; ++i) {
@@ -354,17 +355,25 @@ class Matrix {
              (*this)(0, 2) * ((*this)(1, 0) * (*this)(2, 1) -
                               (*this)(1, 1) * (*this)(2, 0));
     } else if constexpr (M == 6) {
-      // Use block matrix determinant formula for 6x6 matrices
+      // Use block matrix determinant formula for 6x6 matrices. This Schur-
+      // complement approach requires the top-left 3x3 block to be
+      // invertible, which does not hold for an arbitrary 6x6 matrix -- it
+      // is only valid here because Matrix<T, 6, 6> is used exclusively for
+      // spatial-inertia-like operators, whose top-left (rotational
+      // inertia) block is guaranteed invertible whenever the matrix itself
+      // is a physically valid, symmetric positive definite inertia
+      // operator (every principal submatrix of an SPD matrix is
+      // invertible).
       Matrix<T, 3, 3> A = Submatrix<3, 3>(0, 0);
       Matrix<T, 3, 3> B = Submatrix<3, 3>(0, 3);
       Matrix<T, 3, 3> C = Submatrix<3, 3>(3, 0);
       Matrix<T, 3, 3> D = Submatrix<3, 3>(3, 3);
 
       T detA = A.Determinant();
-
       assert(
-          !util::AnyTrue(detA == T{0}) &&
-          "Determinant is not defined for singular matrices"
+          util::AllTrue(IsNonSingularDeterminant(detA)) &&
+          "Determinant (6x6): top-left 3x3 block must be invertible -- "
+          "only defined for spatial-inertia-like matrices"
       );
 
       Matrix<T, 3, 3> schur = D - C * A.InverseInPlace() * B;
@@ -480,52 +489,31 @@ class Matrix {
         M == 6 && N == 6, "Inverse6x6InPlace is only defined for 6x6 matrices"
     );
 
+    // Like Determinant()'s M == 6 branch, this Schur-complement inversion
+    // requires the top-left 3x3 block (P) and the Schur complement itself
+    // to be invertible -- true whenever this matrix is a physically valid
+    // spatial-inertia-like SPD operator (the only thing Matrix<T, 6, 6> is
+    // used for in this codebase), but not guaranteed for an arbitrary 6x6
+    // matrix.
     Matrix<T, 3, 3> p = Submatrix<3, 3>(0, 0);
     Matrix<T, 3, 3> q = Submatrix<3, 3>(0, 3);
     Matrix<T, 3, 3> r = Submatrix<3, 3>(3, 0);
     Matrix<T, 3, 3> s = Submatrix<3, 3>(3, 3);
 
-#ifdef ACHILLES_DEBUG
-    {
-      T pa = p(0, 0), pb = p(0, 1), pc = p(0, 2);
-      T pd = p(1, 0), pe = p(1, 1), pf = p(1, 2);
-      T pg = p(2, 0), ph = p(2, 1), pi = p(2, 2);
-
-      T detP = pa * (pe * pi - pf * ph) - pb * (pd * pi - pf * pg) +
-               pc * (pd * ph - pe * pg);
-
-      T absDetP = detP < T{0} ? -detP : detP;
-
-      assert(
-          !util::AnyTrue(absDetP < T{1e-9}) &&
-          "Inverse6x6: top-left 3x3 block (P) is singular or "
-          "ill-conditioned"
-      );
-    }
-#endif
+    assert(
+        util::AllTrue(IsNonSingularDeterminant(p.Determinant())) &&
+        "Inverse6x6InPlace: top-left 3x3 block (P) must be invertible -- "
+        "only defined for spatial-inertia-like matrices"
+    );
 
     Matrix<T, 3, 3> p_inv = p.Inverse();
     Matrix<T, 3, 3> sigma = s - r * p_inv * q;
 
-#ifdef ACHILLES_DEBUG
-    {
-      T sa = sigma(0, 0), sb = sigma(0, 1), sc = sigma(0, 2);
-      T sd = sigma(1, 0), se = sigma(1, 1), sf = sigma(1, 2);
-      T sg = sigma(2, 0), sh = sigma(2, 1), si = sigma(2, 2);
-
-      T detSigma = sa * (se * si - sf * sh) - sb * (sd * si - sf * sg) +
-                   sc * (sd * sh - se * sg);
-
-      T absDetSigma = detSigma < T{0} ? -detSigma : detSigma;
-
-      assert(
-          !util::AnyTrue(absDetSigma < T{1e-9}) &&
-          "Inverse6x6: Schur complement (S - R*P^-1*Q) is singular "
-          "or "
-          "ill-conditioned"
-      );
-    }
-#endif
+    assert(
+        util::AllTrue(IsNonSingularDeterminant(sigma.Determinant())) &&
+        "Inverse6x6InPlace: Schur complement (S - R*P^-1*Q) must be "
+        "invertible"
+    );
 
     Matrix<T, 3, 3> sigma_inv = sigma.Inverse();
     Matrix<T, 3, 3> top_left = p_inv + p_inv * q * sigma_inv * r * p_inv;
@@ -583,6 +571,11 @@ class Matrix {
     // rather than zeroing them outright, which would leave the matrix
     // singular and unable to be inverted.
     for (std::size_t i = 0; i < M; ++i) {
+      for (std::size_t j = 0; j < M; ++j) {
+        if (j == i) continue;
+        (*this)(i, j) = util::Select(m[i], (*this)(i, j), T{0});
+        (*this)(j, i) = util::Select(m[i], (*this)(j, i), T{0});
+      }
       (*this)(i, i) = util::Select(m[i], (*this)(i, i), T{1});
     }
     return InverseInPlace();
@@ -594,13 +587,38 @@ class Matrix {
     return result.MaskedInverseInPlace(m);
   }
 
-  // Fiend methods
-  friend Matrix operator*(T scalar, const Matrix& m) { return m * scalar; }
+  // Printing
+  friend std::ostream& operator<<(
+      std::ostream& os, const math::Matrix<T, M, N>& m
+  ) {
+    os << "Matrix" << M << "x" << N << "(";
+    for (std::size_t i = 0; i < M; ++i) {
+      os << "(";
+      for (std::size_t j = 0; j < N; ++j) {
+        os << m(i, j);
+        if (j < N - 1) os << ", ";
+      }
+      os << ")";
+      if (i < M - 1) os << ", ";
+    }
+    os << ")";
+    return os;
+  }
 
  private:
   template <std::size_t... Is>
   constexpr auto ToTupleImpl(std::index_sequence<Is...>) const {
     return std::make_tuple(data_[Is]...);
+  }
+
+  // Shared precondition check for the 6x6 Schur-complement Determinant()/
+  // Inverse6x6InPlace() blocks: a 3x3 block's determinant must be
+  // meaningfully nonzero for that block to be safely inverted/used as a
+  // pivot.
+  static constexpr Mask IsNonSingularDeterminant(T det) {
+    using std::abs;
+    using xsimd::abs;
+    return abs(det) >= T{1e-9};
   }
 
   std::array<T, M * N> data_{};

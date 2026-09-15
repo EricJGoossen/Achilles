@@ -221,6 +221,15 @@ class Quaternion {
     );
   }
 
+  // Printing
+  friend std::ostream& operator<<(
+      std::ostream& os, const math::Quaternion<T>& q
+  ) {
+    os << "Quaternion(" << q.W() << ", " << q.X() << ", " << q.Y() << ", "
+       << q.Z() << ")";
+    return os;
+  }
+
  private:
   Matrix<T, 4, 1> data_;
 };

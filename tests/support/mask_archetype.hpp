@@ -48,7 +48,7 @@ struct MaskArchetype {
   }
 
   bool operator[](std::size_t i) const { return bits.at(i); }
-  int AsInt() const {
+  int AsStorage() const {
     int result = 0;
     for (std::size_t i = 0; i < N; ++i) {
       result |= (bits[i] ? 1 : 0) << i;

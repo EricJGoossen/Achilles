@@ -84,6 +84,9 @@ class Vector3 {
 
   // Scalar Algebra
   inline constexpr Vector3 operator*(T scalar) const { return data_ * scalar; }
+  friend inline constexpr Vector3 operator*(T scalar, const Vector3& v) {
+    return v * scalar;
+  }
   inline constexpr Vector3 operator/(T scalar) const { return data_ / scalar; }
   inline constexpr Vector3& operator*=(T scalar) {
     data_ *= scalar;
@@ -105,6 +108,11 @@ class Vector3 {
         X() * other.Y() - Y() * other.X()
     );
   }
+  friend inline constexpr Vector3 operator*(
+      const Matrix<T, 3, 3>& m, const Vector3& v
+  ) {
+    return m * v.AsMatrix();
+  }
 
   // Norms
   inline constexpr T Norm() const { return data_.Norm(); }
@@ -117,12 +125,13 @@ class Vector3 {
 
   // Geometry
   inline constexpr T AngleTo(const Vector3& other) const {
+    using std::acos;
+    using xsimd::acos;
+
     T denom = Norm() * other.Norm();
-    return xsimd::select(
-        denom > T{0},
-        std::acos(std::clamp(Dot(other) / denom, T{-1}, T{1})),
-        T{0}
-    );
+    T safe_denom = util::Select(denom > T{0}, denom, T{1});
+    T cosine = xsimd::min(xsimd::max(Dot(other) / safe_denom, T{-1}), T{1});
+    return util::Select(denom > T{0}, acos(cosine), T{0});
   }
   inline constexpr Vector3 ProjectOnto(const Vector3& other) const {
     T sq = other.SquaredNorm();
@@ -139,14 +148,10 @@ class Vector3 {
     return a + (b - a) * t;
   }
 
-  // Friend functions
-  friend inline constexpr Vector3 operator*(T scalar, const Vector3& v) {
-    return v * scalar;
-  }
-  friend inline constexpr Vector3 operator*(
-      const Matrix<T, 3, 3>& m, const Vector3& v
-  ) {
-    return m * v.AsMatrix();
+  // Printing
+  friend std::ostream& operator<<(std::ostream& os, const math::Vector3<T>& v) {
+    os << "Vector3(" << v.X() << ", " << v.Y() << ", " << v.Z() << ")";
+    return os;
   }
 
  private:

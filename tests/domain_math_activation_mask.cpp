@@ -60,14 +60,14 @@ TEST(ActivationMaskStaticConstructors, SetZeroAndSetOnesInPlace) {
   EXPECT_TRUE(m.AllTrue());
 }
 
-// Access: operator[], AsInt, Size, IsBatched.
-TEST(ActivationMaskAccess, IndexingAndAsInt) {
+// Access: operator[], AsStorage, Size, IsBatched.
+TEST(ActivationMaskAccess, IndexingAndAsStorage) {
   Mask4 m(0b1010);
   EXPECT_FALSE(m[0]);
   EXPECT_TRUE(m[1]);
   EXPECT_FALSE(m[2]);
   EXPECT_TRUE(m[3]);
-  EXPECT_EQ(m.AsInt(), 0b1010);
+  EXPECT_EQ(m.AsStorage(), 0b1010);
 }
 
 TEST(ActivationMaskAccess, ToTupleWrapsStorage) {
@@ -136,7 +136,7 @@ TEST(ActivationMaskBitwise, Xor) {
 
 // operator~ and NegateInPlace both complement every bit -- including bits
 // past N, which is why this compares through operator[] (masked to N bits
-// by construction) rather than AsInt().
+// by construction) rather than AsStorage().
 TEST(ActivationMaskBitwise, NegationComplementsEachTrackedBit) {
   Mask4 m(0b1010);
   Mask4 negated = ~m;

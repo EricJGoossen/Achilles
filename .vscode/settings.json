@@ -28,5 +28,8 @@
     },
     "gitlens.codeLens.enabled": false,
     "gitlens.currentLine.enabled": false,
-    "editor.detectIndentation": false
+    "editor.detectIndentation": false,
+    "cSpell.words": [
+      "pointee"
+    ]
 }

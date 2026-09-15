@@ -91,7 +91,12 @@ class OpInvokerBase {
   void
   Invoke(size_t target_index, size_t parent_index, std::index_sequence<InIs...>, std::index_sequence<OutIs...>)
       const {
-    std::tuple<OutputParam<OutIs>...> outputs;
+    std::tuple<OutputParam<OutIs>...> outputs{
+        std::get<OutIs>(this->output_cursors_)
+            .template Load<typename OutputParam<OutIs>::ScalarType>(
+                Op::kOutputs[OutIs].use_target ? target_index : parent_index
+            )...
+    };
 
     this->op_->operator()(
         std::get<InIs>(this->input_cursors_)
@@ -113,7 +118,11 @@ class OpInvokerBase {
   void
   Invoke(size_t target_index, std::index_sequence<InIs...>, std::index_sequence<OutIs...>)
       const {
-    std::tuple<OutputParam<OutIs>...> outputs;
+    std::tuple<OutputParam<OutIs>...> outputs{
+        std::get<OutIs>(this->output_cursors_)
+            .template Load<typename OutputParam<OutIs>::ScalarType>(target_index
+            )...
+    };
 
     this->op_->operator()(
         std::get<InIs>(this->input_cursors_)
@@ -263,11 +272,14 @@ class OpInvoker : public OpInvokerBase<Op, View>,
 
 template <OpLike Op, typename View>
   requires view::ViewLike<View, typename Op::FieldEnum>
-class SingleOpInvoker : public OpInvokerBase<Op, View> {
+class SingleOpInvoker : public OpInvokerBase<Op, View>,
+                        private OpInitInvoker<Op, View> {
   using Base = OpInvokerBase<Op, View>;
+  using InitBase = OpInitInvoker<Op, View>;
 
  public:
-  explicit SingleOpInvoker(View& view, const Op& op) : Base(view, op) {}
+  explicit SingleOpInvoker(View& view, const Op& op)
+      : Base(view, op), InitBase(view, op) {}
 
   void operator()(size_t target_index) const {
     this->Invoke(
