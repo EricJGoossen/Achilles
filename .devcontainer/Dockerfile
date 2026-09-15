@@ -1,4 +1,21 @@
-FROM cpp-base
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    git \
+    gdb \
+    clang \
+    clangd \
+    clang-format \
+    valgrind \
+    ninja-build \
+    wget \
+    curl \
+    ccache \
+    libgtest-dev \
+    doxygen \
+    && rm -rf /var/lib/apt/lists/*
 
 # clang-format/clang-tidy are pinned to an explicit LLVM version (via the
 # official apt.llvm.org script) rather than whatever "clang-format"/
@@ -10,7 +27,7 @@ FROM cpp-base
 # so CI (.github/workflows/ci.yml) must install the exact same version
 # this pins, or the two will drift apart again.
 RUN apt-get update \
-	&& apt-get install -y --no-install-recommends tree git cmake ca-certificates wget gnupg lsb-release software-properties-common \
+	&& apt-get install -y --no-install-recommends tree ca-certificates gnupg lsb-release software-properties-common \
 	&& wget https://apt.llvm.org/llvm.sh -O /tmp/llvm.sh \
 	&& chmod +x /tmp/llvm.sh \
 	&& /tmp/llvm.sh 18 \
