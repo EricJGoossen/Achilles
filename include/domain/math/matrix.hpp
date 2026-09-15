@@ -562,10 +562,8 @@ class Matrix {
     requires(MaskT::Size() == N)
   constexpr Matrix& ApplyMaskColsInPlace(MaskT m) {
     for (std::size_t j = 0; j < N; ++j) {
-      if (!m[j]) {
-        for (std::size_t i = 0; i < M; ++i) {
-          (*this)(i, j) = T{0};
-        }
+      for (std::size_t i = 0; i < M; ++i) {
+        (*this)(i, j) = util::Select(m[j], (*this)(i, j), T{0});
       }
     }
     return *this;
