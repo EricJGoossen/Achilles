@@ -138,6 +138,7 @@ class OpInvokerBase {
      ...);
   }
 
+ private:
   const Op* op_;
   InputCursors input_cursors_;
   OutputCursors output_cursors_;

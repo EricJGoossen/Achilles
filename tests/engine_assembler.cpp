@@ -1,14 +1,11 @@
 #include <gtest/gtest.h>
 
-#include <array>
 #include <cstddef>
-#include <cstdint>
 #include <new>
 #include <tuple>
 #include <xsimd/xsimd.hpp>
 
 #include "domain/math/vector3.hpp"
-#include "domain/spatial/dual.hpp"
 #include "domain/spatial/inertia.hpp"
 #include "engine/assembler.hpp"
 
@@ -59,7 +56,7 @@ class Buffer {
   }
   ~Buffer() { Release(); }
 
-  std::byte* get() const { return data_; }
+  std::byte* Get() const { return data_; }
 
  private:
   void Release() {
@@ -101,8 +98,8 @@ TEST(AssemblerRoundTrip, ScalarLeafGroup) {
   std::size_t stride = StrideFor<A>(n);
 
   Vector3<float> value(1.0F, 2.0F, 3.0F);
-  A::Write<float>(buf.get(), stride, value);
-  Vector3<float> read_back = A::Read<float>(buf.get(), stride);
+  A::Write<float>(buf.Get(), stride, value);
+  Vector3<float> read_back = A::Read<float>(buf.Get(), stride);
 
   EXPECT_TRUE(read_back.IsApprox(value));
 }
@@ -115,8 +112,8 @@ TEST(AssemblerRoundTrip, BatchedLeafGroup) {
   std::size_t stride = StrideFor<A>(n);
 
   Vector3<Batch> value(Batch(1.0F), Batch(2.0F), Batch(3.0F));
-  A::Write<Batch>(buf.get(), stride, value);
-  Vector3<Batch> read_back = A::Read<Batch>(buf.get(), stride);
+  A::Write<Batch>(buf.Get(), stride, value);
+  Vector3<Batch> read_back = A::Read<Batch>(buf.Get(), stride);
 
   EXPECT_FLOAT_EQ(read_back.X().get(0), 1.0F);
   EXPECT_FLOAT_EQ(read_back.Y().get(0), 2.0F);
@@ -146,8 +143,8 @@ TEST(AssemblerRoundTrip, CompositeAssemblerWithNestedAndRepeatedChildren) {
       0.0F,
       0.0F
   );
-  A::Write<float>(buf.get(), stride, value);
-  Inertia<float> read_back = A::Read<float>(buf.get(), stride);
+  A::Write<float>(buf.Get(), stride, value);
+  Inertia<float> read_back = A::Read<float>(buf.Get(), stride);
 
   EXPECT_TRUE(read_back.IsApprox(value));
 }
@@ -201,8 +198,8 @@ TEST(AssemblerRepeatTypesExplicitChildType, RoundTrips) {
   TwoVector3s<float> value(
       Vector3<float>(1.0F, 2.0F, 3.0F), Vector3<float>(4.0F, 5.0F, 6.0F)
   );
-  A::Write<float>(buf.get(), stride, value);
-  TwoVector3s<float> read_back = A::Read<float>(buf.get(), stride);
+  A::Write<float>(buf.Get(), stride, value);
+  TwoVector3s<float> read_back = A::Read<float>(buf.Get(), stride);
 
   EXPECT_TRUE(read_back.a.IsApprox(value.a));
   EXPECT_TRUE(read_back.b.IsApprox(value.b));
@@ -245,8 +242,8 @@ TEST(AssemblerTemplatedMarker, RoundTrips) {
   std::size_t stride = StrideFor<A>(n);
 
   LeafAndVector<float> value(5.0F, Vector3<float>(1.0F, 2.0F, 3.0F));
-  A::Write<float>(buf.get(), stride, value);
-  LeafAndVector<float> read_back = A::Read<float>(buf.get(), stride);
+  A::Write<float>(buf.Get(), stride, value);
+  LeafAndVector<float> read_back = A::Read<float>(buf.Get(), stride);
 
   EXPECT_FLOAT_EQ(read_back.scale, 5.0F);
   EXPECT_TRUE(read_back.offset.IsApprox(value.offset));

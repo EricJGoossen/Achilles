@@ -39,7 +39,7 @@ struct PropagateVelocityOp {
   using ArgData = engine::ArgData<FieldEnum>;
 
   PropagateVelocityOp(const Transform& x_world_base, const Velocity& v_base)
-      : x_world_base(x_world_base), v_base(v_base) {}
+      : x_world_base_(x_world_base), v_base_(v_base) {}
 
   static constexpr std::array<ArgData, 0> kInitInputs = {};
   static constexpr std::array<ArgData, 2> kInitOutputs = {
@@ -85,19 +85,20 @@ struct PropagateVelocityOp {
       Force* p_out
   ) const;
 
-  Transform x_world_base;
-  Velocity v_base;
+ private:
+  Transform x_world_base_;
+  Velocity v_base_;
 };
 static_assert(
-    engine::OpLike<PropagateVelocityOp> &&
+    engine::OpLike<PropagateVelocityOp>,
     "PropagateVelocityOp must satisfy OpLike concept"
 );
 static_assert(
-    engine::OpArgsMatchView<PropagateVelocityOp, ABAView> &&
+    engine::OpArgsMatchView<PropagateVelocityOp, ABAView>,
     "PropagateVelocityOp's operator() must line up with kInputs/kOutputs"
 );
 static_assert(
-    engine::OpHasInit<PropagateVelocityOp> &&
+    engine::OpHasInit<PropagateVelocityOp>,
     "PropagateVelocityOp must satisfy OpHasInit concept"
 );
 
@@ -151,20 +152,21 @@ struct PropagateInertiaOp {
       Force* u_out
   ) const;
 
+ private:
   static inline const InertiaOperator<false> kIABase =
       InertiaOperator<false>::Zero();
   static inline const Force kPBase = Force::Zero();
 };
 static_assert(
-    engine::OpLike<PropagateInertiaOp> &&
+    engine::OpLike<PropagateInertiaOp>,
     "PropagateInertiaOp must satisfy OpLike concept"
 );
 static_assert(
-    engine::OpArgsMatchView<PropagateInertiaOp, ABAView> &&
+    engine::OpArgsMatchView<PropagateInertiaOp, ABAView>,
     "PropagateInertiaOp's operator() must line up with kInputs/kOutputs"
 );
 static_assert(
-    engine::OpHasInit<PropagateInertiaOp> &&
+    engine::OpHasInit<PropagateInertiaOp>,
     "PropagateInertiaOp must satisfy OpHasInit concept"
 );
 
@@ -172,7 +174,8 @@ struct PropagateAccelerationOp {
   using FieldEnum = ABAField;
   using ArgData = engine::ArgData<FieldEnum>;
 
-  PropagateAccelerationOp(const Acceleration& a_base) : a_base(a_base) {}
+  explicit PropagateAccelerationOp(const Acceleration& a_base)
+      : a_base_(a_base) {}
 
   static constexpr std::array<ArgData, 0> kInitInputs = {};
   static constexpr std::array<ArgData, 1> kInitOutputs = {
@@ -210,18 +213,19 @@ struct PropagateAccelerationOp {
       Acceleration* a_out
   ) const;
 
-  Acceleration a_base;
+ private:
+  Acceleration a_base_;
 };
 static_assert(
-    engine::OpLike<PropagateAccelerationOp> &&
+    engine::OpLike<PropagateAccelerationOp>,
     "PropagateAccelerationOp must satisfy OpLike concept"
 );
 static_assert(
-    engine::OpArgsMatchView<PropagateAccelerationOp, ABAView> &&
+    engine::OpArgsMatchView<PropagateAccelerationOp, ABAView>,
     "PropagateAccelerationOp's operator() must line up with kInputs/kOutputs"
 );
 static_assert(
-    engine::OpHasInit<PropagateAccelerationOp> &&
+    engine::OpHasInit<PropagateAccelerationOp>,
     "PropagateAccelerationOp must satisfy OpHasInit concept"
 );
 

@@ -1,11 +1,13 @@
 #include "algorithms/aba/aba_ops.hpp"
 
+#include "algorithms/conventions.hpp"
+
 namespace achilles::algorithms::aba {
 
 void PropagateVelocityOp::Initialize(Transform* x_world_out, Velocity* v_out)
     const {
-  *x_world_out = x_world_base;
-  *v_out = v_base;
+  *x_world_out = x_world_base_;
+  *v_out = v_base_;
 }
 
 void PropagateVelocityOp::operator()(
@@ -23,7 +25,7 @@ void PropagateVelocityOp::operator()(
     Acceleration* c_out,
     Force* p_out
 ) const {
-  Velocity joint_twist = S * q;
+  Velocity joint_twist(S * q);
   Transform x_joint = Transform::Exp(joint_twist);
 
   Transform x_up = x_tree * x_joint;
@@ -61,7 +63,7 @@ void PropagateInertiaOp::operator()(
     Force* u_out
 ) const {
   // U = I_A S
-  InertiaOperator<false> U = I_A.AsMatrix() * S;
+  InertiaOperator<false> U(I_A.AsMatrix() * S);
 
   // D = S^T U
   InertiaOperator<false> D = S.Transpose() * U;
@@ -91,7 +93,7 @@ void PropagateInertiaOp::operator()(
 }
 
 void PropagateAccelerationOp::Initialize(Acceleration* a_base_out) const {
-  *a_base_out = a_base;
+  *a_base_out = a_base_;
 }
 
 void PropagateAccelerationOp::operator()(

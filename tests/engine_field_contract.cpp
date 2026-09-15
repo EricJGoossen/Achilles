@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include <cstddef>
+#include <cstdint>
 
 #include "algorithms/aba/aba_data.hpp"
 #include "domain/math/vector3.hpp"
@@ -11,7 +11,7 @@ using achilles::engine::FieldEnumLike;
 using achilles::engine::FieldTraitsLike;
 using achilles::engine::HasFieldAssembler;
 using achilles::test_support::ToyField;
-using achilles::test_support::ToyFieldTraits;  // NOLINT
+using achilles::test_support::ToyFieldTraits;
 
 // Every check in this file is compile-time-only (a concept or a consteval
 // function) -- there's no runtime behavior to exercise, so each TEST body
@@ -23,7 +23,7 @@ using achilles::test_support::ToyFieldTraits;  // NOLINT
 
 namespace {
 
-enum class MissingKCount { kFoo, kBar };
+enum class MissingKCount : std::uint8_t { kFoo, kBar };
 static_assert(
     !FieldEnumLike<MissingKCount>,
     "An enum with no kCount enumerator at all must be rejected."

@@ -19,12 +19,12 @@ class Quaternion {
 
   constexpr Quaternion() : data_(T{1}, T{0}, T{0}, T{0}) {}
   constexpr Quaternion(T w, T x, T y, T z) : data_(w, x, y, z) {}
-  constexpr Quaternion(const Matrix<T, 4, 1>& data) : data_(data) {}
+  constexpr explicit Quaternion(const Matrix<T, 4, 1>& data) : data_(data) {}
 
-  inline static constexpr Quaternion<T> FromVector(const Vector3<T>& v) {
+  static constexpr Quaternion<T> FromVector(const Vector3<T>& v) {
     return Quaternion<T>(T{0}, v.X(), v.Y(), v.Z()).NormalizeInPlace();
   }
-  inline static constexpr Quaternion<T> Identity() { return Quaternion<T>(); }
+  static constexpr Quaternion<T> Identity() { return Quaternion<T>(); }
   constexpr Quaternion<T>& SetIdentity() {
     *this = Identity();
     return *this;
@@ -62,19 +62,22 @@ class Quaternion {
   }
 
   // Access
-  inline constexpr std::tuple<T, T, T, T> ToTuple() const {
+  constexpr std::tuple<T, T, T, T> ToTuple() const {
     return std::make_tuple(W(), X(), Y(), Z());
   }
-  inline constexpr T W() const { return data_[0]; }
-  inline constexpr T X() const { return data_[1]; }
-  inline constexpr T Y() const { return data_[2]; }
-  inline constexpr T Z() const { return data_[3]; }
-  inline constexpr T operator[](std::size_t i) const { return data_[i]; }
-  inline constexpr const Matrix<T, 4, 1>& AsMatrix() const { return data_; }
-  inline constexpr Matrix<T, 3, 3> ToRotationMatrix() const {
-    T w = W(), x = X(), y = Y(), z = Z();
+  constexpr T W() const { return data_[0]; }
+  constexpr T X() const { return data_[1]; }
+  constexpr T Y() const { return data_[2]; }
+  constexpr T Z() const { return data_[3]; }
+  constexpr T operator[](std::size_t i) const { return data_[i]; }
+  constexpr const Matrix<T, 4, 1>& AsMatrix() const { return data_; }
+  constexpr Matrix<T, 3, 3> ToRotationMatrix() const {
+    T w = W();
+    T x = X();
+    T y = Y();
+    T z = Z();
     // clang-format off
-    return {
+    return Matrix<T, 3, 3>{
       T{1} - T{2} * (y * y + z * z),        T{2} * (x * y - w * z),        T{2} * (x * z + w * y),
              T{2} * (x * y + w * z), T{1} - T{2} * (x * x + z * z),        T{2} * (y * z - w * x),
              T{2} * (x * z - w * y),        T{2} * (y * z + w * x), T{1} - T{2} * (x * x + y * y)
@@ -83,26 +86,21 @@ class Quaternion {
   }
 
   // Comparison
-  friend inline constexpr Mask operator==(
-      const Quaternion& a, const Quaternion& b
-  ) {
+  friend constexpr Mask operator==(const Quaternion& a, const Quaternion& b) {
     return a.data_ == b.data_;
   }
-  friend inline constexpr Mask operator!=(
-      const Quaternion& a, const Quaternion& b
-  ) {
+  friend constexpr Mask operator!=(const Quaternion& a, const Quaternion& b) {
     return a.data_ != b.data_;
   }
-  inline constexpr Mask IsApprox(const Quaternion& other, float epsilon = 1e-5)
-      const {
+  constexpr Mask IsApprox(const Quaternion& other, float epsilon = 1e-5) const {
     return data_.IsApprox(other.data_, epsilon);
   }
-  inline constexpr Mask IsIdentity(float epsilon = 1e-8) const {
+  constexpr Mask IsIdentity(float epsilon = 1e-8) const {
     return this->IsApprox(Identity(), epsilon);
   }
 
   // Products
-  inline constexpr Quaternion<T> operator*(const Quaternion<T>& other) const {
+  constexpr Quaternion<T> operator*(const Quaternion<T>& other) const {
     return {
         W() * other.W() - X() * other.X() - Y() * other.Y() - Z() * other.Z(),
         W() * other.X() + X() * other.W() + Y() * other.Z() - Z() * other.Y(),
@@ -153,7 +151,7 @@ class Quaternion {
   }
 
   // Geometry
-  inline constexpr Vector3<T> Rotate(const Vector3<T>& v) const {
+  constexpr Vector3<T> Rotate(const Vector3<T>& v) const {
     Vector3<T> qv(X(), Y(), Z());
 
     Vector3<T> t(

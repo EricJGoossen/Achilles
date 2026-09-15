@@ -29,8 +29,9 @@ doesn't follow it, that's a bug in the test file, not a style nit.
 
 Order, top to bottom:
 
-1. Standard library includes, then third-party (`gtest/gtest.h`), then
-   project includes — same ordering `test_helpers.cpp` already uses.
+1. `gtest/gtest.h` on its own, then standard library includes together
+   with any other third-party headers (e.g. `<xsimd/xsimd.hpp>`), then
+   project includes.
 2. An anonymous `namespace { }` for file-local helpers, fixtures, and
    fakes that only this file needs (§4).
 3. `TEST(Suite, Case)` bodies.
@@ -172,3 +173,72 @@ flag):
 - Every `if`/`for`/`while`/`else` body gets `{}`, even a single statement
   (`if (x) { return; }`, not `if (x) return;`). No exceptions for
   one-liners.
+
+## 9. Precondition and generic-path coverage
+
+Two classes of bug have shipped past this suite while looking covered:
+a precondition `assert()` nobody ever actually tripped, and a generic
+engine path (an invoker, a traversal, a pass) exercised by only one of
+its several distinct shapes. Both slip through the same way — every
+individual test passes, so the gap is invisible until the untested shape
+or the untested violation actually occurs in real use. Check for both
+whenever you touch `include/` code, not just when adding a test file.
+
+### 9.1 Every runtime `assert` gets a death test
+
+A production `assert(cond && "message")` (not `static_assert`) is a claim
+about a precondition. An untested one isn't a verified claim — it's
+either dead code (if it sits behind a macro nothing ever defines, as one
+did before being fixed) or a check that fires on the wrong condition
+entirely, discovered only when someone finally violates it for real. For
+every such `assert` in `include/`:
+
+- Write exactly one `EXPECT_DEATH(<call that violates cond>, "<substring
+  of message>")` proving it fires for a genuine violation. Matching on a
+  substring of the real message (not `""`) also proves you tripped *that*
+  assert and not some other one that happened to fire first.
+- Use the smallest input that violates only that condition. If the input
+  also happens to violate an earlier check in the same function, the
+  test proves the wrong assert fired.
+- A generic, widely-repeated bounds guard (`i < size` on half a dozen
+  near-identical accessors) doesn't need one death test per call site —
+  one representative test for the pattern is enough. Exhaustively testing
+  every bounds check is noise, not coverage. Anything domain-specific
+  (a physical-validity check, a block-invertibility precondition, a
+  structural-shape requirement) always gets its own.
+
+### 9.2 A generic path with more than one shape gets a test per shape
+
+Templated engine code (`OpInvoker`, `Traversal`, `Pass`, `Assembler`, ...)
+often has more than one distinct *shape* of interface, and covering one
+proves nothing about the others — `OpInvoker` and `SingleOpInvoker`
+share the exact same output-handling bug because they're two separate
+`Invoke` overloads implementing the same idea, and a test of one said
+nothing about the other. Before treating a generic type as covered,
+enumerate its shapes and check each has its own test:
+
+- Every overload of the same operation (a two-index and a one-index
+  `Invoke`, say).
+- Both directions of a bidirectional thing (forward/backward traversal),
+  not just one — unless the two are provably a trivial parameter flip of
+  identical code, in which case say so in the test comment rather than
+  skipping the second test silently.
+- Overwrite (`=`) vs. accumulate (`+=`) outputs, wherever `ArgData`/
+  `use_target` lets an Op express either. A suite built only from
+  `=`-style ops (the common case) will not catch a bug specific to `+=`.
+- Zero-length/empty input, wherever a loop's exit condition isn't an
+  explicit `size == 0` guard (a `j-- > 0` loop is correct at zero only by
+  evaluation order, not by an explicit check, and that's exactly the kind
+  of thing a later rewrite can silently break).
+
+### 9.3 A regression test reproduces the failure at the level it happened
+
+When a bug is fixed, its test must exercise the actual code path that was
+broken, not a lower-level primitive one step removed from it. A direct
+test of an `Op`'s `operator()` proves that function's own logic, but
+tells you nothing about the `OpInvoker` plumbing that calls it — if the
+bug was in that plumbing, the fix's regression test has to go through
+`OpInvoker` (or whatever the real call path is), not around it. Before
+writing a regression test, name the exact function whose bug you're
+locking in, and confirm the test actually calls it — not something it
+happens to call internally.

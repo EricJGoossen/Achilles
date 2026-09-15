@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <numbers>
 #include <xsimd/xsimd.hpp>
 
 #include "domain/math/matrix.hpp"
@@ -15,7 +16,7 @@ using achilles::test_support::MakeBatch;
 
 namespace {
 
-constexpr float kPi = 3.14159265358979323846F;
+constexpr float kPi = std::numbers::pi_v<float>;
 
 }  // namespace
 

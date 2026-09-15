@@ -34,7 +34,7 @@ class Matrix {
   Matrix() : data_() {};
   explicit Matrix(const std::array<T, M * N>& data) : data_(data) {}
   template <typename... Args>
-  constexpr Matrix(Args... args) : data_{static_cast<T>(args)...} {
+  constexpr explicit Matrix(Args... args) : data_{static_cast<T>(args)...} {
     static_assert(
         sizeof...(Args) == M * N, "Wrong number of elements for matrix size"
     );
@@ -76,28 +76,28 @@ class Matrix {
   }
 
   // Access
-  inline constexpr auto ToTuple() const {
+  constexpr auto ToTuple() const {
     return ToTupleImpl(std::make_index_sequence<M * N>{});
   }
-  inline constexpr std::size_t Rows() const { return M; }
-  inline constexpr std::size_t Cols() const { return N; }
-  inline constexpr T& operator()(std::size_t i, std::size_t j) {
+  constexpr std::size_t Rows() const { return M; }
+  constexpr std::size_t Cols() const { return N; }
+  constexpr T& operator()(std::size_t i, std::size_t j) {
     assert(i < M && j < N && "Matrix indices out of bounds");
     return data_[i * N + j];
   }
-  inline constexpr const T& operator()(std::size_t i, std::size_t j) const {
+  constexpr const T& operator()(std::size_t i, std::size_t j) const {
     assert(i < M && j < N && "Matrix indices out of bounds");
     return data_[i * N + j];
   }
-  inline constexpr T& operator[](std::size_t i) {
+  constexpr T& operator[](std::size_t i) {
     assert(i < M * N && "Matrix index out of bounds");
     return data_[i];
   }
-  inline constexpr const T& operator[](std::size_t i) const {
+  constexpr const T& operator[](std::size_t i) const {
     assert(i < M * N && "Matrix index out of bounds");
     return data_[i];
   }
-  inline constexpr Matrix<T, 1, N> Row(std::size_t i) const {
+  constexpr Matrix<T, 1, N> Row(std::size_t i) const {
     assert(i < M && "Row index out of bounds");
 
     std::array<T, N> result;
@@ -106,7 +106,7 @@ class Matrix {
     );
     return Matrix<T, 1, N>(result);
   }
-  inline constexpr Matrix<T, M, 1> Column(std::size_t j) const {
+  constexpr Matrix<T, M, 1> Column(std::size_t j) const {
     assert(j < N && "Column index out of bounds");
 
     std::array<T, M> result;
@@ -174,18 +174,17 @@ class Matrix {
   }
 
   // Comparison
-  friend inline constexpr Mask operator==(const Matrix& a, const Matrix& b) {
+  friend constexpr Mask operator==(const Matrix& a, const Matrix& b) {
     Mask result = (a.data_[0] == b.data_[0]);
     for (std::size_t i = 1; i < M * N; ++i) {
       result = result & (a.data_[i] == b.data_[i]);
     }
     return result;
   }
-  friend inline constexpr Mask operator!=(const Matrix& a, const Matrix& b) {
+  friend constexpr Mask operator!=(const Matrix& a, const Matrix& b) {
     return !(a == b);
   }
-  inline constexpr Mask IsApprox(const Matrix& other, float epsilon = 1e-5)
-      const {
+  constexpr Mask IsApprox(const Matrix& other, float epsilon = 1e-5F) const {
     using std::abs;
     using xsimd::abs;
 
@@ -195,7 +194,7 @@ class Matrix {
     }
     return result;
   }
-  inline constexpr Mask IsZero(float epsilon = 1e-8) const {
+  constexpr Mask IsZero(float epsilon = 1e-8F) const {
     return this->IsApprox(Matrix::Zero(), epsilon);
   }
 
@@ -434,13 +433,15 @@ class Matrix {
   }
 
   // Inverse helper functions
-  inline constexpr Matrix& Inverse2x2InPlace() {
+  constexpr Matrix& Inverse2x2InPlace() {
     static_assert(
         M == 2 && N == 2, "Inverse2x2InPlace is only defined for 2x2 matrices"
     );
 
-    T a = (*this)(0, 0), b = (*this)(0, 1);
-    T c = (*this)(1, 0), d = (*this)(1, 1);
+    T a = (*this)(0, 0);
+    T b = (*this)(0, 1);
+    T c = (*this)(1, 0);
+    T d = (*this)(1, 1);
 
     T inv_det = T{1} / (a * d - b * c);
 
@@ -451,14 +452,20 @@ class Matrix {
 
     return *this;
   }
-  inline constexpr Matrix& Inverse3x3InPlace() {
+  constexpr Matrix& Inverse3x3InPlace() {
     static_assert(
         M == 3 && N == 3, "Inverse3x3InPlace is only defined for 3x3 matrices"
     );
 
-    T a = (*this)(0, 0), b = (*this)(0, 1), c = (*this)(0, 2);
-    T d = (*this)(1, 0), e = (*this)(1, 1), f = (*this)(1, 2);
-    T g = (*this)(2, 0), h = (*this)(2, 1), i = (*this)(2, 2);
+    T a = (*this)(0, 0);
+    T b = (*this)(0, 1);
+    T c = (*this)(0, 2);
+    T d = (*this)(1, 0);
+    T e = (*this)(1, 1);
+    T f = (*this)(1, 2);
+    T g = (*this)(2, 0);
+    T h = (*this)(2, 1);
+    T i = (*this)(2, 2);
 
     T c00 = e * i - f * h;
     T c01 = c * h - b * i;
@@ -484,7 +491,7 @@ class Matrix {
 
     return *this;
   }
-  inline constexpr Matrix& Inverse6x6InPlace() {
+  constexpr Matrix& Inverse6x6InPlace() {
     static_assert(
         M == 6 && N == 6, "Inverse6x6InPlace is only defined for 6x6 matrices"
     );
@@ -572,7 +579,9 @@ class Matrix {
     // singular and unable to be inverted.
     for (std::size_t i = 0; i < M; ++i) {
       for (std::size_t j = 0; j < M; ++j) {
-        if (j == i) continue;
+        if (j == i) {
+          continue;
+        }
         (*this)(i, j) = util::Select(m[i], (*this)(i, j), T{0});
         (*this)(j, i) = util::Select(m[i], (*this)(j, i), T{0});
       }
@@ -596,10 +605,14 @@ class Matrix {
       os << "(";
       for (std::size_t j = 0; j < N; ++j) {
         os << m(i, j);
-        if (j < N - 1) os << ", ";
+        if (j < N - 1) {
+          os << ", ";
+        }
       }
       os << ")";
-      if (i < M - 1) os << ", ";
+      if (i < M - 1) {
+        os << ", ";
+      }
     }
     os << ")";
     return os;

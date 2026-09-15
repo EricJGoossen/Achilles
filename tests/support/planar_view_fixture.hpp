@@ -5,7 +5,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
-
 #include <xsimd/xsimd.hpp>
 
 #include "engine/field_contract.hpp"
@@ -78,8 +77,10 @@ class PlanarViewFixture {
     std::size_t i = 0;
     (
         [&] {
-          std::size_t alignment = alignof(xsimd::batch<typename Assemblers::ScalarType>);
-          std::size_t raw_bytes = num_instances_ * sizeof(typename Assemblers::ScalarType);
+          std::size_t alignment =
+              alignof(xsimd::batch<typename Assemblers::ScalarType>);
+          std::size_t raw_bytes =
+              num_instances_ * sizeof(typename Assemblers::ScalarType);
           std::size_t stride_bytes =
               (raw_bytes + alignment - 1) / alignment * alignment;
           // A field's buffer holds one leaf-array per child of its own
@@ -89,8 +90,9 @@ class PlanarViewFixture {
           // (field0 + FieldOffset<Is>() * field_stride_bytes for each of
           // kNumFields children).
           std::size_t total_bytes = stride_bytes * Assemblers::kNumFields;
-          buffers_[i] =
-              Buffer(static_cast<std::byte*>(std::aligned_alloc(alignment, total_bytes)));
+          buffers_[i] = Buffer(static_cast<std::byte*>(
+              std::aligned_alloc(alignment, total_bytes)
+          ));
           // aligned_alloc doesn't zero-initialize -- do it explicitly so
           // reading an index nothing has written to yet is deterministic
           // (zero) instead of whatever was in that memory before,

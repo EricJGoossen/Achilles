@@ -24,15 +24,15 @@ class ActivationMask {
 
   // Constructors
   constexpr ActivationMask() : m_() {}
-  constexpr ActivationMask(StorageT m) : m_(m & kValidMask) {}
-  constexpr ActivationMask(std::array<bool, N> values) : m_(0) {
+  constexpr explicit ActivationMask(StorageT m) : m_(m & kValidMask) {}
+  constexpr explicit ActivationMask(std::array<bool, N> values) : m_(0) {
     for (std::size_t i = 0; i < N; i++) {
       m_ |= static_cast<StorageT>(values[i]) << i;
     }
   }
   template <typename... Bools>
     requires(sizeof...(Bools) == N && (std::convertible_to<Bools, bool> && ...))
-  constexpr ActivationMask(Bools... values) : m_(0) {
+  constexpr explicit ActivationMask(Bools... values) : m_(0) {
     std::array<bool, N> values_array = {static_cast<bool>(values)...};
 
     for (std::size_t i = 0; i < N; i++) {
@@ -47,63 +47,63 @@ class ActivationMask {
     return *this;
   }
 
-  static constexpr ActivationMask Ones() { return StorageT(kValidMask); }
+  static constexpr ActivationMask Ones() {
+    return ActivationMask(StorageT(kValidMask));
+  }
   constexpr ActivationMask& SetOnes() {
     m_ = kValidMask;
     return *this;
   }
 
   // Access
-  inline constexpr std::tuple<StorageT> ToTuple() const {
-    return std::make_tuple(m_);
-  }
-  inline constexpr BatchMask operator[](std::size_t i) const {
+  constexpr std::tuple<StorageT> ToTuple() const { return std::make_tuple(m_); }
+  constexpr BatchMask operator[](std::size_t i) const {
     return (m_ & (1 << i)) != 0;
   }
-  inline constexpr StorageT AsStorage() const { return m_; }
-  inline static constexpr std::size_t Size() { return N; }
-  inline constexpr bool IsBatched() const {
-    return util::kIsXsimdBatch<StorageT>;
-  }
+  constexpr StorageT AsStorage() const { return m_; }
+  static constexpr std::size_t Size() { return N; }
+  constexpr bool IsBatched() const { return util::kIsXsimdBatch<StorageT>; }
 
   // Comparison
-  friend inline constexpr BatchMask operator==(
+  friend constexpr BatchMask operator==(
       const ActivationMask& a, const ActivationMask& b
   ) {
     return (a.m_ == b.m_);
   }
-  friend inline constexpr BatchMask operator!=(
+  friend constexpr BatchMask operator!=(
       const ActivationMask& a, const ActivationMask& b
   ) {
     return !(a == b);
   }
-  inline constexpr BatchMask AllTrue() const { return m_ == kValidMask; }
-  inline constexpr BatchMask AllFalse() const { return m_ == 0; }
+  constexpr BatchMask AllTrue() const { return m_ == kValidMask; }
+  constexpr BatchMask AllFalse() const { return m_ == 0; }
 
   // Elementwise Operations
-  inline constexpr ActivationMask operator&(const ActivationMask& other) const {
-    return m_ & other.m_;
+  constexpr ActivationMask operator&(const ActivationMask& other) const {
+    return ActivationMask(m_ & other.m_);
   }
-  inline constexpr ActivationMask& operator&=(const ActivationMask& other) {
+  constexpr ActivationMask& operator&=(const ActivationMask& other) {
     m_ &= other.m_;
     return *this;
   }
-  inline constexpr ActivationMask operator|(const ActivationMask& other) const {
-    return m_ | other.m_;
+  constexpr ActivationMask operator|(const ActivationMask& other) const {
+    return ActivationMask(m_ | other.m_);
   }
-  inline constexpr ActivationMask& operator|=(const ActivationMask& other) {
+  constexpr ActivationMask& operator|=(const ActivationMask& other) {
     m_ |= other.m_;
     return *this;
   }
-  inline constexpr ActivationMask operator^(const ActivationMask& other) const {
-    return m_ ^ other.m_;
+  constexpr ActivationMask operator^(const ActivationMask& other) const {
+    return ActivationMask(m_ ^ other.m_);
   }
-  inline constexpr ActivationMask& operator^=(const ActivationMask& other) {
+  constexpr ActivationMask& operator^=(const ActivationMask& other) {
     m_ ^= other.m_;
     return *this;
   }
-  inline constexpr ActivationMask operator~() const { return ~m_ & kValidMask; }
-  inline constexpr ActivationMask& NegateInPlace() {
+  constexpr ActivationMask operator~() const {
+    return ActivationMask(~m_ & kValidMask);
+  }
+  constexpr ActivationMask& NegateInPlace() {
     m_ = ~m_ & kValidMask;
     return *this;
   }

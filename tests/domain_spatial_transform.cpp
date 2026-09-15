@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <numbers>
+
 #include "domain/math/matrix.hpp"
 #include "domain/math/quaternion.hpp"
 #include "domain/math/vector3.hpp"
@@ -18,7 +20,7 @@ using achilles::domain::spatial::Transform;
 
 namespace {
 
-constexpr float kPi = 3.14159265358979323846F;
+constexpr float kPi = std::numbers::pi_v<float>;
 
 // Transform has no IsApprox/== of its own -- comparing two Transforms
 // means comparing their Translation() and Rotation() separately.

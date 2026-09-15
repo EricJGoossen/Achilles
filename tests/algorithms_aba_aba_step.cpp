@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
-#include <xsimd/xsimd.hpp>
+
+#include <cstddef>
 
 #include "algorithms/aba/aba_data.hpp"
-#include "algorithms/aba/aba_ops.hpp"
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
 #include "support/joint_topology_fixture.hpp"
@@ -79,13 +79,24 @@ void PopulateRevoluteZJoint(ABAView& view, MathematicalT q0) {
   view.Store<ABAField::kFixedJointTransform, B>(0, Transform::Identity());
   view.Store<ABAField::kRigidBodyInertia, B>(
       0,
-      Inertia(B(2.0F), Vector3::Zero(), B(2.0F), B(3.0F), B(4.0F), B(0.0F), B(0.0F), B(0.0F))
+      Inertia(
+          B(2.0F),
+          Vector3::Zero(),
+          B(2.0F),
+          B(3.0F),
+          B(4.0F),
+          B(0.0F),
+          B(0.0F),
+          B(0.0F)
+      )
   );
   view.Store<ABAField::kJointPosition, B>(
       0, Vector6(q0, B(0.0F), B(0.0F), B(0.0F), B(0.0F), B(0.0F))
   );
   view.Store<ABAField::kJointVelocity, B>(0, Velocity::Zero());
-  view.Store<ABAField::kJointTorque, B>(0, Force(Vector3::Zero(), Vector3::Zero()));
+  view.Store<ABAField::kJointTorque, B>(
+      0, Force(Vector3::Zero(), Vector3::Zero())
+  );
 }
 
 }  // namespace
@@ -103,18 +114,21 @@ TEST(AbaStep, AtRestStaysAtRest) {
   PopulateRevoluteZJoint(view, B(0.0F));
 
   Step(
-      view, topo.topology,
-      Transform::Identity(), Velocity::Zero(), Acceleration::Zero()
+      view,
+      topo.topology,
+      Transform::Identity(),
+      Velocity::Zero(),
+      Acceleration::Zero()
   );
 
-  EXPECT_TRUE(BatchTrue(
-      view.Load<ABAField::kWorldTransform, B>(0).Translation().IsApprox(
-          Transform::Identity().Translation()
-      )
-  ));
+  EXPECT_TRUE(BatchTrue(view.Load<ABAField::kWorldTransform, B>(0)
+                            .Translation()
+                            .IsApprox(Transform::Identity().Translation())));
   EXPECT_TRUE(BatchTrue(view.Load<ABAField::kSpatialVelocity, B>(0).IsZero()));
-  EXPECT_TRUE(BatchTrue(view.Load<ABAField::kJointAcceleration, B>(0).IsZero()));
-  EXPECT_TRUE(BatchTrue(view.Load<ABAField::kSpatialAcceleration, B>(0).IsZero()));
+  EXPECT_TRUE(BatchTrue(view.Load<ABAField::kJointAcceleration, B>(0).IsZero())
+  );
+  EXPECT_TRUE(BatchTrue(view.Load<ABAField::kSpatialAcceleration, B>(0).IsZero()
+  ));
 }
 
 // A nonzero joint angle must show up as a nonzero rotation in the
@@ -129,8 +143,11 @@ TEST(AbaStep, NonzeroJointAngleRotatesWorldTransform) {
   PopulateRevoluteZJoint(view, B(0.3F));
 
   Step(
-      view, topo.topology,
-      Transform::Identity(), Velocity::Zero(), Acceleration::Zero()
+      view,
+      topo.topology,
+      Transform::Identity(),
+      Velocity::Zero(),
+      Acceleration::Zero()
   );
 
   Transform world = view.Load<ABAField::kWorldTransform, B>(0);
@@ -185,7 +202,7 @@ TEST(AbaStep, PropagatesThroughMultiLevelTree) {
                   "joint chain batch-safely.";
   // root -> child -> grandchild, at least three real levels deep. With
   // nonzero gravity (a_base, seeded via PropagateAccelerationOp::Initialize)
-// and every joint at rest (q=0,
+  // and every joint at rest (q=0,
   // now safe since Quaternion::Exp's zero-rotation fix), the deepest
   // joint's acceleration must be nonzero and reflect gravity having
   // propagated through every intervening level -- proves the full
@@ -193,34 +210,57 @@ TEST(AbaStep, PropagatesThroughMultiLevelTree) {
   // reserved base row, which is all the current passing tests exercise).
 }
 
-// -- Coverage blocked on an unresolved design decision, not the allocator
-// --
-//
 // PropagateInertiaOp accumulates (+=) into I_A_parent_out/p_parent_out
 // (see aba_ops.cpp) rather than overwriting them, which is correct for
 // folding multiple children's contributions into one parent *within* a
-// single Step() call -- but nothing in aba::Step, or anywhere else,
-// resets the reserved base row's kArticulatedInertia/
-// kArticulatedBiasForce fields before a pass starts. Every real joint's
-// own I_A is reset unconditionally each forward (velocity) pass
-// (`*I_A_out = I.AsArticulated();`, an assignment not an accumulation),
-// so real joints self-correct every Step() call regardless of prior
-// state -- but the base row is never a *target* of that write, only ever
-// a += destination for whichever joints are rooted there. The tests
-// above (and everywhere else in this session) only pass because
-// PlanarViewFixture hands out freshly zeroed memory every time. Whether
-// the base row's accumulator fields should be zeroed by aba::Step itself
-// at the start of every call, by the allocator once at setup, or by the
-// simulation loop between steps is a real design decision -- not
-// something to default silently.
+// single Step() call -- but that only works long-term if the reserved
+// base row's kArticulatedInertia/kArticulatedBiasForce fields are reset
+// before each pass starts, or successive Step() calls would silently
+// accumulate onto whatever the previous call left behind. That reset is
+// PropagateInertiaOp's own Initialize (aba_ops.cpp: `*I_A_base_out =
+// kIABase; *p_base_out = kPBase;`, both Zero()) -- the same per-Op
+// Initialize mechanism PropagateVelocityOp/PropagateAccelerationOp use to
+// seed their own base-row reads (see the header comment on aba_ops.hpp).
+// RunPass calls it once, unconditionally, at the base row before every
+// single Apply pass (engine/algorithm_step.hpp), so it runs on every
+// Step() call, not just the first -- resolving what used to be an open
+// question without needing aba::Step, the allocator, or the simulation
+// loop to take on that responsibility themselves.
 TEST(AbaStep, RepeatedStepsProduceConsistentResults) {
-  GTEST_SKIP() << "Needs a decision on who is responsible for zeroing the "
-                  "reserved base row's accumulator fields between Step() "
-                  "calls -- see the comment above this test.";
-  // Call Step() twice in a row over the same view/topology (simulating
-  // two consecutive timesteps) with identical joint state both times.
-  // The second call's results must equal the first's -- if the base
-  // row's I_A/p fields aren't reset between calls, the second call's
-  // articulated-inertia accumulation silently starts from the first
-  // call's leftover values instead of from zero, and this would fail.
+  Fixture fixture(RequiredInstances());
+  ABAView view = fixture.MakeView();
+  TopologyFixture topo = SingleJointTopology();
+  PopulateRevoluteZJoint(view, B(0.3F));
+
+  Step(
+      view,
+      topo.topology,
+      Transform::Identity(),
+      Velocity::Zero(),
+      Acceleration::Zero()
+  );
+  Transform world_after_first = view.Load<ABAField::kWorldTransform, B>(0);
+  Acceleration accel_after_first =
+      view.Load<ABAField::kSpatialAcceleration, B>(0);
+
+  // Re-populate the same joint state (Step() itself mutates kJointPosition
+  // nowhere, but this mirrors a real simulation loop re-driving the same
+  // input each tick) and step again -- if the base row's I_A/p carried
+  // over from the first call instead of being zeroed, this second call's
+  // articulated-inertia accumulation would start from nonzero leftovers
+  // and diverge from the first call's result.
+  PopulateRevoluteZJoint(view, B(0.3F));
+  Step(
+      view,
+      topo.topology,
+      Transform::Identity(),
+      Velocity::Zero(),
+      Acceleration::Zero()
+  );
+
+  EXPECT_TRUE(BatchTrue(view.Load<ABAField::kWorldTransform, B>(0)
+                            .Translation()
+                            .IsApprox(world_after_first.Translation())));
+  EXPECT_TRUE(BatchTrue(view.Load<ABAField::kSpatialAcceleration, B>(0)
+                            .IsApprox(accel_after_first)));
 }

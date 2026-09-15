@@ -315,6 +315,38 @@ TEST(MatrixOperations, Determinant6x6OfDiagonalIsProductOfDiagonal) {
   EXPECT_FLOAT_EQ(m.Determinant(), 720.0F);
 }
 
+// The 6x6 Determinant()/InverseInPlace() block-Schur formula requires the
+// top-left 3x3 block to be invertible (see DiagonalMatrix's comment
+// above) -- true for the spatial-inertia-like matrices this type is
+// actually used for, but not for an arbitrary 6x6 matrix. Zeroing that
+// block out makes it singular; the precondition assert this used to
+// never actually run (it sat behind an #ifdef on a macro nothing ever
+// defined) must fire here instead of silently dividing by zero.
+TEST(MatrixOperationsValidation, Determinant6x6WithSingularTopLeftBlockAsserts) {
+  Matrix<float, 6, 6> m = Matrix<float, 6, 6>::Identity();
+  m.SetSubmatrix(0, 0, Matrix<float, 3, 3>::Zero());
+  EXPECT_DEATH(m.Determinant(), "top-left 3x3 block");
+}
+
+TEST(MatrixOperationsValidation, Inverse6x6WithSingularTopLeftBlockAsserts) {
+  Matrix<float, 6, 6> m = Matrix<float, 6, 6>::Identity();
+  m.SetSubmatrix(0, 0, Matrix<float, 3, 3>::Zero());
+  EXPECT_DEATH(m.InverseInPlace(), "top-left 3x3 block");
+}
+
+// Inverse6x6InPlace has a second, separate precondition: the Schur
+// complement (S - R*P^-1*Q) must itself be invertible, distinct from P
+// (the top-left block, checked above). Zeroing only the bottom-right
+// block leaves P == Identity (nonsingular, passes the first check) while
+// the off-diagonal blocks stay zero, so the Schur complement reduces to
+// S itself -- singular. Without this test the second assert would be
+// exactly as unverified as the first one was before it was fixed.
+TEST(MatrixOperationsValidation, Inverse6x6WithSingularSchurComplementAsserts) {
+  Matrix<float, 6, 6> m = Matrix<float, 6, 6>::Identity();
+  m.SetSubmatrix(3, 3, Matrix<float, 3, 3>::Zero());
+  EXPECT_DEATH(m.InverseInPlace(), "Schur complement");
+}
+
 // Square matrix operations: Trace, Inverse/InverseInPlace for each
 // implemented size (2x2, 3x3, 6x6), checked as a round trip (M * M^-1 ==
 // I) rather than hand-derived inverse values.

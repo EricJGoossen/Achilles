@@ -1,5 +1,4 @@
 #include <gtest/gtest.h>
-#include <xsimd/xsimd.hpp>
 
 #include "algorithms/aba/aba_ops.hpp"
 #include "algorithms/conventions.hpp"
@@ -54,9 +53,16 @@ Mat6Mask DOF0ActiveMask() {
 // mass 2, centered (h=0), diagonal principal moments (2,3,4) -- the same
 // trivially-physically-valid fixture domain_spatial_inertia.cpp uses.
 Inertia SimpleInertia() {
-  return Inertia(
-      B(2.0F), Vector3::Zero(), B(2.0F), B(3.0F), B(4.0F), B(0.0F), B(0.0F), B(0.0F)
-  );
+  return {
+      B(2.0F),
+      Vector3::Zero(),
+      B(2.0F),
+      B(3.0F),
+      B(4.0F),
+      B(0.0F),
+      B(0.0F),
+      B(0.0F)
+  };
 }
 
 }  // namespace
@@ -65,7 +71,9 @@ Inertia SimpleInertia() {
 // root joint reads back as x_world_parent/v_parent (see
 // PropagateVelocityOpTest below).
 TEST(PropagateVelocityOpTest, InitializeSeedsConfiguredBaseState) {
-  Transform x_world_base(Vector3(B(1.0F), B(2.0F), B(3.0F)), Quaternion::Identity());
+  Transform x_world_base(
+      Vector3(B(1.0F), B(2.0F), B(3.0F)), Quaternion::Identity()
+  );
   Velocity v_base(Vector3(B(0.1F), B(0.2F), B(0.3F)), Vector3::Zero());
   PropagateVelocityOp op(x_world_base, v_base);
 
@@ -73,7 +81,9 @@ TEST(PropagateVelocityOpTest, InitializeSeedsConfiguredBaseState) {
   Velocity v_out;
   op.Initialize(&x_world_out, &v_out);
 
-  EXPECT_TRUE(BatchTrue(x_world_out.Translation().IsApprox(x_world_base.Translation())));
+  EXPECT_TRUE(
+      BatchTrue(x_world_out.Translation().IsApprox(x_world_base.Translation()))
+  );
   EXPECT_TRUE(BatchTrue(v_out.IsApprox(v_base)));
 }
 
@@ -84,25 +94,45 @@ TEST(PropagateVelocityOpTest, InitializeSeedsConfiguredBaseState) {
 TEST(PropagateVelocityOpTest, AtRestPassesParentStateThroughUnchanged) {
   Matrix6x6 s = RevoluteZSubspace();
   Inertia inertia = SimpleInertia();
-  Transform x_world_parent(Vector3(B(1.0F), B(0.0F), B(0.0F)), Quaternion::Identity());
+  Transform x_world_parent(
+      Vector3(B(1.0F), B(0.0F), B(0.0F)), Quaternion::Identity()
+  );
   Transform x_tree = Transform::Identity();
   Vector6 q = Vector6::Zero();
   Velocity qd = Velocity::Zero();
-  Velocity v_parent(Vector3(B(0.0F), B(0.0F), B(0.3F)), Vector3(B(1.0F), B(0.0F), B(0.0F)));
+  Velocity v_parent(
+      Vector3(B(0.0F), B(0.0F), B(0.3F)), Vector3(B(1.0F), B(0.0F), B(0.0F))
+  );
 
   // x_world_base/v_base are irrelevant here -- this test exercises
   // operator(), not Initialize.
   PropagateVelocityOp op(Transform::Identity(), Velocity::Zero());
   InertiaOperator<false> i_a_out;
-  Transform x_up_out, x_world_out;
+  Transform x_up_out;
+  Transform x_world_out;
   Velocity v_out;
   Acceleration c_out;
   Force p_out;
-  op(s, inertia, x_world_parent, x_tree, q, qd, v_parent, &i_a_out, &x_up_out, &x_world_out,
-     &v_out, &c_out, &p_out);
+  op(s,
+     inertia,
+     x_world_parent,
+     x_tree,
+     q,
+     qd,
+     v_parent,
+     &i_a_out,
+     &x_up_out,
+     &x_world_out,
+     &v_out,
+     &c_out,
+     &p_out);
 
-  EXPECT_TRUE(BatchTrue(x_up_out.Translation().IsApprox(Transform::Identity().Translation())));
-  EXPECT_TRUE(BatchTrue(x_world_out.Translation().IsApprox(x_world_parent.Translation())));
+  EXPECT_TRUE(BatchTrue(
+      x_up_out.Translation().IsApprox(Transform::Identity().Translation())
+  ));
+  EXPECT_TRUE(BatchTrue(
+      x_world_out.Translation().IsApprox(x_world_parent.Translation())
+  ));
   EXPECT_TRUE(BatchTrue(v_out.IsApprox(v_parent)));
   EXPECT_TRUE(BatchTrue(c_out.IsZero()));
   EXPECT_TRUE(BatchTrue(i_a_out.IsApprox(inertia.AsArticulated())));
@@ -116,10 +146,14 @@ TEST(PropagateVelocityOpTest, AtRestPassesParentStateThroughUnchanged) {
 // Nonzero joint motion: x_up/v_out recomputed independently via
 // Transform::Exp/operator*/Inverse/Apply (each already unit-tested on
 // its own) instead of re-typing PropagateVelocityOp's own expressions.
-TEST(PropagateVelocityOpTest, NonzeroJointMotionMatchesIndependentRecomputation) {
+TEST(
+    PropagateVelocityOpTest, NonzeroJointMotionMatchesIndependentRecomputation
+) {
   Matrix6x6 s = RevoluteZSubspace();
   Inertia inertia = SimpleInertia();
-  Transform x_world_parent(Vector3(B(1.0F), B(0.0F), B(0.0F)), Quaternion::Identity());
+  Transform x_world_parent(
+      Vector3(B(1.0F), B(0.0F), B(0.0F)), Quaternion::Identity()
+  );
   Transform x_tree(Vector3(B(0.5F), B(0.0F), B(0.0F)), Quaternion::Identity());
   Vector6 q(B(0.3F), B(0.0F), B(0.0F), B(0.0F), B(0.0F), B(0.0F));
   Velocity qd(Vector3(B(0.0F), B(0.0F), B(0.2F)), Vector3::Zero());
@@ -129,20 +163,35 @@ TEST(PropagateVelocityOpTest, NonzeroJointMotionMatchesIndependentRecomputation)
   // operator(), not Initialize.
   PropagateVelocityOp op(Transform::Identity(), Velocity::Zero());
   InertiaOperator<false> i_a_out;
-  Transform x_up_out, x_world_out;
+  Transform x_up_out;
+  Transform x_world_out;
   Velocity v_out;
   Acceleration c_out;
   Force p_out;
-  op(s, inertia, x_world_parent, x_tree, q, qd, v_parent, &i_a_out, &x_up_out, &x_world_out,
-     &v_out, &c_out, &p_out);
+  op(s,
+     inertia,
+     x_world_parent,
+     x_tree,
+     q,
+     qd,
+     v_parent,
+     &i_a_out,
+     &x_up_out,
+     &x_world_out,
+     &v_out,
+     &c_out,
+     &p_out);
 
-  Velocity joint_twist = s * q;
+  Velocity joint_twist(s * q);
   Transform expected_x_up = x_tree * Transform::Exp(joint_twist);
-  Velocity qd_spatial = s * qd.AsVector6();
+  Velocity qd_spatial(s * qd.AsVector6());
   Velocity expected_v = expected_x_up.Inverse().Apply(v_parent) + qd_spatial;
 
-  EXPECT_TRUE(BatchTrue(x_up_out.Translation().IsApprox(expected_x_up.Translation())));
-  EXPECT_TRUE(BatchTrue(x_up_out.Rotation().IsApprox(expected_x_up.Rotation())));
+  EXPECT_TRUE(
+      BatchTrue(x_up_out.Translation().IsApprox(expected_x_up.Translation()))
+  );
+  EXPECT_TRUE(BatchTrue(x_up_out.Rotation().IsApprox(expected_x_up.Rotation()))
+  );
   EXPECT_TRUE(BatchTrue(v_out.IsApprox(expected_v)));
   EXPECT_TRUE(BatchTrue(c_out.IsApprox(expected_v.Cross(qd_spatial))));
 }
@@ -154,7 +203,9 @@ TEST(PropagateVelocityOpTest, NonzeroJointMotionMatchesIndependentRecomputation)
 // equal exactly the un-transformed contribution terms. Isolates the
 // contribution formula (U, D, D_inv, I_A - U D^-1 U^T, ...) from the
 // separate "transform into parent frame" step.
-TEST(PropagateInertiaOpTest, IdentityTransformPassesContributionThroughUnchanged) {
+TEST(
+    PropagateInertiaOpTest, IdentityTransformPassesContributionThroughUnchanged
+) {
   Matrix6x6 s = RevoluteZSubspace();
   Mat6Mask mask = DOF0ActiveMask();
   Transform x_up = Transform::Identity();
@@ -169,15 +220,28 @@ TEST(PropagateInertiaOpTest, IdentityTransformPassesContributionThroughUnchanged
   InertiaOperator<true> d_inv_out;
   Force p_parent_out = Force::Zero();
   Force u_out_force;
-  op(s, mask, x_up, i_a, c, tau, p, &i_a_parent_out, &u_out, &d_inv_out, &p_parent_out,
+  op(s,
+     mask,
+     x_up,
+     i_a,
+     c,
+     tau,
+     p,
+     &i_a_parent_out,
+     &u_out,
+     &d_inv_out,
+     &p_parent_out,
      &u_out_force);
 
   InertiaOperator<false> expected_u(i_a.AsMatrix() * s);
   InertiaOperator<false> expected_d(s.Transpose() * expected_u.AsMatrix());
   InertiaOperator<true> expected_d_inv = expected_d.MaskedInverse(mask);
-  Matrix6x6 expected_u_d_inv = expected_u.AsMatrix() * expected_d_inv.AsMatrix();
+  Matrix6x6 expected_u_d_inv =
+      expected_u.AsMatrix() * expected_d_inv.AsMatrix();
   InertiaOperator<false> expected_contribution =
-      i_a - InertiaOperator<false>(expected_u_d_inv * expected_u.Transpose().AsMatrix());
+      i_a - InertiaOperator<false>(
+                expected_u_d_inv * expected_u.Transpose().AsMatrix()
+            );
 
   EXPECT_TRUE(BatchTrue(u_out.IsApprox(expected_u)));
   EXPECT_TRUE(BatchTrue(i_a_parent_out.IsApprox(expected_contribution, 1e-3F)));
@@ -202,7 +266,9 @@ TEST(PropagateInertiaOpTest, InitializeZeroesAccumulator) {
 // the mechanism that lets more than one child add its contribution into
 // a shared parent row. A pre-existing nonzero value in the accumulator
 // must survive, with this call's own contribution added on top.
-TEST(PropagateInertiaOpTest, AccumulatesIntoParentOutputsRatherThanOverwriting) {
+TEST(
+    PropagateInertiaOpTest, AccumulatesIntoParentOutputsRatherThanOverwriting
+) {
   Matrix6x6 s = RevoluteZSubspace();
   Mat6Mask mask = DOF0ActiveMask();
   Transform x_up = Transform::Identity();
@@ -218,14 +284,38 @@ TEST(PropagateInertiaOpTest, AccumulatesIntoParentOutputsRatherThanOverwriting) 
   InertiaOperator<false> u_out;
   InertiaOperator<true> d_inv_out;
   Force u_out_force;
-  op(s, mask, x_up, i_a, c, tau, p, &i_a_parent_a, &u_out, &d_inv_out, &p_parent_a, &u_out_force);
+  op(s,
+     mask,
+     x_up,
+     i_a,
+     c,
+     tau,
+     p,
+     &i_a_parent_a,
+     &u_out,
+     &d_inv_out,
+     &p_parent_a,
+     &u_out_force);
 
-  InertiaOperator<false> preexisting = SimpleInertia().AsArticulated() * B(0.5F);
+  InertiaOperator<false> preexisting =
+      SimpleInertia().AsArticulated() * B(0.5F);
   InertiaOperator<false> i_a_parent_b = preexisting;
   Force p_parent_b = Force::Zero();
-  op(s, mask, x_up, i_a, c, tau, p, &i_a_parent_b, &u_out, &d_inv_out, &p_parent_b, &u_out_force);
+  op(s,
+     mask,
+     x_up,
+     i_a,
+     c,
+     tau,
+     p,
+     &i_a_parent_b,
+     &u_out,
+     &d_inv_out,
+     &p_parent_b,
+     &u_out_force);
 
-  EXPECT_TRUE(BatchTrue(i_a_parent_b.IsApprox(preexisting + i_a_parent_a, 1e-3F)));
+  EXPECT_TRUE(BatchTrue(i_a_parent_b.IsApprox(preexisting + i_a_parent_a, 1e-3F)
+  ));
 }
 
 // Initialize seeds exactly the caller-configured base acceleration --
@@ -245,7 +335,8 @@ TEST(PropagateAccelerationOpTest, InitializeSeedsConfiguredBaseState) {
 // InertiaOperator::Apply/Transpose (each already unit-tested on its own).
 TEST(PropagateAccelerationOpTest, MatchesIndependentRecomputation) {
   Matrix6x6 s = RevoluteZSubspace();
-  InertiaOperator<true> d_inv = InertiaOperator<false>(SimpleInertia().AsMatrix()).Inverse();
+  InertiaOperator<true> d_inv =
+      InertiaOperator<false>(SimpleInertia().AsMatrix()).Inverse();
   InertiaOperator<false> u(SimpleInertia().AsMatrix() * s);
   Transform x_up(Vector3(B(0.2F), B(0.0F), B(0.0F)), Quaternion::Identity());
   Acceleration c(Vector3::Zero(), Vector3(B(0.0F), B(0.1F), B(0.0F)));
@@ -255,14 +346,16 @@ TEST(PropagateAccelerationOpTest, MatchesIndependentRecomputation) {
   // a_base is irrelevant here -- this test exercises operator(), not
   // Initialize.
   PropagateAccelerationOp op(Acceleration::Zero());
-  Acceleration qdd_out, a_out;
+  Acceleration qdd_out;
+  Acceleration a_out;
   op(s, d_inv, u, x_up, c, a_parent, u_force, &qdd_out, &a_out);
 
   Acceleration expected_a_pre = x_up.Inverse().Apply(a_parent) + c;
   Acceleration expected_qdd = d_inv.Apply(Force(
       (u_force.AsVector6() - u.Transpose().Apply(expected_a_pre).AsVector6())
   ));
-  Acceleration expected_a = expected_a_pre + s * expected_qdd.AsVector6();
+  Acceleration expected_a =
+      expected_a_pre + Acceleration(s * expected_qdd.AsVector6());
 
   EXPECT_TRUE(BatchTrue(qdd_out.IsApprox(expected_qdd, 1e-3F)));
   EXPECT_TRUE(BatchTrue(a_out.IsApprox(expected_a, 1e-3F)));

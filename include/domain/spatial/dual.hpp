@@ -19,7 +19,7 @@ class Dual {
   using ScalarType = T;
 
   constexpr Dual() : data_() {}
-  constexpr Dual(const math::Vector6<T>& data) : data_(data) {}
+  constexpr explicit Dual(const math::Vector6<T>& data) : data_(data) {}
   constexpr Dual(T roll, T pitch, T yaw, T x, T y, T z)
       : data_(roll, pitch, yaw, x, y, z) {}
   constexpr Dual(
@@ -40,122 +40,133 @@ class Dual {
     return static_cast<Derived&>(*this);
   }
 
-  static constexpr Derived UnitRoll() { return math::Vector6<T>::UnitA(); }
-  static constexpr Derived UnitPitch() { return math::Vector6<T>::UnitB(); }
-  static constexpr Derived UnitYaw() { return math::Vector6<T>::UnitC(); }
-  static constexpr Derived UnitX() { return math::Vector6<T>::UnitD(); }
-  static constexpr Derived UnitY() { return math::Vector6<T>::UnitE(); }
-  static constexpr Derived UnitZ() { return math::Vector6<T>::UnitF(); }
-  static constexpr Derived Ones() { return math::Vector6<T>::Ones(); }
+  static constexpr Derived UnitRoll() {
+    return Derived(math::Vector6<T>::UnitA());
+  }
+  static constexpr Derived UnitPitch() {
+    return Derived(math::Vector6<T>::UnitB());
+  }
+  static constexpr Derived UnitYaw() {
+    return Derived(math::Vector6<T>::UnitC());
+  }
+  static constexpr Derived UnitX() {
+    return Derived(math::Vector6<T>::UnitD());
+  }
+  static constexpr Derived UnitY() {
+    return Derived(math::Vector6<T>::UnitE());
+  }
+  static constexpr Derived UnitZ() {
+    return Derived(math::Vector6<T>::UnitF());
+  }
+  static constexpr Derived Ones() { return Derived(math::Vector6<T>::Ones()); }
 
   // Access
-  inline constexpr std::tuple<math::Vector6<T>> ToTuple() const {
+  constexpr std::tuple<math::Vector6<T>> ToTuple() const {
     return std::make_tuple(data_);
   }
-  inline constexpr T Roll() const { return data_.A(); }
-  inline constexpr T Pitch() const { return data_.B(); }
-  inline constexpr T Yaw() const { return data_.C(); }
-  inline constexpr T X() const { return data_.D(); }
-  inline constexpr T Y() const { return data_.E(); }
-  inline constexpr T Z() const { return data_.F(); }
-  inline constexpr math::Vector3<T> Linear() const {
+  constexpr T Roll() const { return data_.A(); }
+  constexpr T Pitch() const { return data_.B(); }
+  constexpr T Yaw() const { return data_.C(); }
+  constexpr T X() const { return data_.D(); }
+  constexpr T Y() const { return data_.E(); }
+  constexpr T Z() const { return data_.F(); }
+  constexpr math::Vector3<T> Linear() const {
     return math::Vector3<T>(X(), Y(), Z());
   }
-  inline constexpr math::Vector3<T> Angular() const {
+  constexpr math::Vector3<T> Angular() const {
     return math::Vector3<T>(Roll(), Pitch(), Yaw());
   }
-  inline constexpr T operator[](std::size_t i) const { return data_[i]; }
-  inline constexpr const math::Vector6<T>& AsVector6() const { return data_; }
-  inline constexpr const math::Matrix<T, 6, 1>& AsMatrix() const {
+  constexpr T operator[](std::size_t i) const { return data_[i]; }
+  constexpr const math::Vector6<T>& AsVector6() const { return data_; }
+  constexpr const math::Matrix<T, 6, 1>& AsMatrix() const {
     return data_.AsMatrix();
   }
 
   // Conversion
   template <template <typename> class OtherDerivedT>
-  inline constexpr OtherDerivedT<T> As() const {
+  constexpr OtherDerivedT<T> As() const {
     return OtherDerivedT<T>(data_);
   }
 
   // Comparison
-  friend inline constexpr Mask operator==(const Derived& a, const Derived& b) {
+  friend constexpr Mask operator==(const Derived& a, const Derived& b) {
     return a.data_ == b.data_;
   }
-  friend inline constexpr Mask operator!=(const Derived& a, const Derived& b) {
+  friend constexpr Mask operator!=(const Derived& a, const Derived& b) {
     return a.data_ != b.data_;
   }
-  inline constexpr Mask IsApprox(const Derived& other, float epsilon = 1e-5)
-      const {
+  constexpr Mask IsApprox(const Derived& other, float epsilon = 1e-5) const {
     return data_.IsApprox(other.data_, epsilon);
   }
-  inline constexpr Mask IsZero(float epsilon = 1e-8) const {
+  constexpr Mask IsZero(float epsilon = 1e-8) const {
     return data_.IsZero(epsilon);
   }
 
   // Elementwise Arithmetic
-  inline constexpr Derived operator+(const Derived& other) const {
-    return data_ + other.data_;
+  constexpr Derived operator+(const Derived& other) const {
+    return Derived(data_ + other.data_);
   }
-  inline constexpr Derived operator-(const Derived& other) const {
-    return data_ - other.data_;
+  constexpr Derived operator-(const Derived& other) const {
+    return Derived(data_ - other.data_);
   }
-  inline constexpr Derived operator-() const { return -data_; }
-  inline constexpr Derived& NegateInPlace() {
+  constexpr Derived operator-() const { return Derived(-data_); }
+  constexpr Derived& NegateInPlace() {
     data_.NegateInPlace();
     return static_cast<Derived&>(*this);
   }
-  inline constexpr Derived& operator+=(const Derived& other) {
+  constexpr Derived& operator+=(const Derived& other) {
     data_ += other.data_;
     return static_cast<Derived&>(*this);
   }
-  inline constexpr Derived& operator-=(const Derived& other) {
+  constexpr Derived& operator-=(const Derived& other) {
     data_ -= other.data_;
     return static_cast<Derived&>(*this);
   }
 
   // Scalar Algebra
-  inline constexpr Derived operator*(T scalar) const { return data_ * scalar; }
-  friend inline constexpr Derived operator*(T scalar, const Derived& v) {
-    return {v * scalar};
+  constexpr Derived operator*(T scalar) const {
+    return Derived(data_ * scalar);
   }
-  inline constexpr Derived operator/(T scalar) const { return data_ / scalar; }
-  inline constexpr Derived& operator*=(T scalar) {
+  friend constexpr Derived operator*(T scalar, const Derived& v) {
+    return v * scalar;
+  }
+  constexpr Derived operator/(T scalar) const {
+    return Derived(data_ / scalar);
+  }
+  constexpr Derived& operator*=(T scalar) {
     data_ *= scalar;
     return static_cast<Derived&>(*this);
   }
-  inline constexpr Derived& operator/=(T scalar) {
+  constexpr Derived& operator/=(T scalar) {
     data_ /= scalar;
     return static_cast<Derived&>(*this);
   }
 
   // Products
-  inline constexpr T Dot(const Derived& other) const {
-    return data_.Dot(other.data_);
-  }
-  friend inline constexpr Derived operator*(
+  constexpr T Dot(const Derived& other) const { return data_.Dot(other.data_); }
+  friend constexpr Derived operator*(
       const math::Matrix6x6<T>& m, const Derived& v
   ) {
-    return {m * v.AsMatrix()};
+    return Derived(math::Vector6<T>(m * v.AsMatrix()));
   }
 
   // Norms
-  inline constexpr T Norm() const { return data_.Norm(); }
-  inline constexpr T SquaredNorm() const { return data_.SquaredNorm(); }
-  inline constexpr Derived Normalize() const { return data_.Normalize(); }
-  inline constexpr Derived& NormalizeInPlace() {
+  constexpr T Norm() const { return data_.Norm(); }
+  constexpr T SquaredNorm() const { return data_.SquaredNorm(); }
+  constexpr Derived Normalize() const { return Derived(data_.Normalize()); }
+  constexpr Derived& NormalizeInPlace() {
     data_.NormalizeInPlace();
     return static_cast<Derived&>(*this);
   }
 
   // Geometry
-  inline constexpr Derived ProjectOnto(const Derived& other) const {
+  constexpr Derived ProjectOnto(const Derived& other) const {
     T sq = other.SquaredNorm();
     return util::Select(sq > T{0}, other * (Dot(other) / sq), Derived::Zero());
   }
 
   // Interpolation
-  inline static constexpr Derived Lerp(
-      const Derived& a, const Derived& b, T t
-  ) {
+  static constexpr Derived Lerp(const Derived& a, const Derived& b, T t) {
     return a + (b - a) * t;
   }
 
@@ -206,8 +217,7 @@ class SpatialVelocity : public Dual<SpatialVelocity, T> {
     };
   }
 
-  inline constexpr SpatialAcceleration<T> Cross(const SpatialVelocity& other
-  ) const {
+  constexpr SpatialAcceleration<T> Cross(const SpatialVelocity& other) const {
     return {
         this->Angular().Cross(other.Angular()),
         this->Angular().Cross(other.Linear()) +
@@ -244,8 +254,9 @@ template <util::ArithmeticLike T>
 class SpatialForce : public Dual<SpatialForce, T> {
  public:
   using Dual<SpatialForce, T>::Dual;
+  using Dual<SpatialForce, T>::Dot;
 
-  inline constexpr T Dot(const spatial::SpatialAcceleration<T>& a) const {
+  constexpr T Dot(const spatial::SpatialAcceleration<T>& a) const {
     return this->AsVector6().Dot(a.AsVector6());
   }
 };

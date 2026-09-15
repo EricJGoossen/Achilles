@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <xsimd/xsimd.hpp>
+
 #include "domain/math/matrix.hpp"
 #include "domain/math/quaternion.hpp"
 #include "domain/math/vector3.hpp"
@@ -7,6 +9,7 @@
 #include "domain/spatial/inertia.hpp"
 #include "domain/spatial/transform.hpp"
 #include "support/mask_archetype.hpp"
+#include "util/simd_ops.hpp"
 
 using achilles::domain::math::Matrix3x3;
 using achilles::domain::math::Matrix6x6;
@@ -99,6 +102,19 @@ TEST(InertiaConstruction, RejectsTriangleInequalityViolation) {
           1.0F, Vector3<float>::Zero(), 0.1F, 0.1F, 10.0F, 0.0F, 0.0F, 0.0F
       ),
       ""
+  );
+}
+
+// The (mass, h, Matrix3x3) constructor's symmetry assert was, until now,
+// only ever exercised by a matrix that happened to already be symmetric
+// (FromSymmetricMatrix3x3MatchesEightComponentForm above) -- it had never
+// actually been proven to fire on a genuinely asymmetric matrix.
+TEST(InertiaConstruction, RejectsNonSymmetricMatrix3x3) {
+  Matrix3x3<float> asymmetric(
+      2.0F, 5.0F, 0.0F, 0.0F, 3.0F, 0.0F, 0.0F, 0.0F, 4.0F
+  );  // (0,1) = 5 but (1,0) = 0
+  EXPECT_DEATH(
+      Inertia<float>(2.0F, Vector3<float>::Zero(), asymmetric), ""
   );
 }
 
@@ -199,6 +215,18 @@ TEST(InertiaArithmetic, InertiaMinusInertia) {
   EXPECT_TRUE(in_place.IsApprox(a));
 }
 
+// Subtracting a heavier body from a lighter one produces a negative mass,
+// which isn't a physically realizable inertia -- operator- must assert
+// rather than silently return nonsense (see operator-'s own assert on
+// result.mass_ >= 0 in inertia.hpp).
+TEST(InertiaArithmetic, SubtractionRejectsNegativeResultMass) {
+  Inertia<float> lighter = ValidInertia();  // mass 2
+  Inertia<float> heavier(
+      3.0F, Vector3<float>::Zero(), 3.0F, 4.0F, 5.0F, 0.0F, 0.0F, 0.0F
+  );
+  EXPECT_DEATH(lighter - heavier, "");
+}
+
 TEST(InertiaArithmetic, InertiaPlusInertiaOperatorMatchesArticulatedForm) {
   Inertia<float> a = ValidInertia();
   InertiaOperator<float> expected = a.AsArticulated() + a.AsArticulated();
@@ -231,6 +259,14 @@ TEST(InertiaScalarAlgebra, CompoundMultiplyAndDivide) {
   EXPECT_TRUE(in_place.IsApprox(a * 2.0F));
   in_place /= 2.0F;
   EXPECT_TRUE(in_place.IsApprox(a));
+}
+
+// operator*, operator/, operator*=, and operator/= all guard against a
+// non-positive scalar with the same one-line assert; this proves the
+// pattern actually fires rather than checking all four near-identical
+// call sites.
+TEST(InertiaScalarAlgebra, RejectsNonPositiveScalar) {
+  EXPECT_DEATH(ValidInertia() * 0.0F, "");
 }
 
 // Apply(SpatialVelocity)/Apply(SpatialAcceleration): Inertia's own
@@ -276,6 +312,51 @@ TEST(InertiaInverse, MatrixProductIsIdentity) {
   Inertia<float> i = ValidInertia();
   Matrix6x6<float> product = i.AsMatrix() * i.Inverse().AsMatrix();
   EXPECT_TRUE(product.IsApprox(Matrix6x6<float>::Identity(), 1e-3F));
+}
+
+// Inverse() divides by mass_ -- a zero-mass Inertia (reachable via
+// SetZero(), which bypasses the constructors' physical-validity checks
+// since it's a raw setter, not a validated construction) must assert
+// rather than divide by zero.
+TEST(InertiaInverse, RejectsZeroMass) {
+  EXPECT_DEATH(Inertia<float>::Zero().Inverse(), "");
+}
+
+// Batched smoke test: every Inertia<T> member that carries a scalar
+// precondition (operator-=' mass_ >= T{0}, the scalar-algebra family's
+// scalar > T{0}, Inverse()'s mass_ > T{0}) must still build and behave
+// correctly for T = xsimd::batch<float>, not just float -- the comparison
+// itself produces a lane mask rather than a bool for a batched T, so each
+// assert has to reduce it with util::AllTrue (as the constructor's own
+// validity checks above already do) instead of asserting on the mask
+// directly.
+TEST(InertiaBatched, ScalarAlgebraAndInverseMatchScalarPerLane) {
+  using B = xsimd::batch<float>;
+  Inertia<float> scalar_body = ValidInertia();
+  Inertia<B> body(
+      B(scalar_body.Mass()), Vector3<B>::Zero(), B(scalar_body.Ixx()),
+      B(scalar_body.Iyy()), B(scalar_body.Izz()), B(0.0F), B(0.0F), B(0.0F)
+  );
+
+  Inertia<B> scaled = body * B(2.0F);
+  Inertia<float> scaled_scalar = scalar_body * 2.0F;
+  EXPECT_FLOAT_EQ(scaled.Mass().get(0), scaled_scalar.Mass());
+  EXPECT_TRUE(achilles::util::AllTrue((scaled / B(2.0F)).IsApprox(body)));
+
+  Inertia<B> compound = body;
+  compound *= B(2.0F);
+  EXPECT_TRUE(achilles::util::AllTrue(compound.IsApprox(scaled)));
+  compound /= B(2.0F);
+  EXPECT_TRUE(achilles::util::AllTrue(compound.IsApprox(body)));
+
+  Inertia<B> after_subtract = scaled;
+  after_subtract -= body;
+  EXPECT_TRUE(achilles::util::AllTrue(after_subtract.IsApprox(body)));
+
+  Matrix6x6<B> product = body.AsMatrix() * body.Inverse().AsMatrix();
+  EXPECT_TRUE(
+      achilles::util::AllTrue(product.IsApprox(Matrix6x6<B>::Identity(), 1e-3F))
+  );
 }
 
 // ===== InertiaOperator<T, Inverted> =====
@@ -332,6 +413,18 @@ TEST(InertiaOperatorAsSparse, RoundTripsThroughAsArticulated) {
 
   Inertia<float> shifted = ShiftedInertia();
   EXPECT_TRUE(shifted.AsArticulated().AsSparse().IsApprox(shifted, 1e-3F));
+}
+
+// AsSparse()'s own precondition (IsSparseRepresentable) was, until now,
+// only ever exercised by matrices that already had the right block
+// structure -- never proven to actually reject one that doesn't. Breaking
+// the top-left block's symmetry (a plain Identity would trivially satisfy
+// every check) is enough to violate it.
+TEST(InertiaOperatorAsSparse, RejectsNonSparseRepresentableStructure) {
+  Matrix6x6<float> m = Matrix6x6<float>::Identity();
+  m(0, 1) = 5.0F;  // breaks top-left symmetry: (0,1) != (1,0)
+  ArticulatedInertiaOperator<float> op(m);
+  EXPECT_DEATH(op.AsSparse(), "");
 }
 
 TEST(InertiaOperatorComparison, EqualityAndInequality) {

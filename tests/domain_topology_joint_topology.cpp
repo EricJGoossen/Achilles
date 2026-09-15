@@ -1,15 +1,12 @@
 #include <gtest/gtest.h>
 
 #include <cstddef>
-#include <cstdint>
-#include <span>
 #include <vector>
 #include <xsimd/xsimd.hpp>
 
 #include "domain/topology/joint_topology.hpp"
 #include "support/joint_topology_fixture.hpp"
 
-using achilles::domain::topology::JointTopology;
 using achilles::domain::topology::SegmentData;
 using achilles::test_support::TopologyFixture;
 

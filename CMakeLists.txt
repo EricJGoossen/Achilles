@@ -79,6 +79,18 @@ add_custom_target(check-format
 add_custom_target(check-tidy
     COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-tidy.sh" "${CMAKE_BINARY_DIR}"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    COMMENT "Running clang-tidy over src/ and include/"
+    COMMENT "Running clang-tidy over src/, include/, and tests/"
+    VERBATIM
+)
+
+# Kept separate from check-tidy above: the Clang Static Analyzer
+# (clang-analyzer-*) is path-sensitive symbolic execution, an order of
+# magnitude more expensive per translation unit than the AST-matcher
+# checks in check-tidy. Folding it in would make every routine lint run
+# pay that cost. See .clang-tidy-analyzer and scripts/check-tidy-analyzer.sh.
+add_custom_target(check-tidy-analyzer
+    COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-tidy-analyzer.sh" "${CMAKE_BINARY_DIR}"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    COMMENT "Running the clang-analyzer checks over src/, include/, and tests/"
     VERBATIM
 )

@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <array>
+#include <cstddef>
 #include <xsimd/xsimd.hpp>
 
 #include "domain/math/matrix.hpp"

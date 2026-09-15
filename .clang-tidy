@@ -1,31 +1,112 @@
+# Checks below `-misc-unused-using-decls,` are grouped rather than
+# interleaved because YAML block-scalar folding (`Checks: >`) doesn't allow
+# inline comments on individual entries -- everything indented under it is
+# literal string content, so any `#` there would get folded straight into
+# the check-name list instead of being treated as a comment.
+#
+# - clang-analyzer-*: the Clang Static Analyzer, run separately by
+#   scripts/check-tidy-analyzer.sh / .clang-tidy-analyzer instead of every
+#   routine check-tidy run (see that file for why).
+# - google-objc-*, openmp-*: structurally can't fire on this codebase --
+#   pure C++20, no Objective-C and no -fopenmp/#pragma omp anywhere.
+# - portability-restrict-system-includes: needs a configured
+#   `Includes` allowlist that nothing here sets, so it's a no-op as-is.
+# - Everything after that is one half of a pair/trio that clang-tidy
+#   registers as the *same* check under multiple names (confirmed
+#   empirically: enabling both names merges into one diagnostic tagged
+#   with every enabled alias, not two separate diagnostics). Keeping every
+#   alias enabled doesn't add coverage, just a noisier bracket on every
+#   hit, so one name survives per group and the rest are excluded here:
+#   cppcoreguidelines-narrowing-conversions (bugprone-narrowing-conversions
+#   survives), cppcoreguidelines-avoid-c-arrays + hicpp-avoid-c-arrays
+#   (modernize-avoid-c-arrays survives), hicpp-avoid-goto
+#   (cppcoreguidelines-avoid-goto survives), cppcoreguidelines-no-malloc
+#   (hicpp-no-malloc survives), cppcoreguidelines-explicit-virtual-functions
+#   + hicpp-use-override (modernize-use-override survives),
+#   cppcoreguidelines-macro-to-enum (modernize-macro-to-enum survives),
+#   hicpp-special-member-functions
+#   (cppcoreguidelines-special-member-functions survives),
+#   cppcoreguidelines-use-default-member-init
+#   (modernize-use-default-member-init survives),
+#   google-readability-braces-around-statements +
+#   hicpp-braces-around-statements (readability-braces-around-statements
+#   survives), hicpp-deprecated-headers (modernize-deprecated-headers
+#   survives), hicpp-uppercase-literal-suffix
+#   (readability-uppercase-literal-suffix survives), and hicpp-use-auto /
+#   hicpp-use-emplace / hicpp-use-equals-default / hicpp-use-equals-delete
+#   / hicpp-use-noexcept / hicpp-use-nullptr (their modernize-use-*
+#   counterparts survive).
 ---
 Checks: >
-    -*,
-    google-*,
-    bugprone-*,
-    modernize-*,
-    performance-*,
-    cppcoreguidelines-*,
-    readability-qualified-auto,
-    readability-use-anyofallof,
-    readability-identifier-naming,
-    -google-objc-*,
+    *,
+    -llvm-*,
+    -llvmlibc-*,
+    -fuchsia-*,
+    -zircon-*,
+    -altera-*,
+    -android-*,
+    -darwin-*,
+    -linuxkernel-*,
+    -objc-*,
+    -mpi-*,
+    -abseil-*,
+    -boost-*,
     -google-readability-todo,
     -cppcoreguidelines-avoid-magic-numbers,
     -cppcoreguidelines-non-private-member-variables-in-classes,
     -modernize-use-trailing-return-type,
     -modernize-use-nodiscard,
     -bugprone-easily-swappable-parameters,
-    -google-explicit-constructor,
     -performance-noexcept-move-constructor,
     -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
     -cppcoreguidelines-pro-bounds-pointer-arithmetic,
     -cppcoreguidelines-pro-bounds-constant-array-index,
-    -cppcoreguidelines-missing-std-forward
+    -readability-magic-numbers,
+    -readability-identifier-length,
+    -cert-err58-cpp,
+    -misc-definitions-in-headers,
+    -readability-named-parameter,
+    -misc-const-correctness,
+    -hicpp-named-parameter,
+    -hicpp-signed-bitwise,
+    -readability-convert-member-functions-to-static,
+    -misc-unused-using-decls,
+    -clang-analyzer-*,
+    -google-objc-*,
+    -openmp-*,
+    -portability-restrict-system-includes,
+    -cppcoreguidelines-narrowing-conversions,
+    -cppcoreguidelines-avoid-c-arrays,
+    -hicpp-avoid-c-arrays,
+    -hicpp-avoid-goto,
+    -cppcoreguidelines-no-malloc,
+    -cppcoreguidelines-explicit-virtual-functions,
+    -hicpp-use-override,
+    -cppcoreguidelines-macro-to-enum,
+    -hicpp-special-member-functions,
+    -cppcoreguidelines-use-default-member-init,
+    -google-readability-braces-around-statements,
+    -hicpp-braces-around-statements,
+    -hicpp-deprecated-headers,
+    -hicpp-uppercase-literal-suffix,
+    -hicpp-use-auto,
+    -hicpp-use-emplace,
+    -hicpp-use-equals-default,
+    -hicpp-use-equals-delete,
+    -hicpp-use-noexcept,
+    -hicpp-use-nullptr,
 
 HeaderFilterRegex: '(src|include|tests)/.*'
 
 CheckOptions:
+    # xsimd's own convention is to include the <xsimd/xsimd.hpp> umbrella
+    # header, never its internal per-type headers directly -- so
+    # misc-include-cleaner's "use the header that actually declares this"
+    # rule doesn't apply to it; excluding it here avoids fighting the
+    # library's own documented usage pattern.
+    - key: misc-include-cleaner.IgnoreHeaders
+      value: 'xsimd/.*'
+
     # Types: classes, structs, enums, unions, typedefs, aliases — all PascalCase
     - key: readability-identifier-naming.ClassCase
       value: CamelCase
@@ -56,6 +137,8 @@ CheckOptions:
     - key: readability-identifier-naming.VariableIgnoredRegexp
       value: '.*'
     - key: readability-identifier-naming.LocalVariableIgnoredRegexp
+      value: '.*'
+    - key: readability-identifier-naming.LocalConstantIgnoredRegexp
       value: '.*'
 
     - key: readability-identifier-naming.NamespaceCase

@@ -8,6 +8,7 @@
 #include "domain/topology/topology_contract.hpp"
 #include "engine/algorithm_step.hpp"
 #include "engine/op_contract.hpp"
+#include "engine/traversals.hpp"
 #include "support/planar_view_fixture.hpp"
 #include "support/toy_field.hpp"
 
@@ -124,6 +125,26 @@ static_assert(PassLike<DoublePass>);
 struct NotAPass {};
 static_assert(!PassLike<NotAPass>);
 
+// Writes kVelocity at the parent index via `+=` -- the shape
+// PropagateInertiaOp (algorithms/aba/aba_ops.hpp) uses for real to fold
+// each child's contribution into a shared parent row.
+struct AccumulateIntoParentOp {
+  using FieldEnum = ToyField;
+  static constexpr std::array<ArgData<FieldEnum>, 1> kInputs = {
+      ArgData<FieldEnum>{FieldEnum::kPosition, true},
+  };
+  static constexpr std::array<ArgData<FieldEnum>, 1> kOutputs = {
+      ArgData<FieldEnum>{FieldEnum::kVelocity, false},
+  };
+  void operator()(
+      const Vector3<float>& contribution, Vector3<float>* velocity_parent_out
+  ) const {
+    *velocity_parent_out += contribution;
+  }
+};
+using AccumulatePass = Pass<AccumulateIntoParentOp, ForwardTreeTraversal>;
+static_assert(PassLike<AccumulatePass>);
+
 }  // namespace
 
 TEST(RunPassTest, PropagatesAlongATreeInForwardOrder) {
@@ -154,6 +175,32 @@ TEST(RunPassTest, PropagatesAlongATreeInForwardOrder) {
   );
 }
 
+// Regression test for the bug where OpInvoker handed a fresh, zeroed
+// local to an accumulating op instead of the view's real current value:
+// joints 1 and 2 both parent off joint 0 (same topology as the test
+// above), and each contributes to joint 0's kVelocity via `+=`. Joint 0's
+// own pre-existing value must survive, with both children's contributions
+// summed on top of it -- not the last-processed child's contribution
+// alone.
+TEST(RunPassTest, AccumulatesContributionsFromMultipleChildrenIntoSharedParent) {
+  Fixture fixture(4);
+  ToyView view = fixture.MakeView();
+  TopologyArchetype topology{{3, 0, 0}};
+
+  view.Store<ToyField::kVelocity, float>(0, Vector3<float>(100.0F, 0.0F, 0.0F));
+  view.Store<ToyField::kPosition, float>(1, Vector3<float>(1.0F, 0.0F, 0.0F));
+  view.Store<ToyField::kPosition, float>(2, Vector3<float>(10.0F, 0.0F, 0.0F));
+
+  AccumulateIntoParentOp op;
+  RunPass<AccumulatePass>(view, op, topology);
+
+  EXPECT_TRUE(
+      (view.Load<ToyField::kVelocity, float>(0).IsApprox(
+          Vector3<float>(111.0F, 0.0F, 0.0F)
+      ))
+  );
+}
+
 // RunPass itself calls Initialize at the base row before Apply -- no
 // separate seed call needed -- for an Op that declares one.
 TEST(RunPassTest, InitializeSeedsBaseRowBeforeApply) {
@@ -174,6 +221,77 @@ TEST(RunPassTest, InitializeSeedsBaseRowBeforeApply) {
   EXPECT_TRUE(
       (view.Load<ToyField::kVelocity, float>(0).IsApprox(Vector3<float>(10.0F, 9.0F, 9.0F)))
   );
+}
+
+// TreeTraversal::InitOp seeds Initialize at topology[0] -- whatever joint
+// 0 claims as its own parent -- on the assumption that joint 0 is always
+// a root pointing at a genuinely separate, reserved row outside [0,
+// Size()) (see aba_ops.hpp: "Wired into Step for the single-root case
+// only"). RunPass runs InitOp and Apply back to back with nothing in
+// between, and nothing anywhere checks that assumption -- if a topology
+// ever gave joint 0 an *in-range* parent (a real joint, not a genuinely
+// reserved row -- exactly what an unsupported multi-root forest would
+// need), Initialize would seed that real joint's own row, and Apply
+// would immediately overwrite it while computing that joint's ordinary
+// output, silently discarding the seed with no error of any kind. This
+// documents that failure mode concretely so it doesn't have to be
+// rediscovered by hand later: joint 0's parent (1) is in range here,
+// Initialize seeds row 1 with (9,9,9), and Apply's very next pass
+// (processing joint 1, whose parent is joint 0) overwrites it with
+// position[1] + velocity[0] before RunPass returns.
+TEST(RunPassTest, InSequenceInitSeedIsSilentlyClobberedWhenBaseRowIsInRange) {
+  Fixture fixture(2);
+  ToyView view = fixture.MakeView();
+  TopologyArchetype topology{{1, 0}};  // joint 0's parent is joint 1 (in range!)
+
+  view.Store<ToyField::kPosition, float>(0, Vector3<float>(1.0F, 0.0F, 0.0F));
+  view.Store<ToyField::kPosition, float>(1, Vector3<float>(2.0F, 0.0F, 0.0F));
+
+  SeededPropagateOp op(Vector3<float>(9.0F, 9.0F, 9.0F));
+  RunPass<SeededPropagatePass>(view, op, topology);
+
+  // Row 1 held the (9,9,9) seed only until Apply reached joint 1's own
+  // turn: position[1] (2,0,0) + velocity[0] (the seed plus joint 0's own
+  // contribution, 10,9,9) = (12,9,9), not the seed.
+  EXPECT_TRUE(
+      (view.Load<ToyField::kVelocity, float>(1).IsApprox(
+          Vector3<float>(12.0F, 9.0F, 9.0F)
+      ))
+  );
+}
+
+// Regression test: TreeTraversal::InitOp used to unconditionally index
+// topology[0] before RunPass got to Apply, out of range for a topology
+// with no real joints in it (TopologyLike doesn't require non-empty, and
+// a real JointTopology accepts empty input). RunPass over an empty
+// topology must now do nothing at all -- neither Initialize nor Apply
+// touches any row -- rather than indexing into an empty topology.
+TEST(RunPassTest, EmptyTopologySkipsInitializeAndApply) {
+  Fixture fixture(4);
+  ToyView view = fixture.MakeView();
+  TopologyArchetype topology{{}};
+
+  SeededPropagateOp op(Vector3<float>(9.0F, 9.0F, 9.0F));
+  RunPass<SeededPropagatePass>(view, op, topology);
+
+  EXPECT_TRUE((view.Load<ToyField::kVelocity, float>(0).IsZero()));
+  EXPECT_TRUE((view.Load<ToyField::kVelocity, float>(3).IsZero()));
+}
+
+// Same regression, through LinearTraversal::InitOp instead: it used to
+// ignore the traversal's size entirely and always call Initialize(0), so
+// a zero-length linear pass wrote to index 0 even though Apply itself
+// would run zero iterations.
+TEST(RunPassTest, EmptyLinearPassSkipsInitializeAndApply) {
+  Fixture fixture(4);
+  ToyView view = fixture.MakeView();
+
+  SeededPropagateOp op(Vector3<float>(9.0F, 9.0F, 9.0F));
+  RunPass<Pass<SeededPropagateOp, ForwardLinearTraversal>>(
+      view, op, std::size_t{0}
+  );
+
+  EXPECT_TRUE((view.Load<ToyField::kVelocity, float>(0).IsZero()));
 }
 
 // LinearTraversal paired with a real OpInvoker via RunPass -- until

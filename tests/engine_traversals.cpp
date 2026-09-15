@@ -1,7 +1,8 @@
-#include <cstddef>
-#include <vector>
-
 #include <gtest/gtest.h>
+
+#include <cstddef>
+#include <utility>
+#include <vector>
 
 #include "domain/topology/topology_contract.hpp"
 #include "engine/traversals.hpp"
@@ -28,6 +29,16 @@ struct TopologyArchetype {
   size_t operator[](size_t i) const { return parents[i]; }
 };
 static_assert(achilles::domain::topology::TopologyLike<TopologyArchetype>);
+
+// Has a Size() but, unlike a bare size_t, no implicit conversion to
+// size_t -- the shape a real JointTopology has (Size() + operator[], no
+// operator size_t()). Used to prove LinearTraversal::Apply actually
+// accepts "anything with a Size()" the way its own doc comment promises,
+// not just a literal size_t.
+struct SizeOnlyArchetype {
+  size_t count;
+  size_t Size() const { return count; }
+};
 
 // InitOp calls `op.Initialize(...)` by name (see TreeTraversal::InitOp/
 // LinearTraversal::InitOp in engine/traversals.hpp) -- unlike Apply, which
@@ -61,7 +72,7 @@ TEST(TreeTraversalApply, ForwardVisitsEachIndexOnceInOrderWithItsParent) {
       topology
   );
 
-  ASSERT_EQ(calls.size(), 3u);
+  ASSERT_EQ(calls.size(), 3U);
   EXPECT_EQ(calls[0], (std::pair<size_t, size_t>{0, 10}));
   EXPECT_EQ(calls[1], (std::pair<size_t, size_t>{1, 0}));
   EXPECT_EQ(calls[2], (std::pair<size_t, size_t>{2, 1}));
@@ -76,7 +87,7 @@ TEST(TreeTraversalApply, BackwardVisitsEachIndexOnceInReverseOrder) {
       topology
   );
 
-  ASSERT_EQ(calls.size(), 3u);
+  ASSERT_EQ(calls.size(), 3U);
   EXPECT_EQ(calls[0], (std::pair<size_t, size_t>{2, 1}));
   EXPECT_EQ(calls[1], (std::pair<size_t, size_t>{1, 0}));
   EXPECT_EQ(calls[2], (std::pair<size_t, size_t>{0, 10}));
@@ -90,11 +101,44 @@ TEST(TreeTraversalInitOp, AlwaysUsesTopologyIndexZero) {
 
   size_t forward_seen = 999;
   ForwardTreeTraversal::InitOp(RecordingInitOp{&forward_seen}, topology);
-  EXPECT_EQ(forward_seen, 42u);
+  EXPECT_EQ(forward_seen, 42U);
 
   size_t backward_seen = 999;
   BackwardTreeTraversal::InitOp(RecordingInitOp{&backward_seen}, topology);
-  EXPECT_EQ(backward_seen, 42u);
+  EXPECT_EQ(backward_seen, 42U);
+}
+
+// An empty topology has no row 0 to initialize -- topology[0] would be
+// out of range, so InitOp must skip calling Initialize rather than
+// indexing into an empty topology.
+TEST(TreeTraversalInitOp, SkipsInitializeWhenTopologyIsEmpty) {
+  TopologyArchetype topology{{}};
+
+  size_t seen = 999;
+  ForwardTreeTraversal::InitOp(RecordingInitOp{&seen}, topology);
+  EXPECT_EQ(seen, 999U);
+}
+
+// Backward Apply's loop is `for (size_t j = size; j-- > 0;)` -- with
+// size == 0, the comparison is false before any decrement is observed, so
+// no call happens, but this relies on evaluation order rather than an
+// explicit `size == 0` guard. Locks in that this stays call-free (rather
+// than, say, wrapping around and iterating size_t's full range) if that
+// loop is ever rewritten.
+TEST(TreeTraversalApply, EmptyTopologyMakesNoCalls) {
+  TopologyArchetype topology{{}};
+  std::vector<std::pair<size_t, size_t>> calls;
+
+  ForwardTreeTraversal::Apply(
+      [&](size_t target, size_t parent) { calls.emplace_back(target, parent); },
+      topology
+  );
+  BackwardTreeTraversal::Apply(
+      [&](size_t target, size_t parent) { calls.emplace_back(target, parent); },
+      topology
+  );
+
+  EXPECT_TRUE(calls.empty());
 }
 
 // LinearTraversal::Apply calls its callable with the same index twice --
@@ -103,32 +147,77 @@ TEST(TreeTraversalInitOp, AlwaysUsesTopologyIndexZero) {
 // OpInvoker::operator()(target_index, parent_index) needs, since Pass
 // (algorithm_step.hpp) always pairs a Traversal with a real OpInvoker.
 // See engine_algorithm_step.cpp for that pairing exercised for real.
-TEST(LinearTraversalApply, ForwardVisitsEachIndexOnceInOrderTargetEqualsParent) {
+TEST(
+    LinearTraversalApply, ForwardVisitsEachIndexOnceInOrderTargetEqualsParent
+) {
   std::vector<std::pair<size_t, size_t>> calls;
   ForwardLinearTraversal::Apply(
-      [&](size_t target, size_t parent) { calls.emplace_back(target, parent); }, 3
+      [&](size_t target, size_t parent) { calls.emplace_back(target, parent); },
+      3
   );
   EXPECT_EQ(
-      calls,
-      (std::vector<std::pair<size_t, size_t>>{{0, 0}, {1, 1}, {2, 2}})
+      calls, (std::vector<std::pair<size_t, size_t>>{{0, 0}, {1, 1}, {2, 2}})
   );
 }
 
 TEST(LinearTraversalApply, BackwardVisitsEachIndexOnceInReverseOrder) {
   std::vector<std::pair<size_t, size_t>> calls;
   BackwardLinearTraversal::Apply(
-      [&](size_t target, size_t parent) { calls.emplace_back(target, parent); }, 3
+      [&](size_t target, size_t parent) { calls.emplace_back(target, parent); },
+      3
   );
   EXPECT_EQ(
-      calls,
-      (std::vector<std::pair<size_t, size_t>>{{2, 2}, {1, 1}, {0, 0}})
+      calls, (std::vector<std::pair<size_t, size_t>>{{2, 2}, {1, 1}, {0, 0}})
   );
 }
 
-TEST(LinearTraversalInitOp, AlwaysCallsWithZero) {
+// Regression test: LinearTraversal::Apply's second parameter used to be
+// typed as a literal size_t, so a real JointTopology (Size() + operator[],
+// no operator size_t()) couldn't be passed to it at all despite the
+// surrounding docs promising "anything with a Size()" -- this only
+// compiles now that Apply dispatches on whether its argument has Size().
+TEST(LinearTraversalApply, AcceptsATopologyLikeSizeArgument) {
+  std::vector<std::pair<size_t, size_t>> calls;
+  ForwardLinearTraversal::Apply(
+      [&](size_t target, size_t parent) { calls.emplace_back(target, parent); },
+      SizeOnlyArchetype{3}
+  );
+  EXPECT_EQ(
+      calls, (std::vector<std::pair<size_t, size_t>>{{0, 0}, {1, 1}, {2, 2}})
+  );
+}
+
+// Same evaluation-order concern as TreeTraversalApply's empty case, for
+// LinearTraversal's identically-shaped `for (size_t j = size; j-- > 0;)`
+// loop.
+TEST(LinearTraversalApply, ZeroSizeMakesNoCalls) {
+  std::vector<std::pair<size_t, size_t>> calls;
+
+  ForwardLinearTraversal::Apply(
+      [&](size_t target, size_t parent) { calls.emplace_back(target, parent); },
+      0
+  );
+  BackwardLinearTraversal::Apply(
+      [&](size_t target, size_t parent) { calls.emplace_back(target, parent); },
+      0
+  );
+
+  EXPECT_TRUE(calls.empty());
+}
+
+TEST(LinearTraversalInitOp, CallsWithZeroWhenNonEmpty) {
   size_t seen = 999;
-  ForwardLinearTraversal::InitOp(RecordingInitOp{&seen});
-  EXPECT_EQ(seen, 0u);
+  ForwardLinearTraversal::InitOp(RecordingInitOp{&seen}, 3);
+  EXPECT_EQ(seen, 0U);
+}
+
+// A zero-length linear pass has no row 0 to initialize -- Apply itself
+// would run zero iterations, so InitOp must skip calling Initialize rather
+// than unconditionally touching index 0.
+TEST(LinearTraversalInitOp, SkipsInitializeWhenEmpty) {
+  size_t seen = 999;
+  ForwardLinearTraversal::InitOp(RecordingInitOp{&seen}, 0);
+  EXPECT_EQ(seen, 999U);
 }
 
 TEST(TraversalLikeConcept, AllFourTraversalsSatisfyIt) {

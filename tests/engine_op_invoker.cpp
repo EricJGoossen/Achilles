@@ -68,6 +68,55 @@ struct SeedPositionOp {
 static_assert(OpLike<SeedPositionOp>);
 static_assert(OpArgsMatchView<SeedPositionOp, ToyView>);
 
+// Writes kVelocity at the parent index via `+=` -- the shape
+// PropagateInertiaOp (algorithms/aba/aba_ops.hpp) uses for real to fold
+// each child's contribution into a shared parent row. Invoke must load
+// the output's current value from the view before calling operator(),
+// not hand it a fresh zero, or a second call targeting the same parent
+// clobbers the first instead of accumulating onto it.
+struct AccumulateIntoParentOp {
+  using FieldEnum = ToyField;
+
+  static constexpr std::array<ArgData<FieldEnum>, 1> kInputs = {
+      ArgData<FieldEnum>{FieldEnum::kPosition, true},
+  };
+  static constexpr std::array<ArgData<FieldEnum>, 1> kOutputs = {
+      ArgData<FieldEnum>{FieldEnum::kVelocity, false},
+  };
+
+  void operator()(
+      const Vector3<float>& contribution, Vector3<float>* velocity_parent_out
+  ) const {
+    *velocity_parent_out += contribution;
+  }
+};
+static_assert(OpLike<AccumulateIntoParentOp>);
+static_assert(OpArgsMatchView<AccumulateIntoParentOp, ToyView>);
+
+// Same `+=`-onto-the-view shape as AccumulateIntoParentOp, but for
+// SingleOpInvoker's single-index Invoke overload (use_target=true, no
+// parent_index at all) -- that overload has its own separate output-tuple
+// construction in OpInvokerBase::Invoke, so it needed the same
+// load-before-store fix and deserves its own regression test.
+struct AccumulateAtTargetOp {
+  using FieldEnum = ToyField;
+
+  static constexpr std::array<ArgData<FieldEnum>, 1> kInputs = {
+      ArgData<FieldEnum>{FieldEnum::kPosition, true},
+  };
+  static constexpr std::array<ArgData<FieldEnum>, 1> kOutputs = {
+      ArgData<FieldEnum>{FieldEnum::kVelocity, true},
+  };
+
+  void operator()(
+      const Vector3<float>& contribution, Vector3<float>* velocity_out
+  ) const {
+    *velocity_out += contribution;
+  }
+};
+static_assert(OpLike<AccumulateAtTargetOp>);
+static_assert(OpArgsMatchView<AccumulateAtTargetOp, ToyView>);
+
 }  // namespace
 
 TEST(OpInvoker, ReadsTargetAndParentWritesTarget) {
@@ -112,6 +161,32 @@ TEST(OpInvoker, TargetAndParentSameIndexBothReadsHitTheSameRow) {
   );
 }
 
+// Regression test for the bug where Invoke default-constructed (zeroed)
+// the output locals on every call instead of loading the view's current
+// value: two different targets (1 and 2) both write into parent index 0
+// via `+=`, and the parent's own pre-existing value must survive both
+// calls, with each contribution summed on top of it rather than the
+// second call's fresh zero overwriting the first call's result.
+TEST(OpInvoker, AccumulatesWhenMultipleCallsTargetTheSameParent) {
+  Fixture fixture(4);
+  ToyView view = fixture.MakeView();
+
+  view.Store<ToyField::kVelocity, float>(0, Vector3<float>(100.0F, 0.0F, 0.0F));
+  view.Store<ToyField::kPosition, float>(1, Vector3<float>(1.0F, 0.0F, 0.0F));
+  view.Store<ToyField::kPosition, float>(2, Vector3<float>(10.0F, 0.0F, 0.0F));
+
+  AccumulateIntoParentOp op;
+  OpInvoker<AccumulateIntoParentOp, ToyView> invoker(view, op);
+  invoker(/*target_index=*/1, /*parent_index=*/0);
+  invoker(/*target_index=*/2, /*parent_index=*/0);
+
+  EXPECT_TRUE(
+      (view.Load<ToyField::kVelocity, float>(0).IsApprox(
+          Vector3<float>(111.0F, 0.0F, 0.0F)
+      ))
+  );
+}
+
 TEST(SingleOpInvokerTest, WritesOnlyTheGivenTargetIndex) {
   Fixture fixture(4);
   ToyView view = fixture.MakeView();
@@ -128,4 +203,28 @@ TEST(SingleOpInvokerTest, WritesOnlyTheGivenTargetIndex) {
   EXPECT_TRUE((view.Load<ToyField::kPosition, float>(0).IsZero()));
   EXPECT_TRUE((view.Load<ToyField::kPosition, float>(1).IsZero()));
   EXPECT_TRUE((view.Load<ToyField::kPosition, float>(3).IsZero()));
+}
+
+// Regression test for the same zero-init bug as
+// OpInvoker.AccumulatesWhenMultipleCallsTargetTheSameParent, but through
+// SingleOpInvoker's single-index Invoke overload: two calls to the same
+// target index with a `+=` op must sum, not have the second call's fresh
+// zero clobber the first call's result.
+TEST(SingleOpInvokerTest, AccumulatesAcrossMultipleCallsToTheSameTarget) {
+  Fixture fixture(4);
+  ToyView view = fixture.MakeView();
+
+  view.Store<ToyField::kVelocity, float>(2, Vector3<float>(100.0F, 0.0F, 0.0F));
+  view.Store<ToyField::kPosition, float>(2, Vector3<float>(1.0F, 0.0F, 0.0F));
+
+  AccumulateAtTargetOp op;
+  SingleOpInvoker<AccumulateAtTargetOp, ToyView> invoker(view, op);
+  invoker(2);
+  invoker(2);
+
+  EXPECT_TRUE(
+      (view.Load<ToyField::kVelocity, float>(2).IsApprox(
+          Vector3<float>(102.0F, 0.0F, 0.0F)
+      ))
+  );
 }

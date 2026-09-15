@@ -24,7 +24,7 @@ namespace detail {
 struct TraversalProbe {
   size_t Size() const { return 0; }
   size_t operator[](size_t) const { return 0; }
-  operator size_t() const { return 0; }
+  explicit operator size_t() const { return 0; }
 };
 
 }  // namespace detail
@@ -71,7 +71,7 @@ struct TreeTraversal {
       domain::topology::TopologyLike Topology,
       typename... Rest>
   static constexpr void Apply(
-      Callable&& callable, const Topology& topology, const Rest&...
+      const Callable& callable, const Topology& topology, const Rest&...
   ) {
     if constexpr (Dir == Direction::kForward) {
       for (size_t j = 0; j < topology.Size(); ++j) {
@@ -86,19 +86,21 @@ struct TreeTraversal {
 
   template <typename Callable, typename Topology, typename... Rest>
   static constexpr void InitOp(
-      Callable&& callable, const Topology& topology, const Rest&...
+      const Callable& callable, const Topology& topology, const Rest&...
   ) {
-    callable.Initialize(topology[0]);
+    if (topology.Size() > 0) {
+      callable.Initialize(topology[0]);
+    }
   }
 };
 using ForwardTreeTraversal = TreeTraversal<Direction::kForward>;
 using BackwardTreeTraversal = TreeTraversal<Direction::kBackward>;
 static_assert(
-    TraversalLike<ForwardTreeTraversal> &&
+    TraversalLike<ForwardTreeTraversal>,
     "ForwardTreeTraversal must satisfy TraversalLike concept"
 );
 static_assert(
-    TraversalLike<BackwardTreeTraversal> &&
+    TraversalLike<BackwardTreeTraversal>,
     "BackwardTreeTraversal must satisfy TraversalLike concept"
 );
 
@@ -116,7 +118,7 @@ struct LinearTraversal {
 
   template <typename Callable, typename SizeOrTopology, typename... Rest>
   static constexpr void Apply(
-      Callable&& callable,
+      const Callable& callable,
       const SizeOrTopology& size_or_topology,
       const Rest&...
   ) {
@@ -138,19 +140,32 @@ struct LinearTraversal {
     }
   }
 
-  template <typename Callable, typename... Rest>
-  static constexpr void InitOp(Callable&& callable, const Rest&...) {
-    callable.Initialize(0);
+  template <typename Callable, typename SizeOrTopology, typename... Rest>
+  static constexpr void InitOp(
+      const Callable& callable,
+      const SizeOrTopology& size_or_topology,
+      const Rest&...
+  ) {
+    size_t size = [&] {
+      if constexpr (requires { size_or_topology.Size(); }) {
+        return size_or_topology.Size();
+      } else {
+        return size_or_topology;
+      }
+    }();
+    if (size > 0) {
+      callable.Initialize(0);
+    }
   }
 };
 using ForwardLinearTraversal = LinearTraversal<Direction::kForward>;
 using BackwardLinearTraversal = LinearTraversal<Direction::kBackward>;
 static_assert(
-    TraversalLike<ForwardLinearTraversal> &&
+    TraversalLike<ForwardLinearTraversal>,
     "ForwardLinearTraversal must satisfy TraversalLike concept"
 );
 static_assert(
-    TraversalLike<BackwardLinearTraversal> &&
+    TraversalLike<BackwardLinearTraversal>,
     "BackwardLinearTraversal must satisfy TraversalLike concept"
 );
 

@@ -320,3 +320,26 @@ TEST(SpatialForceDot, DotsAgainstAcceleration) {
                    5.0F * 2.0F + 6.0F * 1.0F;
   EXPECT_FLOAT_EQ(f.Dot(a), expected);
 }
+
+// Every Dual-derived type must still expose the inherited Dual::Dot(const
+// Derived&) unchanged -- declaring any same-named member in a derived
+// class (SpatialForce::Dot(SpatialAcceleration), SpatialVelocity's own
+// members, ...) hides ALL base-class overloads of that name from ordinary
+// lookup unless brought back with a using-declaration, so a type-specific
+// overload added later can silently break the shared, same-type Dot every
+// derived type is supposed to inherit. Run generically across every
+// derived type, including the ones that add their own members, rather
+// than special-cased just for SpatialForce, so this also catches the same
+// mistake on any future addition.
+template <typename Derived>
+class DualDerivedTypesSameTypeDotTest : public ::testing::Test {};
+using AllDualDerivedTypes = ::testing::Types<
+    SpatialPosition<float>, SpatialVelocity<float>, SpatialAcceleration<float>,
+    SpatialMomentum<float>, SpatialForce<float>>;
+TYPED_TEST_SUITE(DualDerivedTypesSameTypeDotTest, AllDualDerivedTypes);
+
+TYPED_TEST(DualDerivedTypesSameTypeDotTest, SameTypeDotStillResolves) {
+  TypeParam a = TypeParam::UnitX();
+  TypeParam b(100.0F, 100.0F, 100.0F, 3.0F, 100.0F, 100.0F);
+  EXPECT_FLOAT_EQ(a.Dot(b), 3.0F);
+}

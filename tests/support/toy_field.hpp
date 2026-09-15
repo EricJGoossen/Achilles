@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include "domain/math/vector3.hpp"
 #include "engine/field_contract.hpp"
 #include "engine/view/planar_view.hpp"
@@ -15,7 +17,7 @@ namespace achilles::test_support {
 // which several of these test files also use directly, as the "does this
 // hold for the real, already-shipping case too" check). Built from a real
 // production Assembler (Vector3Assembler<float>), not an invented one.
-enum class ToyField {
+enum class ToyField : std::uint8_t {
   kPosition,
   kVelocity,
   kCount,

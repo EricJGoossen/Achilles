@@ -36,29 +36,24 @@ class Transform {
     return {v.Linear(), Quaternion::Exp(v.Angular())};
   }
 
-  inline constexpr const Vector3& Translation() const { return translation_; }
-  inline constexpr const Quaternion& Rotation() const { return rotation_; }
+  constexpr const Vector3& Translation() const { return translation_; }
+  constexpr const Quaternion& Rotation() const { return rotation_; }
 
-  inline constexpr std::tuple<Vector3, Quaternion> ToTuple() const {
+  constexpr std::tuple<Vector3, Quaternion> ToTuple() const {
     return std::make_tuple(translation_, rotation_);
   }
 
-  friend inline constexpr Mask operator==(
-      const Transform& a, const Transform& b
-  ) {
+  friend constexpr Mask operator==(const Transform& a, const Transform& b) {
     return a.translation_ == b.translation_ && a.rotation_ == b.rotation_;
   }
-  friend inline constexpr Mask operator!=(
-      const Transform& a, const Transform& b
-  ) {
+  friend constexpr Mask operator!=(const Transform& a, const Transform& b) {
     return a.translation_ != b.translation_ || a.rotation_ != b.rotation_;
   }
-  inline constexpr Mask IsApprox(const Transform& other, float epsilon = 1e-5)
-      const {
+  constexpr Mask IsApprox(const Transform& other, float epsilon = 1e-5) const {
     return translation_.IsApprox(other.translation_, epsilon) &&
            rotation_.IsApprox(other.rotation_, epsilon);
   }
-  inline constexpr Mask IsZero(float epsilon = 1e-8) const {
+  constexpr Mask IsZero(float epsilon = 1e-8) const {
     return translation_.IsZero(epsilon) &&
            rotation_.IsApprox(Quaternion::Identity(), epsilon);
   }
@@ -123,7 +118,7 @@ class Transform {
     return {i.Mass(), h_dst, i_dst};
   }
   constexpr InertiaOperator<T> Apply(const InertiaOperator<T>& i) const {
-    return {Apply(i.AsMatrix())};
+    return InertiaOperator<T>(Apply(i.AsMatrix()));
   }
 
  private:

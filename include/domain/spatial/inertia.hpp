@@ -33,7 +33,7 @@ class Inertia {
   using ScalarType = T;
 
   // Constructors
-  inline constexpr Inertia() : mass_(), h_(), inertias_() {}
+  constexpr Inertia() : mass_(), h_(), inertias_() {}
   constexpr Inertia(
       T mass, const Vector3& h, T Ixx, T Iyy, T Izz, T Ixy, T Ixz, T Iyz
   )
@@ -45,7 +45,7 @@ class Inertia {
     );
   }
 
-  inline constexpr Inertia(T mass, const Vector3& h, const Matrix3x3& i)
+  constexpr Inertia(T mass, const Vector3& h, const Matrix3x3& i)
       : mass_(mass),
         h_(h),
         inertias_{i(0, 0), i(0, 1), i(0, 2), i(1, 1), i(1, 2), i(2, 2)} {
@@ -81,20 +81,20 @@ class Inertia {
   }
 
   // Access
-  inline constexpr std::tuple<T, Vector3, T, T, T, T, T, T> ToTuple() const {
+  constexpr std::tuple<T, Vector3, T, T, T, T, T, T> ToTuple() const {
     return std::make_tuple(
         Mass(), H(), Ixx(), Iyy(), Izz(), Ixy(), Ixz(), Iyz()
     );
   }
-  inline constexpr T Mass() const { return mass_; }
-  inline constexpr Vector3 H() const { return h_; }
-  inline constexpr T Ixx() const { return inertias_[0]; }
-  inline constexpr T Ixy() const { return inertias_[1]; }
-  inline constexpr T Ixz() const { return inertias_[2]; }
-  inline constexpr T Iyy() const { return inertias_[3]; }
-  inline constexpr T Iyz() const { return inertias_[4]; }
-  inline constexpr T Izz() const { return inertias_[5]; }
-  inline constexpr Matrix6x6 AsMatrix() const {
+  constexpr T Mass() const { return mass_; }
+  constexpr Vector3 H() const { return h_; }
+  constexpr T Ixx() const { return inertias_[0]; }
+  constexpr T Ixy() const { return inertias_[1]; }
+  constexpr T Ixz() const { return inertias_[2]; }
+  constexpr T Iyy() const { return inertias_[3]; }
+  constexpr T Iyz() const { return inertias_[4]; }
+  constexpr T Izz() const { return inertias_[5]; }
+  constexpr Matrix6x6 AsMatrix() const {
     Matrix6x6 result;
     result.SetSubmatrix(0, 0, RotationalMatrix());
     result.SetSubmatrix(0, 3, h_.Skew());
@@ -102,21 +102,21 @@ class Inertia {
     result.SetSubmatrix(3, 3, mass_ * Matrix3x3::Identity());
     return result;
   }
-  inline constexpr Matrix3x3 RotationalMatrix() const {
+  constexpr Matrix3x3 RotationalMatrix() const {
     // clang-format off
-        return {
+        return Matrix3x3{
             inertias_[0], inertias_[1], inertias_[2],
             inertias_[1], inertias_[3], inertias_[4],
             inertias_[2], inertias_[4], inertias_[5]
         };
     // clang-format on
   }
-  inline constexpr InertiaOperator<T> AsArticulated() const {
-    return AsMatrix();
+  constexpr InertiaOperator<T> AsArticulated() const {
+    return InertiaOperator<T>(AsMatrix());
   };
 
   // Comparison
-  friend inline constexpr Mask operator==(const Inertia& a, const Inertia& b) {
+  friend constexpr Mask operator==(const Inertia& a, const Inertia& b) {
     Mask result = (a.mass_ == b.mass_);
     result = result & (a.h_ == b.h_);
     for (std::size_t i = 0; i < kNumInertiaElements; i++) {
@@ -124,11 +124,10 @@ class Inertia {
     }
     return result;
   }
-  friend inline constexpr Mask operator!=(const Inertia& a, const Inertia& b) {
+  friend constexpr Mask operator!=(const Inertia& a, const Inertia& b) {
     return !(a == b);
   }
-  inline constexpr Mask IsApprox(const Inertia& other, float epsilon = 1e-5)
-      const {
+  constexpr Mask IsApprox(const Inertia& other, float epsilon = 1e-5) const {
     using std::abs;
     using xsimd::abs;
     Mask result = abs(mass_ - other.mass_) <= epsilon;
@@ -138,12 +137,12 @@ class Inertia {
     }
     return result;
   }
-  inline constexpr Mask IsZero(float epsilon = 1e-8) const {
+  constexpr Mask IsZero(float epsilon = 1e-8) const {
     return this->IsApprox(Inertia::Zero(), epsilon);
   }
 
   // Elementwise Arithmetic
-  inline constexpr Inertia operator+(const Inertia& other) const {
+  constexpr Inertia operator+(const Inertia& other) const {
     Inertia result;
     for (std::size_t i = 0; i < kNumInertiaElements; i++) {
       result.inertias_[i] = inertias_[i] + other.inertias_[i];
@@ -152,11 +151,11 @@ class Inertia {
     result.h_ = h_ + other.h_;
     return result;
   }
-  inline constexpr InertiaOperator<T> operator+(const InertiaOperator<T>& other
+  constexpr InertiaOperator<T> operator+(const InertiaOperator<T>& other
   ) const {
     return this->AsArticulated() += other;
   }
-  inline constexpr Inertia operator-(const Inertia& other) const {
+  constexpr Inertia operator-(const Inertia& other) const {
     Inertia result;
     for (std::size_t i = 0; i < kNumInertiaElements; i++) {
       result.inertias_[i] = inertias_[i] - other.inertias_[i];
@@ -167,11 +166,11 @@ class Inertia {
     assert(util::AllTrue(result.mass_ >= T{0}));
     return result;
   }
-  inline constexpr InertiaOperator<T> operator-(const InertiaOperator<T>& other
+  constexpr InertiaOperator<T> operator-(const InertiaOperator<T>& other
   ) const {
     return this->AsArticulated() -= other;
   }
-  inline constexpr Inertia& operator+=(const Inertia& other) {
+  constexpr Inertia& operator+=(const Inertia& other) {
     mass_ += other.mass_;
     h_ += other.h_;
     for (std::size_t i = 0; i < kNumInertiaElements; i++) {
@@ -179,19 +178,19 @@ class Inertia {
     }
     return *this;
   }
-  inline constexpr Inertia& operator-=(const Inertia& other) {
+  constexpr Inertia& operator-=(const Inertia& other) {
     mass_ -= other.mass_;
     h_ -= other.h_;
     for (std::size_t i = 0; i < kNumInertiaElements; i++) {
       inertias_[i] -= other.inertias_[i];
     }
-    assert(mass_ >= T{0});
+    assert(util::AllTrue(mass_ >= T{0}));
     return *this;
   }
 
   // Scalar Algebra
-  inline constexpr Inertia operator*(T scalar) const {
-    assert(scalar > T{0});
+  constexpr Inertia operator*(T scalar) const {
+    assert(util::AllTrue(scalar > T{0}));
     Inertia result;
     for (std::size_t i = 0; i < kNumInertiaElements; i++) {
       result.inertias_[i] = inertias_[i] * scalar;
@@ -200,8 +199,8 @@ class Inertia {
     result.h_ = h_ * scalar;
     return result;
   }
-  inline constexpr Inertia operator/(T scalar) const {
-    assert(scalar > T{0});
+  constexpr Inertia operator/(T scalar) const {
+    assert(util::AllTrue(scalar > T{0}));
     Inertia result;
     for (std::size_t i = 0; i < kNumInertiaElements; i++) {
       result.inertias_[i] = inertias_[i] / scalar;
@@ -210,8 +209,8 @@ class Inertia {
     result.h_ = h_ / scalar;
     return result;
   }
-  inline constexpr Inertia& operator*=(T scalar) {
-    assert(scalar > T{0});
+  constexpr Inertia& operator*=(T scalar) {
+    assert(util::AllTrue(scalar > T{0}));
     for (std::size_t i = 0; i < kNumInertiaElements; i++) {
       inertias_[i] *= scalar;
     }
@@ -219,8 +218,8 @@ class Inertia {
     h_ *= scalar;
     return *this;
   }
-  inline constexpr Inertia& operator/=(T scalar) {
-    assert(scalar > T{0});
+  constexpr Inertia& operator/=(T scalar) {
+    assert(util::AllTrue(scalar > T{0}));
     for (std::size_t i = 0; i < kNumInertiaElements; i++) {
       inertias_[i] /= scalar;
     }
@@ -230,19 +229,18 @@ class Inertia {
   }
 
   // Inertia Operations
-  inline constexpr SpatialMomentum<T> Apply(const SpatialVelocity<T>& v) const {
+  constexpr SpatialMomentum<T> Apply(const SpatialVelocity<T>& v) const {
     Vector3 f = mass_ * v.Linear() + v.Angular().Cross(h_);
     Vector3 tau = RotationalMatrix() * v.Angular() + h_.Cross(v.Linear());
     return {tau, f};
   }
-  inline constexpr SpatialForce<T> Apply(const SpatialAcceleration<T>& v
-  ) const {
+  constexpr SpatialForce<T> Apply(const SpatialAcceleration<T>& v) const {
     Vector3 f = mass_ * v.Linear() + v.Angular().Cross(h_);
     Vector3 tau = RotationalMatrix() * v.Angular() + h_.Cross(v.Linear());
     return {tau, f};
   }
-  inline constexpr InertiaOperator<T, true> Inverse() const {
-    assert(mass_ > T{0});
+  constexpr InertiaOperator<T, true> Inverse() const {
+    assert(util::AllTrue(mass_ > T{0}));
 
     Matrix6x6 mat;
     Matrix3x3 S = h_.Skew();
@@ -257,7 +255,7 @@ class Inertia {
     mat.template Block<3, 3>(3, 3) =
         m_inv * Matrix3x3::Identity() - (m_inv * m_inv) * (S * P_S);
 
-    return mat;
+    return InertiaOperator<T, true>(mat);
   }
 
   // Printing
@@ -312,7 +310,7 @@ class Inertia {
     return {sorted_lo, sorted_mid, sorted_hi};
   }
 
-  inline constexpr Mask IsPhysicallyValid(float epsilon = 1e-8) const {
+  constexpr Mask IsPhysicallyValid(float epsilon = 1e-8) const {
     Mask valid = (mass_ > T{0});
     Matrix3x3 I_com =
         RotationalMatrix() + (T{1} / mass_) * (h_.Skew() * h_.Skew());
@@ -347,8 +345,8 @@ class InertiaOperator {
   using ScalarType = T;
 
   // Constructors
-  inline constexpr InertiaOperator() : data_() {}
-  inline constexpr InertiaOperator(const Matrix6x6& data) : data_(data) {}
+  constexpr InertiaOperator() : data_() {}
+  constexpr explicit InertiaOperator(const Matrix6x6& data) : data_(data) {}
 
   // Static Constructors
   static constexpr InertiaOperator Zero() { return {}; }
@@ -356,14 +354,16 @@ class InertiaOperator {
     data_.SetZero();
     return *this;
   }
-  static constexpr InertiaOperator Identity() { return Matrix6x6::Identity(); }
+  static constexpr InertiaOperator Identity() {
+    return InertiaOperator(Matrix6x6::Identity());
+  }
   constexpr InertiaOperator& SetIdentity() {
     data_.SetIdentity();
     return *this;
   }
 
   // Access
-  inline constexpr std::tuple<Matrix6x6> ToTuple() const {
+  constexpr std::tuple<Matrix6x6> ToTuple() const {
     return std::make_tuple(data_);
   }
   constexpr Matrix6x6 AsMatrix() const { return data_; }
@@ -389,82 +389,78 @@ class InertiaOperator {
   }
 
   // Comparison
-  friend inline constexpr Mask operator==(
+  friend constexpr Mask operator==(
       const InertiaOperator& a, const InertiaOperator& b
   ) {
     return a.data_ == b.data_;
   }
-  friend inline constexpr Mask operator!=(
+  friend constexpr Mask operator!=(
       const InertiaOperator& a, const InertiaOperator& b
   ) {
     return a.data_ != b.data_;
   }
-  inline constexpr Mask IsApprox(
-      const InertiaOperator& other, float epsilon = 1e-5
-  ) const {
+  constexpr Mask IsApprox(const InertiaOperator& other, float epsilon = 1e-5)
+      const {
     return data_.IsApprox(other.data_, epsilon);
   }
-  inline constexpr Mask IsZero(float epsilon = 1e-8) const {
+  constexpr Mask IsZero(float epsilon = 1e-8) const {
     return data_.IsZero(epsilon);
   }
 
   // Elementwise Arithmetic
-  inline constexpr InertiaOperator operator+(const InertiaOperator& other
-  ) const {
-    return data_ + other.data_;
+  constexpr InertiaOperator operator+(const InertiaOperator& other) const {
+    return InertiaOperator(data_ + other.data_);
   }
-  inline constexpr InertiaOperator operator+(const Inertia<T>& other) const {
+  constexpr InertiaOperator operator+(const Inertia<T>& other) const {
     static_assert(!Inverted, "Cannot add Inertia to InverseInertia");
     return other.AsArticulated() += *this;
   }
-  inline constexpr InertiaOperator operator-(const InertiaOperator& other
-  ) const {
-    return data_ - other.data_;
+  constexpr InertiaOperator operator-(const InertiaOperator& other) const {
+    return InertiaOperator(data_ - other.data_);
   }
-  inline constexpr InertiaOperator operator-(const Inertia<T>& other) const {
+  constexpr InertiaOperator operator-(const Inertia<T>& other) const {
     static_assert(!Inverted, "Cannot subtract Inertia from InverseInertia");
-    return data_ - other.AsArticulated().AsMatrix();
+    return InertiaOperator(data_ - other.AsArticulated().AsMatrix());
   }
-  inline constexpr InertiaOperator& operator+=(const InertiaOperator& other) {
+  constexpr InertiaOperator& operator+=(const InertiaOperator& other) {
     data_ += other.data_;
     return *this;
   }
-  inline constexpr InertiaOperator& operator+=(const Inertia<T>& other) {
+  constexpr InertiaOperator& operator+=(const Inertia<T>& other) {
     static_assert(!Inverted, "Cannot add Inertia to InverseInertia");
     return *this += other.AsArticulated();
   }
-  inline constexpr InertiaOperator& operator-=(const InertiaOperator& other) {
+  constexpr InertiaOperator& operator-=(const InertiaOperator& other) {
     data_ -= other.data_;
     return *this;
   }
-  inline constexpr InertiaOperator& operator-=(const Inertia<T>& other) {
+  constexpr InertiaOperator& operator-=(const Inertia<T>& other) {
     static_assert(!Inverted, "Cannot subtract Inertia from InverseInertia");
     return *this -= other.AsArticulated();
   }
 
   // Scalar Algebra
-  inline constexpr InertiaOperator operator*(T scalar) const {
-    return data_ * scalar;
+  constexpr InertiaOperator operator*(T scalar) const {
+    return InertiaOperator(data_ * scalar);
   }
-  inline constexpr InertiaOperator operator/(T scalar) const {
-    return data_ / scalar;
+  constexpr InertiaOperator operator/(T scalar) const {
+    return InertiaOperator(data_ / scalar);
   }
-  inline constexpr InertiaOperator& operator*=(T scalar) {
+  constexpr InertiaOperator& operator*=(T scalar) {
     data_ *= scalar;
     return *this;
   }
-  inline constexpr InertiaOperator& operator/=(T scalar) {
+  constexpr InertiaOperator& operator/=(T scalar) {
     data_ /= scalar;
     return *this;
   }
 
   // Inertia Operations - these are not valid for inverse inertia
-  inline constexpr SpatialMomentum<T> Apply(const SpatialVelocity<T>& v) const {
+  constexpr SpatialMomentum<T> Apply(const SpatialVelocity<T>& v) const {
     static_assert(!Inverted, "Cannot apply InverseInertia to SpatialVelocity");
     return (data_ * v).template As<SpatialMomentum>();
   }
-  inline constexpr SpatialForce<T> Apply(const SpatialAcceleration<T>& v
-  ) const {
+  constexpr SpatialForce<T> Apply(const SpatialAcceleration<T>& v) const {
     static_assert(
         !Inverted, "Cannot apply InverseInertia to SpatialAcceleration"
     );
@@ -472,12 +468,11 @@ class InertiaOperator {
   }
 
   // Inertia Operations - these are only valid for inverse inertia
-  inline constexpr SpatialVelocity<T> Apply(const SpatialMomentum<T>& v) const {
+  constexpr SpatialVelocity<T> Apply(const SpatialMomentum<T>& v) const {
     static_assert(Inverted, "Cannot apply InertiaOperator to SpatialMomentum");
     return (data_ * v).template As<SpatialVelocity>();
   }
-  inline constexpr SpatialAcceleration<T> Apply(const SpatialForce<T>& v
-  ) const {
+  constexpr SpatialAcceleration<T> Apply(const SpatialForce<T>& v) const {
     static_assert(
         Inverted, "Cannot apply InertiaOperator to SpatialAcceleration"
     );
@@ -485,37 +480,35 @@ class InertiaOperator {
   }
 
   // Matrix Operations
-  inline constexpr InertiaOperator operator*(const InertiaOperator& other
-  ) const {
-    return {data_ * other.data_};
+  constexpr InertiaOperator operator*(const InertiaOperator& other) const {
+    return InertiaOperator(data_ * other.data_);
   }
-  inline constexpr InertiaOperator operator*(const Matrix6x6& m) const {
-    return {data_ * m};
+  constexpr InertiaOperator operator*(const Matrix6x6& m) const {
+    return InertiaOperator(data_ * m);
   }
-  friend inline constexpr InertiaOperator operator*(
+  friend constexpr InertiaOperator operator*(
       const Matrix6x6& m, const InertiaOperator& d
   ) {
-    return {m * d.data_};
+    return InertiaOperator(m * d.data_);
   }
-  inline constexpr InertiaOperator Transpose() const {
-    return {data_.Transpose()};
+  constexpr InertiaOperator Transpose() const {
+    return InertiaOperator(data_.Transpose());
   }
-  inline constexpr InertiaOperator& TransposeInPlace() {
+  constexpr InertiaOperator& TransposeInPlace() {
     data_.TransposeInPlace();
     return *this;
   }
-  inline constexpr InertiaOperator<T, !Inverted> Inverse() const {
-    return {data_.Inverse()};
+  constexpr InertiaOperator<T, !Inverted> Inverse() const {
+    return InertiaOperator<T, !Inverted>(data_.Inverse());
   }
   template <math::MaskLike MaskT>
     requires(MaskT::Size() == 6)
-  inline constexpr InertiaOperator<T, !Inverted> MaskedInverse(const MaskT& m
-  ) const {
-    return {data_.MaskedInverse(m)};
+  constexpr InertiaOperator<T, !Inverted> MaskedInverse(const MaskT& m) const {
+    return InertiaOperator<T, !Inverted>(data_.MaskedInverse(m));
   }
 
  private:
-  inline constexpr Mask IsSparseRepresentable(float epsilon = 1e-6) const {
+  constexpr Mask IsSparseRepresentable(float epsilon = 1e-6) const {
     using std::abs;
     using xsimd::abs;
 

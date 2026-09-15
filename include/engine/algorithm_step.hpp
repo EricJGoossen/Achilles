@@ -60,9 +60,15 @@ void RunPass(
 // implicit Op{} to fall back on.
 template <PassLike... Passes>
 struct Ops {
-  std::tuple<typename Passes::OpType...> instances;
+  explicit Ops(typename Passes::OpType... ops)
+      : instances_(std::move(ops)...) {}
 
-  explicit Ops(typename Passes::OpType... ops) : instances(std::move(ops)...) {}
+ private:
+  std::tuple<typename Passes::OpType...> instances_;
+
+  template <PassLike... P, typename View, typename... Args>
+    requires(OpArgsMatchView<typename P::OpType, View> && ...)
+  friend void Step(const Ops<P...>& ops, View view, const Args&... args);
 };
 
 // `ops` is a real value carrying each pass's actual Op instance -- Passes
@@ -75,7 +81,7 @@ void Step(const Ops<Passes...>& ops, View view, const Args&... args) {
       [&](const auto&... op_values) {
         (RunPass<Passes>(view, op_values, args...), ...);
       },
-      ops.instances
+      ops.instances_
   );
 }
 
