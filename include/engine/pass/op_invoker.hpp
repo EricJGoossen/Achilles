@@ -11,7 +11,7 @@
 #include "engine/view/view_contract.hpp"
 #include "util/tmp.hpp"
 
-namespace achilles::engine {
+namespace achilles::engine::pass {
 
 // Wraps an Op -- a callable with `operator()` and two arrays,
 // `static constexpr std::array<ArgData<...>, N> kInputs` and
@@ -295,4 +295,4 @@ class SingleOpInvoker : public OpInvokerBase<Op, View>,
   }
 };
 
-}  // namespace achilles::engine
+}  // namespace achilles::engine::pass

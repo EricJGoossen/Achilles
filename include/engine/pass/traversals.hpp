@@ -8,9 +8,9 @@
 #include <type_traits>
 #include <utility>
 
-#include "domain/topology/topology_contract.hpp"
+#include "domain/joint_topology.hpp"
 
-namespace achilles::engine {
+namespace achilles::engine::pass {
 
 enum class Direction : uint8_t { kForward, kBackward };
 
@@ -62,24 +62,42 @@ concept TraversalLike =
 // argument list. `kDirection` mirrors an Op's own static metadata
 // (kInputs/kOutputs): it's how TraversalLike above tells a real traversal
 // apart from an arbitrary type, and it's queryable independent of Apply.
-template <Direction Dir>
+//
+// Stride is how many consecutive raw rows one traversal step actually
+// covers -- 1 (the default) for a scalar Op, or a batched Op's own T's lane
+// count (util::LaneCountOf<T>()) otherwise. A JointTopology's own Size()/
+// operator[] are always in raw-row units (one entry per real+padding row --
+// see Layout::PaddedSize()/AllocateTopology), but OpInvoker feeds whatever
+// index this traversal hands it straight into View::Load/Store<T>, which
+// for a batched T addresses storage in units of Stride-sized *groups*, not
+// one raw row at a time (see View's own comment on Value/Load: "instance
+// index directly when T is scalar, batch index when T is batched"). So a
+// traversal driving a batched Op must walk Size()/Stride groups, not
+// Size() raw rows, and must divide each raw-row parent value by Stride too
+// -- both rows of a Stride-sized batch group always resolve to the same
+// parent GROUP, since SimAllocator always pads every level's own per-
+// instance block out to a multiple of the widest Stride any hosted field
+// needs (see topology::Layout::ViewInstanceCount()), so a group never
+// straddles two different tree positions. Stride=1 (every existing scalar
+// caller) makes every division here a no-op, so this is a strictly
+// backward-compatible extension.
+template <Direction Dir, size_t Stride = 1>
 struct TreeTraversal {
   static constexpr Direction kDirection = Dir;
+  static constexpr size_t kStride = Stride;
 
-  template <
-      typename Callable,
-      domain::topology::TopologyLike Topology,
-      typename... Rest>
+  template <typename Callable, domain::TopologyLike Topology, typename... Rest>
   static constexpr void Apply(
       const Callable& callable, const Topology& topology, const Rest&...
   ) {
+    size_t groups = topology.Size() / Stride;
     if constexpr (Dir == Direction::kForward) {
-      for (size_t j = 0; j < topology.Size(); ++j) {
-        callable(j, topology[j]);
+      for (size_t j = 0; j < groups; ++j) {
+        callable(j, topology[j * Stride] / Stride);
       }
     } else {
-      for (size_t j = topology.Size(); j-- > 0;) {
-        callable(j, topology[j]);
+      for (size_t j = groups; j-- > 0;) {
+        callable(j, topology[j * Stride] / Stride);
       }
     }
   }
@@ -89,7 +107,7 @@ struct TreeTraversal {
       const Callable& callable, const Topology& topology, const Rest&...
   ) {
     if (topology.Size() > 0) {
-      callable.Initialize(topology[0]);
+      callable.Initialize(topology[0] / Stride);
     }
   }
 };
@@ -112,9 +130,16 @@ static_assert(
 // that by calling the callable with the same index twice, so a parentless
 // field (the only kind that makes sense on a linear pass) reads/writes
 // itself either way.
-template <Direction Dir>
+//
+// Stride -- same meaning and same backward-compatible default as
+// TreeTraversal's own (see its comment): `size` is always a raw-row/raw-
+// instance count, and a batched Op needs size/Stride groups, not size raw
+// steps. There's no separate parent value to divide here (target and
+// parent are always the same group index already).
+template <Direction Dir, size_t Stride = 1>
 struct LinearTraversal {
   static constexpr Direction kDirection = Dir;
+  static constexpr size_t kStride = Stride;
 
   template <typename Callable, typename SizeOrTopology, typename... Rest>
   static constexpr void Apply(
@@ -129,12 +154,13 @@ struct LinearTraversal {
         return size_or_topology;
       }
     }();
+    size_t groups = size / Stride;
     if constexpr (Dir == Direction::kForward) {
-      for (size_t j = 0; j < size; ++j) {
+      for (size_t j = 0; j < groups; ++j) {
         callable(j, j);
       }
     } else {
-      for (size_t j = size; j-- > 0;) {
+      for (size_t j = groups; j-- > 0;) {
         callable(j, j);
       }
     }
@@ -153,7 +179,7 @@ struct LinearTraversal {
         return size_or_topology;
       }
     }();
-    if (size > 0) {
+    if (size / Stride > 0) {
       callable.Initialize(0);
     }
   }
@@ -169,4 +195,4 @@ static_assert(
     "BackwardLinearTraversal must satisfy TraversalLike concept"
 );
 
-}  // namespace achilles::engine
+}  // namespace achilles::engine::pass

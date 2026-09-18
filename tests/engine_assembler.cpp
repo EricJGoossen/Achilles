@@ -24,8 +24,8 @@ namespace {
 // Owns a runtime-sized, over-aligned raw buffer (the alignment xsimd
 // batches require) for a standalone Assembler test, strided the same way
 // Assembler::Read/Write expect (FieldOffset<I>() * stride bytes between
-// consecutive children) -- the same math PlanarView uses per field, just
-// for a single Assembler in isolation, with no View/allocator involved.
+// consecutive children) -- the same math View uses per field, just for a
+// single Assembler in isolation, with no View/allocator involved.
 // A hand-rolled RAII owner instead of unique_ptr<std::byte[]> because the
 // buffer needs an alignment beyond what plain new/delete guarantee --
 // the [] form's default deleter can't carry that alignment through to
@@ -181,6 +181,14 @@ struct TwoVector3s {
   TwoVector3s(Vector3<T> a_in, Vector3<T> b_in) : a(a_in), b(b_in) {}
 
   std::tuple<Vector3<T>, Vector3<T>> ToTuple() const { return {a, b}; }
+
+  // SeedableLike (engine/assembler.hpp) requires this of anything
+  // AssemblerLike reads/writes; both members are plain Vector3s, whose own
+  // Zero() is already inert, so there's no degenerate-value concern like
+  // Quaternion::Zero() to work around here.
+  static TwoVector3s PaddingSeed() {
+    return TwoVector3s(Vector3<T>::Zero(), Vector3<T>::Zero());
+  }
 };
 
 using TwoVector3sAssembler =
@@ -227,6 +235,12 @@ struct LeafAndVector {
       : scale(scale_in), offset(offset_in) {}
 
   std::tuple<T, Vector3<T>> ToTuple() const { return {scale, offset}; }
+
+  // See TwoVector3s::PaddingSeed above -- same reasoning, a zero scale and
+  // a zero offset are both inert.
+  static LeafAndVector PaddingSeed() {
+    return LeafAndVector(T{0}, Vector3<T>::Zero());
+  }
 };
 
 using LeafAndVectorAssembler =

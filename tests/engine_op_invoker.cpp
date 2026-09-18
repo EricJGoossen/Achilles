@@ -1,28 +1,26 @@
-#include <array>
-
 #include <gtest/gtest.h>
 
+#include <array>
+
 #include "domain/math/vector3.hpp"
+#include "engine/memory/sim_allocator.hpp"
 #include "engine/op_contract.hpp"
-#include "engine/op_invoker.hpp"
-#include "support/planar_view_fixture.hpp"
+#include "engine/pass/op_invoker.hpp"
 #include "support/toy_field.hpp"
 
 using achilles::domain::math::Vector3;
-using achilles::domain::math::Vector3Assembler;
 using achilles::engine::ArgData;
 using achilles::engine::OpArgsMatchView;
-using achilles::engine::OpInvoker;
 using achilles::engine::OpLike;
-using achilles::engine::SingleOpInvoker;
-using achilles::test_support::PlanarViewFixture;
+using achilles::engine::memory::SimAllocator;
+using achilles::engine::pass::OpInvoker;
+using achilles::engine::pass::SingleOpInvoker;
+using achilles::test_support::MakeToySim;
+using achilles::test_support::ToyAlgorithm;
 using achilles::test_support::ToyField;
 using achilles::test_support::ToyView;
 
 namespace {
-
-using Fixture = PlanarViewFixture<
-    ToyField, Vector3Assembler<float>, Vector3Assembler<float>>;
 
 // Reads kPosition at the target index and kVelocity at the parent index
 // (use_target mixed true/false, per ArgData), writes the elementwise sum
@@ -120,32 +118,30 @@ static_assert(OpArgsMatchView<AccumulateAtTargetOp, ToyView>);
 }  // namespace
 
 TEST(OpInvoker, ReadsTargetAndParentWritesTarget) {
-  Fixture fixture(4);
-  ToyView view = fixture.MakeView();
+  SimAllocator<ToyAlgorithm> sim = MakeToySim(4);
+  ToyView view = sim.ViewFor<ToyAlgorithm>();
 
   view.Store<ToyField::kPosition, float>(2, Vector3<float>(1.0F, 2.0F, 3.0F));
-  view.Store<ToyField::kVelocity, float>(0, Vector3<float>(10.0F, 20.0F, 30.0F));
+  view.Store<ToyField::kVelocity, float>(
+      0, Vector3<float>(10.0F, 20.0F, 30.0F)
+  );
 
   CombineOp op;
   OpInvoker<CombineOp, ToyView> invoker(view, op);
   invoker(/*target_index=*/2, /*parent_index=*/0);
 
-  EXPECT_TRUE(
-      (view.Load<ToyField::kVelocity, float>(2).IsApprox(
-          Vector3<float>(11.0F, 22.0F, 33.0F)
-      ))
-  );
+  EXPECT_TRUE((view.Load<ToyField::kVelocity, float>(2).IsApprox(
+      Vector3<float>(11.0F, 22.0F, 33.0F)
+  )));
   // Untouched: kVelocity at the parent index itself must be unchanged.
-  EXPECT_TRUE(
-      (view.Load<ToyField::kVelocity, float>(0).IsApprox(
-          Vector3<float>(10.0F, 20.0F, 30.0F)
-      ))
-  );
+  EXPECT_TRUE((view.Load<ToyField::kVelocity, float>(0).IsApprox(
+      Vector3<float>(10.0F, 20.0F, 30.0F)
+  )));
 }
 
 TEST(OpInvoker, TargetAndParentSameIndexBothReadsHitTheSameRow) {
-  Fixture fixture(4);
-  ToyView view = fixture.MakeView();
+  SimAllocator<ToyAlgorithm> sim = MakeToySim(4);
+  ToyView view = sim.ViewFor<ToyAlgorithm>();
 
   view.Store<ToyField::kPosition, float>(1, Vector3<float>(1.0F, 0.0F, 0.0F));
   view.Store<ToyField::kVelocity, float>(1, Vector3<float>(0.0F, 1.0F, 0.0F));
@@ -154,11 +150,9 @@ TEST(OpInvoker, TargetAndParentSameIndexBothReadsHitTheSameRow) {
   OpInvoker<CombineOp, ToyView> invoker(view, op);
   invoker(1, 1);
 
-  EXPECT_TRUE(
-      (view.Load<ToyField::kVelocity, float>(1).IsApprox(
-          Vector3<float>(1.0F, 1.0F, 0.0F)
-      ))
-  );
+  EXPECT_TRUE((view.Load<ToyField::kVelocity, float>(1).IsApprox(
+      Vector3<float>(1.0F, 1.0F, 0.0F)
+  )));
 }
 
 // Regression test for the bug where Invoke default-constructed (zeroed)
@@ -168,8 +162,8 @@ TEST(OpInvoker, TargetAndParentSameIndexBothReadsHitTheSameRow) {
 // calls, with each contribution summed on top of it rather than the
 // second call's fresh zero overwriting the first call's result.
 TEST(OpInvoker, AccumulatesWhenMultipleCallsTargetTheSameParent) {
-  Fixture fixture(4);
-  ToyView view = fixture.MakeView();
+  SimAllocator<ToyAlgorithm> sim = MakeToySim(4);
+  ToyView view = sim.ViewFor<ToyAlgorithm>();
 
   view.Store<ToyField::kVelocity, float>(0, Vector3<float>(100.0F, 0.0F, 0.0F));
   view.Store<ToyField::kPosition, float>(1, Vector3<float>(1.0F, 0.0F, 0.0F));
@@ -180,26 +174,22 @@ TEST(OpInvoker, AccumulatesWhenMultipleCallsTargetTheSameParent) {
   invoker(/*target_index=*/1, /*parent_index=*/0);
   invoker(/*target_index=*/2, /*parent_index=*/0);
 
-  EXPECT_TRUE(
-      (view.Load<ToyField::kVelocity, float>(0).IsApprox(
-          Vector3<float>(111.0F, 0.0F, 0.0F)
-      ))
-  );
+  EXPECT_TRUE((view.Load<ToyField::kVelocity, float>(0).IsApprox(
+      Vector3<float>(111.0F, 0.0F, 0.0F)
+  )));
 }
 
 TEST(SingleOpInvokerTest, WritesOnlyTheGivenTargetIndex) {
-  Fixture fixture(4);
-  ToyView view = fixture.MakeView();
+  SimAllocator<ToyAlgorithm> sim = MakeToySim(4);
+  ToyView view = sim.ViewFor<ToyAlgorithm>();
 
   SeedPositionOp op;
   SingleOpInvoker<SeedPositionOp, ToyView> invoker(view, op);
   invoker(2);
 
-  EXPECT_TRUE(
-      (view.Load<ToyField::kPosition, float>(2).IsApprox(
-          Vector3<float>(9.0F, 9.0F, 9.0F)
-      ))
-  );
+  EXPECT_TRUE((view.Load<ToyField::kPosition, float>(2).IsApprox(
+      Vector3<float>(9.0F, 9.0F, 9.0F)
+  )));
   EXPECT_TRUE((view.Load<ToyField::kPosition, float>(0).IsZero()));
   EXPECT_TRUE((view.Load<ToyField::kPosition, float>(1).IsZero()));
   EXPECT_TRUE((view.Load<ToyField::kPosition, float>(3).IsZero()));
@@ -211,8 +201,8 @@ TEST(SingleOpInvokerTest, WritesOnlyTheGivenTargetIndex) {
 // target index with a `+=` op must sum, not have the second call's fresh
 // zero clobber the first call's result.
 TEST(SingleOpInvokerTest, AccumulatesAcrossMultipleCallsToTheSameTarget) {
-  Fixture fixture(4);
-  ToyView view = fixture.MakeView();
+  SimAllocator<ToyAlgorithm> sim = MakeToySim(4);
+  ToyView view = sim.ViewFor<ToyAlgorithm>();
 
   view.Store<ToyField::kVelocity, float>(2, Vector3<float>(100.0F, 0.0F, 0.0F));
   view.Store<ToyField::kPosition, float>(2, Vector3<float>(1.0F, 0.0F, 0.0F));
@@ -222,9 +212,7 @@ TEST(SingleOpInvokerTest, AccumulatesAcrossMultipleCallsToTheSameTarget) {
   invoker(2);
   invoker(2);
 
-  EXPECT_TRUE(
-      (view.Load<ToyField::kVelocity, float>(2).IsApprox(
-          Vector3<float>(102.0F, 0.0F, 0.0F)
-      ))
-  );
+  EXPECT_TRUE((view.Load<ToyField::kVelocity, float>(2).IsApprox(
+      Vector3<float>(102.0F, 0.0F, 0.0F)
+  )));
 }

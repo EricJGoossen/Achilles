@@ -10,6 +10,11 @@
 #include "algorithms/aba/aba_data.hpp"
 #include "algorithms/aba/aba_ops.hpp"
 #include "algorithms/aba/aba_step.hpp"
+#include "algorithms/conventions.hpp"
+#include "algorithms/registry.hpp"
+#include "algorithms/sim_config.hpp"
+#include "domain/archetype.hpp"
+#include "domain/joint_topology.hpp"
 #include "domain/math/activation_mask.hpp"
 #include "domain/math/matrix.hpp"
 #include "domain/math/quaternion.hpp"
@@ -18,39 +23,31 @@
 #include "domain/spatial/dual.hpp"
 #include "domain/spatial/inertia.hpp"
 #include "domain/spatial/transform.hpp"
-#include "domain/topology/joint_topology.hpp"
-#include "domain/topology/topology_contract.hpp"
-#include "engine/algorithm_step.hpp"
+#include "engine/algorithm_contract.hpp"
 #include "engine/assembler.hpp"
 #include "engine/field_contract.hpp"
+#include "engine/memory/arena.hpp"
+#include "engine/memory/binding.hpp"
+#include "engine/memory/sim_allocator.hpp"
 #include "engine/op_contract.hpp"
-#include "engine/op_invoker.hpp"
-#include "engine/traversals.hpp"
-#include "engine/view/planar_view.hpp"
+#include "engine/pass/algorithm_step.hpp"
+#include "engine/pass/op_invoker.hpp"
+#include "engine/pass/sim_context.hpp"
+#include "engine/pass/traversals.hpp"
+#include "engine/topology/layout.hpp"
+#include "engine/topology/layout_policy.hpp"
+#include "engine/topology/ordering_policy.hpp"
+#include "engine/view/view.hpp"
 #include "engine/view/view_contract.hpp"
 #include "engine/view/view_factory.hpp"
+#include "interface/archetype_loader.hpp"
+#include "interface/sim_config_loader.hpp"
+#include "interface/simulation.hpp"
+#include "util/buffer.hpp"
+#include "util/io.hpp"
 #include "util/simd_ops.hpp"
 #include "util/tmp.hpp"
+#include "util/yaml.hpp"
 // NOLINTEND(misc-include-cleaner)
 
-int main() {
-  using achilles::domain::math::Quaternion;
-  using achilles::domain::math::Vector3;
-  using achilles::domain::spatial::Transform;
-
-  Quaternion<float> rotation =
-      Quaternion<float>(0.0F, 0.0F, 0.0F, 1.0F).Normalize();
-  Transform<float> world_body(Vector3<float>(1.0F, 0.0F, 0.0F), rotation);
-
-  Vector3<float> body_point(0.0F, 1.0F, 0.0F);
-  Vector3<float> world_point =
-      rotation.Rotate(body_point) + world_body.Translation();
-
-  std::cout << "Achilles\n";
-  std::cout << "world_body translation: " << world_body.Translation() << "\n";
-  std::cout << "world_body rotation: " << world_body.Rotation() << "\n";
-  std::cout << "body point " << body_point << " -> world point " << world_point
-            << "\n";
-
-  return 0;
-}
+int main() {}

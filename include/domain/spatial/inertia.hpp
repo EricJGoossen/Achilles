@@ -79,6 +79,7 @@ class Inertia {
         std::array<T, kNumInertiaElements>{T{1}, T{0}, T{0}, T{1}, T{0}, T{1}};
     return *this;
   }
+  static constexpr Inertia PaddingSeed() { return Identity(); }
 
   // Access
   constexpr std::tuple<T, Vector3, T, T, T, T, T, T> ToTuple() const {
@@ -361,6 +362,7 @@ class InertiaOperator {
     data_.SetIdentity();
     return *this;
   }
+  static constexpr InertiaOperator PaddingSeed() { return Zero(); }
 
   // Access
   constexpr std::tuple<Matrix6x6> ToTuple() const {

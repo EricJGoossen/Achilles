@@ -95,6 +95,8 @@ Checks: >
     -hicpp-use-equals-delete,
     -hicpp-use-noexcept,
     -hicpp-use-nullptr,
+    -hicpp-no-array-decay,
+    -misc-no-recursion,
 
 HeaderFilterRegex: '(src|include|tests)/.*'
 
@@ -103,9 +105,11 @@ CheckOptions:
     # header, never its internal per-type headers directly -- so
     # misc-include-cleaner's "use the header that actually declares this"
     # rule doesn't apply to it; excluding it here avoids fighting the
-    # library's own documented usage pattern.
+    # library's own documented usage pattern. yaml-cpp follows the same
+    # umbrella-header convention (<yaml-cpp/yaml.h>, never its internal
+    # node/exception headers directly), for the same reason.
     - key: misc-include-cleaner.IgnoreHeaders
-      value: 'xsimd/.*'
+      value: 'xsimd/.*|yaml-cpp/.*'
 
     # Types: classes, structs, enums, unions, typedefs, aliases — all PascalCase
     - key: readability-identifier-naming.ClassCase

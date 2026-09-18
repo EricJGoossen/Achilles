@@ -242,3 +242,8 @@ bug was in that plumbing, the fix's regression test has to go through
 writing a regression test, name the exact function whose bug you're
 locking in, and confirm the test actually calls it — not something it
 happens to call internally.
+
+### 9.4 SIMD code should be tested on different lane sized
+
+Whenever code is generic to lane size, it must be tested with multiple 
+lane sizes. It must be tested with at least 4, 8, and 32.
