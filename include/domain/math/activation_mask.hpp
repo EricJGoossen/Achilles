@@ -46,7 +46,6 @@ class ActivationMask {
     m_ = 0;
     return *this;
   }
-
   static constexpr ActivationMask Ones() {
     return ActivationMask(StorageT(kValidMask));
   }
@@ -54,6 +53,7 @@ class ActivationMask {
     m_ = kValidMask;
     return *this;
   }
+  static constexpr ActivationMask PaddingSeed() { return Zero(); }
 
   // Access
   constexpr std::tuple<StorageT> ToTuple() const { return std::make_tuple(m_); }

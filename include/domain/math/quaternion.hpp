@@ -60,6 +60,7 @@ class Quaternion {
         util::Select(near_zero, T{0}, k * v.Z())
     );
   }
+  static constexpr Quaternion<T> PaddingSeed() { return Identity(); }
 
   // Access
   constexpr std::tuple<T, T, T, T> ToTuple() const {

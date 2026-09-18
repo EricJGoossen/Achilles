@@ -60,6 +60,8 @@ class Dual {
   }
   static constexpr Derived Ones() { return Derived(math::Vector6<T>::Ones()); }
 
+  static constexpr Derived PaddingSeed() { return Zero(); }
+
   // Access
   constexpr std::tuple<math::Vector6<T>> ToTuple() const {
     return std::make_tuple(data_);

@@ -5,11 +5,11 @@
 #include <utility>
 
 #include "engine/op_contract.hpp"
-#include "engine/op_invoker.hpp"
-#include "engine/traversals.hpp"
+#include "engine/pass/op_invoker.hpp"
+#include "engine/pass/traversals.hpp"
 #include "engine/view/view_contract.hpp"
 
-namespace achilles::engine {
+namespace achilles::engine::pass {
 
 // One Op, walked by one Traversal. `Step` below runs a pack of these
 // back-to-back, so an algorithm's outer loop is just the ordered list of
@@ -85,4 +85,4 @@ void Step(const Ops<Passes...>& ops, View view, const Args&... args) {
   );
 }
 
-}  // namespace achilles::engine
+}  // namespace achilles::engine::pass

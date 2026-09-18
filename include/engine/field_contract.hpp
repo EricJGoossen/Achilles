@@ -9,12 +9,12 @@
 
 namespace achilles::engine {
 
-// A well-formed field enum for PlanarView/ViewFactory: a scoped enum
+// A well-formed field enum for View/ViewFactory: a scoped enum
 // whose last enumerator is kCount, giving the number of real fields
 // (0 .. kCount-1) and sizing the index-sequence machinery below. Exists
 // so forgetting kCount (or mistyping it) fails with one clear diagnostic
 // naming the enum, instead of a cryptic substitution failure deep inside
-// PlanarView's static_assert or a ViewFactory Assembler instantiation.
+// View's static_assert or a ViewFactory Assembler instantiation.
 template <typename EnumT>
 concept FieldEnumLike = std::is_enum_v<EnumT> && requires {
   // Scoped enums (the intended EnumT) aren't implicitly convertible to

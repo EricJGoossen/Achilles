@@ -309,37 +309,57 @@ concept AssemblableLike = requires(
         xsimd::batch<typename A::ScalarType>>>;
 };
 
-// A well-formed Assembler is empty (PlanarView never instantiates one; a
+// A domain type's own statement of what's safe to write into a SIMD lane that
+// no real Op will ever read meaningfully -- a padding row or the sink row.
+// Lives on the type itself because only the type knows: Vector3::Zero() is
+// inert, but Quaternion::Zero() is degenerate (normalizes to NaN), so the
+// right answer is Identity() -- Quaternion is the only thing that should get
+// to make that call, not a per-field enum guessing at it from outside.
+template <typename Target>
+concept SeedableLike = requires {
+  { Target::PaddingSeed() } -> std::same_as<Target>;
+};
+
+// A well-formed Assembler is empty (View never instantiates one; a
 // non-static data member would silently do nothing), exposes its scalar
 // type and field count, its Read/Write pair round-trips (Write must accept
 // whatever Read returns, for both the scalar and batched forms), and the
 // domain type it reads/writes is AssemblableLike -- see there for why
 // that's not implied by the round-trip check. This is the exact surface
-// PlanarView relies on when it treats a template parameter as "an
-// Assembler".
+// View relies on when it treats a template parameter as "an Assembler".
 template <typename A>
-concept AssemblerLike = std::is_empty_v<A> && requires {
-  typename A::ScalarType;
-  requires std::is_arithmetic_v<typename A::ScalarType>;
-  { A::kNumFields } -> std::convertible_to<size_t>;
-  requires A::kNumFields > 0;
-} && requires(const std::byte* read_ptr, std::byte* write_ptr, size_t stride) {
-  { A::template Read<typename A::ScalarType>(read_ptr, stride) };
-  { A::template Read<xsimd::batch<typename A::ScalarType>>(read_ptr, stride) };
-  {
-    A::template Write<typename A::ScalarType>(
-        write_ptr,
-        stride,
-        A::template Read<typename A::ScalarType>(read_ptr, stride)
-    )
-  } -> std::same_as<void>;
-  {
-    A::template Write<xsimd::batch<typename A::ScalarType>>(
-        write_ptr,
-        stride,
+concept AssemblerLike =
+    std::is_empty_v<A> &&
+    requires {
+      typename A::ScalarType;
+      requires std::is_arithmetic_v<typename A::ScalarType>;
+      { A::kNumFields } -> std::convertible_to<size_t>;
+      requires A::kNumFields > 0;
+    } &&
+    requires(const std::byte* read_ptr, std::byte* write_ptr, size_t stride) {
+      { A::template Read<typename A::ScalarType>(read_ptr, stride) };
+      {
         A::template Read<xsimd::batch<typename A::ScalarType>>(read_ptr, stride)
-    )
-  } -> std::same_as<void>;
-} && AssemblableLike<A>;
+      };
+      {
+        A::template Write<typename A::ScalarType>(
+            write_ptr,
+            stride,
+            A::template Read<typename A::ScalarType>(read_ptr, stride)
+        )
+      } -> std::same_as<void>;
+      {
+        A::template Write<xsimd::batch<typename A::ScalarType>>(
+            write_ptr,
+            stride,
+            A::template Read<xsimd::batch<typename A::ScalarType>>(
+                read_ptr, stride
+            )
+        )
+      } -> std::same_as<void>;
+    } && AssemblableLike<A> &&
+    SeedableLike<decltype(A::template Read<typename A::ScalarType>(
+        std::declval<const std::byte*>(), size_t{0}
+    ))>;
 
 }  // namespace achilles::engine

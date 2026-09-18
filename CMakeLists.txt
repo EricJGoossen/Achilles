@@ -32,6 +32,20 @@ set(EIGEN_BUILD_DOC OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(Eigen)
 
+# yaml-cpp backs the .arow archetype loader (engine/topology/archetype_loader.hpp)
+# -- pulled in rather than hand-rolling a YAML parser.
+FetchContent_Declare(
+    yaml-cpp
+    GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+    GIT_TAG 0.8.0
+    GIT_SHALLOW TRUE
+)
+set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(YAML_CPP_BUILD_CONTRIB OFF CACHE BOOL "" FORCE)
+set(YAML_CPP_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(yaml-cpp)
+
 file(GLOB_RECURSE ACHILLES_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
 )
@@ -58,7 +72,7 @@ target_include_directories(achilles_lib ${ACHILLES_LIB_TYPE}
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
 )
 
-target_link_libraries(achilles_lib ${ACHILLES_LIB_TYPE} Eigen3::Eigen)
+target_link_libraries(achilles_lib ${ACHILLES_LIB_TYPE} Eigen3::Eigen yaml-cpp::yaml-cpp)
 
 add_executable(achilles "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
 target_link_libraries(achilles PRIVATE achilles_lib)

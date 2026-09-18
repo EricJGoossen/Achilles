@@ -9,7 +9,7 @@
 #include "domain/math/matrix.hpp"
 #include "domain/spatial/dual.hpp"
 #include "domain/spatial/transform.hpp"
-#include "engine/op_invoker.hpp"
+#include "engine/pass/op_invoker.hpp"
 
 namespace achilles::algorithms::aba {
 

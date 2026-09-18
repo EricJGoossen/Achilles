@@ -7,21 +7,24 @@
     "cofactor",
     "ctest",
     "DBUILD",
+    "dedups",
     "eamodio",
     "Eigen",
     "endforeach",
     "errorlens",
+    "invertibility",
     "libgtest",
     "nlerp",
+    "pointee",
     "qddot",
     "qdot",
     "Schur",
+    "Seedable",
     "simd",
     "slerp",
     "topo",
     "usernamehw",
     "xaver",
-    "xsimd",
-    "pointee"
+    "xsimd"
   ]
 }

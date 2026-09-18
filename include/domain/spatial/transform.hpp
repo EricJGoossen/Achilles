@@ -35,7 +35,9 @@ class Transform {
   static constexpr Transform<T> Exp(const SpatialVelocity<T>& v) {
     return {v.Linear(), Quaternion::Exp(v.Angular())};
   }
+  static constexpr Transform<T> PaddingSeed() { return Identity(); }
 
+  // Access
   constexpr const Vector3& Translation() const { return translation_; }
   constexpr const Quaternion& Rotation() const { return rotation_; }
 

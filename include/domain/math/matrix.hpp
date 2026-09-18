@@ -74,6 +74,7 @@ class Matrix {
     }
     return *this;
   }
+  static constexpr Matrix PaddingSeed() { return Zero(); }
 
   // Access
   constexpr auto ToTuple() const {

@@ -27,6 +27,7 @@ class Vector6 {
     data_.SetZero();
     return *this;
   }
+  static constexpr Vector6 PaddingSeed() { return Zero(); }
 
   static constexpr Vector6 UnitA() {
     return Vector6(T{1}, T{0}, T{0}, T{0}, T{0}, T{0});

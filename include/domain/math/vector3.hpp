@@ -30,6 +30,7 @@ class Vector3 {
   static constexpr Vector3 FromSkew(const Matrix<T, 3, 3>& skew) {
     return Vector3(skew(2, 1), skew(0, 2), skew(1, 0));
   }
+  static constexpr Vector3 PaddingSeed() { return Zero(); }
 
   static constexpr Vector3 UnitX() { return Vector3(T{1}, T{0}, T{0}); }
   static constexpr Vector3 UnitY() { return Vector3(T{0}, T{1}, T{0}); }

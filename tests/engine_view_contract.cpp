@@ -15,7 +15,7 @@ using achilles::test_support::ToyView;
 
 namespace {
 
-// ToyView (support/toy_field.hpp) is a real ViewFactory<PlanarView, ...>
+// ToyView (support/toy_field.hpp) is a real ViewFactory<...>
 // instantiation, already checked in that header; ABAView is the
 // real, already-shipping production view. Both confirmed ViewLike here
 // too so a regression in either shows up as a failure in this file

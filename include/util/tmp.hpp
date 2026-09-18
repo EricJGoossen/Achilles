@@ -97,4 +97,31 @@ struct ToTuple<TypeList<Ts...>> {
 
 template <typename List>
 using ToTupleT = typename ToTuple<List>::Type;
+
+// De-duplicates a TypeList, keeping first-occurrence order. Used wherever a
+// pack of per-field declarations (e.g. each field's own ordering policy
+// type) needs to be collapsed down to the distinct set of policies actually
+// named, without the caller having to hand-write a branch per known policy.
+template <typename Seen, typename Rest>
+struct UniqueImpl {
+  using Type = Seen;
+};
+
+template <typename... SeenTs, typename Next, typename... Rest>
+struct UniqueImpl<TypeList<SeenTs...>, TypeList<Next, Rest...>> {
+  using Type = typename UniqueImpl<
+      std::conditional_t<
+          (std::is_same_v<SeenTs, Next> || ...),
+          TypeList<SeenTs...>,
+          TypeList<SeenTs..., Next>>,
+      TypeList<Rest...>>::Type;
+};
+
+template <typename List>
+struct Unique {
+  using Type = typename UniqueImpl<TypeList<>, List>::Type;
+};
+
+template <typename List>
+using UniqueT = typename Unique<List>::Type;
 }  // namespace achilles::util
