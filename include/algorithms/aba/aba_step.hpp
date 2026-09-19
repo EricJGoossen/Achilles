@@ -85,7 +85,7 @@ struct ABAStep {
     (void)dt;
     using engine::pass::Pass;
 
-    const ABAView view = sim_state.template ViewFor<ABAView>();
+    const auto view = sim_state.template ViewFor<ABAView>();
     const ABATopology& topology =
         sim_state.template TopologyFor<engine::topology::TopologicalOrdering>();
 

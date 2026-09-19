@@ -145,9 +145,9 @@ TEST(VIStep, ZeroAccelerationLeavesVelocityAtInitialValue) {
   SimConfig sim_config;
   VIStep::Step(sim.SimContext(), sim_config, 1.0F);
 
-  EXPECT_TRUE(BatchApprox(
-      view.Load<VIField::kJointVelocity, B>(group), qd_initial
-  ));
+  EXPECT_TRUE(
+      BatchApprox(view.Load<VIField::kJointVelocity, B>(group), qd_initial)
+  );
 }
 
 // IntegrateVelocityOp has no Initialize, so -- unlike ABA's articulated-
@@ -202,7 +202,7 @@ TEST(VIStep, MultipleJointsAcrossLaneGroupsIntegrateIndependently) {
   // One value per distinct GROUP (not per joint -- see this file's header
   // comment on why joints sharing a group must share a value).
   for (std::size_t group : groups) {
-    float scale = static_cast<float>(group + 1);
+    auto scale = static_cast<float>(group + 1);
     Acceleration qdd(Vector3::Zero(), Vector3(B(scale), B(0.0F), B(0.0F)));
     Velocity qd0(Vector3::Zero(), Vector3(B(0.0F), B(scale * 0.1F), B(0.0F)));
     PopulateJoint(view, group, qdd, qd0);
@@ -212,12 +212,12 @@ TEST(VIStep, MultipleJointsAcrossLaneGroupsIntegrateIndependently) {
   VIStep::Step(sim.SimContext(), sim_config, 1.0F);
 
   for (std::size_t group : groups) {
-    float scale = static_cast<float>(group + 1);
+    auto scale = static_cast<float>(group + 1);
     Acceleration qdd(Vector3::Zero(), Vector3(B(scale), B(0.0F), B(0.0F)));
     Velocity qd0(Vector3::Zero(), Vector3(B(0.0F), B(scale * 0.1F), B(0.0F)));
     Velocity expected = qd0 + Velocity(qdd.AsVector6() * B(1.0F));
-    EXPECT_TRUE(BatchApprox(
-        view.Load<VIField::kJointVelocity, B>(group), expected
-    ));
+    EXPECT_TRUE(
+        BatchApprox(view.Load<VIField::kJointVelocity, B>(group), expected)
+    );
   }
 }

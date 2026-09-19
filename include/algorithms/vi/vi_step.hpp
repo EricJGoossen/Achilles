@@ -34,7 +34,7 @@ struct VIStep {
     (void)sim_config;
     using engine::pass::Pass;
 
-    const VIView view = sim_state.template ViewFor<VIView>();
+    const auto view = sim_state.template ViewFor<VIView>();
 
     engine::pass::Step(
         engine::pass::Ops<Pass<IntegrateVelocityOp, ForwardBatched>>{

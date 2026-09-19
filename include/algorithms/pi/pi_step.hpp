@@ -34,7 +34,7 @@ struct PIStep {
     (void)sim_config;
     using engine::pass::Pass;
 
-    const PIView view = sim_state.template ViewFor<PIView>();
+    const auto view = sim_state.template ViewFor<PIView>();
 
     engine::pass::Step(
         engine::pass::Ops<Pass<IntegratePositionOp, ForwardBatched>>{

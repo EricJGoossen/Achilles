@@ -119,8 +119,7 @@ TEST(PIStep, SingleJointIntegratesConstantVelocity) {
       Transform::Identity() * Transform::Exp(qd_spatial * B(0.5F));
 
   Transform actual = view.Load<PIField::kJointPosition, B>(group);
-  EXPECT_TRUE(BatchTrue(actual.Translation().IsApprox(expected.Translation()))
-  );
+  EXPECT_TRUE(BatchTrue(actual.Translation().IsApprox(expected.Translation())));
   EXPECT_TRUE(BatchTrue(actual.Rotation().IsApprox(expected.Rotation())));
 }
 
@@ -173,8 +172,7 @@ TEST(PIStep, RepeatedStepsComposeOntoPreviousPosition) {
   Transform expected = Transform::Exp(qd_spatial * B(kDt * 3.0F));
 
   Transform actual = view.Load<PIField::kJointPosition, B>(group);
-  EXPECT_TRUE(BatchTrue(actual.Translation().IsApprox(expected.Translation()))
-  );
+  EXPECT_TRUE(BatchTrue(actual.Translation().IsApprox(expected.Translation())));
   EXPECT_TRUE(BatchTrue(actual.Rotation().IsApprox(expected.Rotation())));
 }
 
@@ -224,8 +222,10 @@ TEST(PIStep, MultipleJointsAcrossLaneGroupsIntegrateIndependently) {
 
   Matrix6x6 s = RevoluteZSubspace();
   for (std::size_t group : groups) {
-    float scale = static_cast<float>(group + 1);
-    Vector6 qd_coords(B(scale * 0.1F), B(0.0F), B(0.0F), B(0.0F), B(0.0F), B(0.0F));
+    auto scale = static_cast<float>(group + 1);
+    Vector6 qd_coords(
+        B(scale * 0.1F), B(0.0F), B(0.0F), B(0.0F), B(0.0F), B(0.0F)
+    );
     PopulateJoint(view, group, s, Velocity(qd_coords));
   }
 
@@ -233,14 +233,15 @@ TEST(PIStep, MultipleJointsAcrossLaneGroupsIntegrateIndependently) {
   PIStep::Step(sim.SimContext(), sim_config, 1.0F);
 
   for (std::size_t group : groups) {
-    float scale = static_cast<float>(group + 1);
-    Vector6 qd_coords(B(scale * 0.1F), B(0.0F), B(0.0F), B(0.0F), B(0.0F), B(0.0F));
+    auto scale = static_cast<float>(group + 1);
+    Vector6 qd_coords(
+        B(scale * 0.1F), B(0.0F), B(0.0F), B(0.0F), B(0.0F), B(0.0F)
+    );
     Velocity qd_spatial(s * qd_coords);
     Transform expected = Transform::Exp(qd_spatial * B(1.0F));
 
     Transform actual = view.Load<PIField::kJointPosition, B>(group);
-    EXPECT_TRUE(
-        BatchTrue(actual.Translation().IsApprox(expected.Translation()))
+    EXPECT_TRUE(BatchTrue(actual.Translation().IsApprox(expected.Translation()))
     );
     EXPECT_TRUE(BatchTrue(actual.Rotation().IsApprox(expected.Rotation())));
   }
