@@ -4,6 +4,7 @@
 #include <string_view>
 
 #include "algorithms/conventions.hpp"
+#include "algorithms/shared_slots.hpp"
 #include "domain/joint_topology.hpp"
 #include "domain/math/activation_mask.hpp"
 #include "domain/math/matrix.hpp"
@@ -71,6 +72,7 @@ struct ABAFieldTraits;
 template <>
 struct ABAFieldTraits<ABAField::kJointSubspace> {
   using Assembler = math::Matrix6x6Assembler<ScalarOperationT>;
+  using SharedAs = JointSubspaceSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
   static constexpr std::string_view kName = "joint_subspace";
@@ -98,14 +100,21 @@ struct ABAFieldTraits<ABAField::kRigidBodyInertia> {
 };
 template <>
 struct ABAFieldTraits<ABAField::kJointPosition> {
+  // SharedAs = JointPositionSlot so PI's own IntegratePositionOp is
+  // mutating this exact block, not a private, unconnected copy (see
+  // shared_slots.hpp).
   using Assembler = spatial::TransformAssembler<ScalarOperationT>;
+  using SharedAs = JointPositionSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
   static constexpr std::string_view kName = "joint_position";
 };
 template <>
 struct ABAFieldTraits<ABAField::kJointVelocity> {
+  // SharedAs = JointVelocitySlot so VI's IntegrateVelocityOp and PI's
+  // IntegratePositionOp both read/write this exact block.
   using Assembler = spatial::SpatialVelocityAssembler<ScalarOperationT>;
+  using SharedAs = JointVelocitySlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
   static constexpr std::string_view kName = "joint_velocity";
@@ -173,7 +182,10 @@ struct ABAFieldTraits<ABAField::kJointBiasForce> {
 };
 template <>
 struct ABAFieldTraits<ABAField::kJointAcceleration> {
+  // SharedAs = JointAccelerationSlot so VI's own IntegrateVelocityOp reads
+  // this exact block rather than a private, unconnected copy.
   using Assembler = spatial::SpatialAccelerationAssembler<ScalarOperationT>;
+  using SharedAs = JointAccelerationSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
 };
