@@ -10,6 +10,8 @@ struct IntegrateVelocityOp {
   using FieldEnum = VIField;
   using ArgData = engine::ArgData<FieldEnum>;
 
+  explicit IntegrateVelocityOp(ScalarOperationT dt) : dt_(dt) {}
+
   static constexpr std::array<ArgData, 1> kInputs = {
       ArgData{FieldEnum::kJointAcceleration, true},
   };
@@ -17,9 +19,10 @@ struct IntegrateVelocityOp {
       ArgData{FieldEnum::kJointVelocity, true},
   };
 
-  void operator()(
-      const Acceleration& qdd, Velocity* qd_out, ScalarOperationT dt
-  ) const;
+  void operator()(const Acceleration& qdd, Velocity* qd_out) const;
+
+ private:
+  ScalarOperationT dt_;
 };
 static_assert(
     engine::OpLike<IntegrateVelocityOp>,

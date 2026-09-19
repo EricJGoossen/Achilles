@@ -3,10 +3,9 @@
 
 namespace achilles::algorithms::vi {
 
-void IntegrateVelocityOp::operator()(
-    const Acceleration& qdd, ScalarOperationT dt, Velocity* qd_out
-) const {
-  *qd_out += qdd.Integrate(dt);
+void IntegrateVelocityOp::operator()(const Acceleration& qdd, Velocity* qd_out)
+    const {
+  *qd_out += qdd.Integrate(dt_);
 }
 
 }  // namespace achilles::algorithms::vi

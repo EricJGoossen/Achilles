@@ -18,19 +18,15 @@ struct ABAStep {
       util::LaneCountOf<MathematicalT>()>;
 
   template <typename SimStateT>
-  static void Step(
-      VIView view,
-      const SimStateT& sim_state,
-      const SimConfig& sim_config,
-      float dt
-  ) {
+  static void Step(VIView view, const SimStateT&, const SimConfig&, float dt) {
     using engine::pass::Pass;
 
     engine::pass::Step(
         engine::pass::Ops<Pass<IntegrateVelocityOp, ForwardBatched>>{
-            IntegrateVelocityOp{}
-        }
-    )
+            IntegrateVelocityOp(dt)
+        },
+        view
+    );
   }
 };
 
