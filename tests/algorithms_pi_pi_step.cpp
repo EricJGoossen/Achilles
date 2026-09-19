@@ -50,6 +50,16 @@ Matrix6x6 RevoluteZSubspace() {
   return s;
 }
 
+// Row 3 (linear-X) driven by generalized-coordinate slot 0 -- a prismatic
+// joint, used to prove the real View round-trips a Transform-typed
+// kJointPosition's translation half correctly (not just its rotation
+// half, which every other test in this file exercises).
+Matrix6x6 PrismaticXSubspace() {
+  Matrix6x6 s = Matrix6x6::Zero();
+  s(3, 0) = B(1.0F);
+  return s;
+}
+
 SimAllocator<PIAlgorithm> MakeSim(std::size_t instance_count) {
   std::vector<ArchetypeJointHandle> root_parents(
       instance_count, ArchetypeJointHandle{0, 0}
@@ -166,6 +176,31 @@ TEST(PIStep, RepeatedStepsComposeOntoPreviousPosition) {
   EXPECT_TRUE(BatchTrue(actual.Translation().IsApprox(expected.Translation()))
   );
   EXPECT_TRUE(BatchTrue(actual.Rotation().IsApprox(expected.Rotation())));
+}
+
+// A prismatic joint through the real Step/View path -- kJointPosition's
+// TransformAssembler stores translation and rotation as separate leaves
+// (see domain/archetype.hpp's comment on a Transform field's flattening
+// order), so this proves the translation half round-trips through a real
+// PlanarLayout block correctly, not just the rotation half every other
+// test in this file exercises.
+TEST(PIStep, PrismaticJointIntegratesTranslationThroughRealView) {
+  SimAllocator<PIAlgorithm> sim = MakeSim(1);
+  PIView view = sim.ViewFor<PIAlgorithm>();
+  std::size_t group = BatchGroup(sim.LayoutFor<TopologicalOrdering>(), 0);
+
+  Matrix6x6 s = PrismaticXSubspace();
+  Vector6 qd_coords(B(2.0F), B(0.0F), B(0.0F), B(0.0F), B(0.0F), B(0.0F));
+  PopulateJoint(view, group, s, Velocity(qd_coords));
+
+  SimConfig sim_config;
+  PIStep::Step(sim.SimContext(), sim_config, 0.5F);
+
+  Transform actual = view.Load<PIField::kJointPosition, B>(group);
+  EXPECT_TRUE(BatchTrue(
+      actual.Translation().IsApprox(Vector3(B(1.0F), B(0.0F), B(0.0F)))
+  ));
+  EXPECT_TRUE(BatchTrue(actual.Rotation().IsApprox(Quaternion::Identity())));
 }
 
 // More than one lane group's worth of real joints: proves the
