@@ -6,47 +6,47 @@
 # never enable anything the root config doesn't already enable -- only
 # remove from it.
 #
+# See ../.clang-tidy for why this is an explicit category allowlist
+# (bugprone-*, cppcoreguidelines-*, google-*, misc-*, modernize-*,
+# performance-*, readability-*) rather than "*, minus everything we don't
+# want", for the leading `-*,` (without it clang-analyzer-* comes back at
+# its own default-enabled state), and for the alias/dedup pairs shared
+# with that file.
+#
 # Checks below `-cppcoreguidelines-owning-memory,` are grouped rather than
 # interleaved because YAML block-scalar folding (`Checks: >`) doesn't allow
 # inline comments on individual entries -- everything indented under it is
 # literal string content, so any `#` there would get folded straight into
 # the check-name list instead of being treated as a comment.
 #
-# - clang-analyzer-*: the Clang Static Analyzer, run separately by
-#   scripts/check-tidy-analyzer.sh / .clang-tidy-analyzer instead of every
-#   routine check-tidy run (see that file for why).
-# - google-objc-*, openmp-*: structurally can't fire on this codebase --
-#   pure C++20, no Objective-C and no -fopenmp/#pragma omp anywhere.
-# - portability-restrict-system-includes: needs a configured
-#   `Includes` allowlist that nothing here sets, so it's a no-op as-is.
-# - Everything after that is one half of a pair/trio that clang-tidy
-#   registers as the *same* check under multiple names (confirmed
-#   empirically: enabling both names merges into one diagnostic tagged
-#   with every enabled alias, not two separate diagnostics) -- see
-#   ../.clang-tidy for the same dedup applied to src/include/. The
-#   avoid-c-arrays/avoid-goto/no-malloc trio isn't repeated here since
-#   this file already disables all of those outright further down (C
-#   arrays and goto show up legitimately in test fixtures/assertions in a
-#   way they shouldn't in production code, so those stay fully off for
-#   tests rather than just deduped).
+# - google-build-using-namespace: test files routinely pull in
+#   `using namespace testing;`-style directives that production code
+#   shouldn't.
+# - cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory,
+#   cppcoreguidelines-avoid-c-arrays, modernize-avoid-c-arrays,
+#   misc-non-private-member-variables-in-classes,
+#   readability-function-cognitive-complexity,
+#   cppcoreguidelines-avoid-non-const-global-variables,
+#   cppcoreguidelines-pro-type-vararg, cppcoreguidelines-avoid-goto: C
+#   arrays, manual malloc/aligned_alloc, public test-fixture members,
+#   long setup functions, global fixtures, GTest's variadic macros, and
+#   goto-in-assertions all show up legitimately in test code in a way
+#   they shouldn't in production code, so these stay fully off for tests
+#   rather than just deduped down to one surviving name the way
+#   ../.clang-tidy handles them for src/include/.
 ---
 Checks: >
-    *,
-    -llvm-*,
-    -llvmlibc-*,
-    -fuchsia-*,
-    -zircon-*,
-    -altera-*,
-    -android-*,
-    -darwin-*,
-    -linuxkernel-*,
-    -objc-*,
-    -mpi-*,
-    -abseil-*,
-    -boost-*,
+    -*,
+    bugprone-*,
+    cppcoreguidelines-*,
+    google-*,
+    misc-*,
+    modernize-*,
+    performance-*,
+    readability-*,
+    -google-objc-*,
     -google-readability-todo,
     -cppcoreguidelines-avoid-magic-numbers,
-    -cppcoreguidelines-non-private-member-variables-in-classes,
     -modernize-use-trailing-return-type,
     -modernize-use-nodiscard,
     -bugprone-easily-swappable-parameters,
@@ -56,49 +56,28 @@ Checks: >
     -cppcoreguidelines-pro-bounds-constant-array-index,
     -readability-magic-numbers,
     -readability-identifier-length,
-    -cert-err58-cpp,
     -misc-definitions-in-headers,
     -readability-named-parameter,
     -misc-const-correctness,
-    -hicpp-named-parameter,
-    -hicpp-signed-bitwise,
     -readability-convert-member-functions-to-static,
     -misc-unused-using-decls,
+    -misc-no-recursion,
+    -cppcoreguidelines-narrowing-conversions,
+    -cppcoreguidelines-explicit-virtual-functions,
+    -cppcoreguidelines-macro-to-enum,
+    -cppcoreguidelines-use-default-member-init,
+    -google-readability-braces-around-statements,
     -google-build-using-namespace,
     -cppcoreguidelines-no-malloc,
-    -hicpp-no-malloc,
     -cppcoreguidelines-owning-memory,
     -cppcoreguidelines-avoid-c-arrays,
     -modernize-avoid-c-arrays,
-    -hicpp-avoid-c-arrays,
+    -cppcoreguidelines-non-private-member-variables-in-classes,
     -misc-non-private-member-variables-in-classes,
     -readability-function-cognitive-complexity,
     -cppcoreguidelines-avoid-non-const-global-variables,
-    -hicpp-avoid-goto,
-    -cert-err33-c,
     -cppcoreguidelines-pro-type-vararg,
-    -cppcoreguidelines-avoid-goto,
-    -hicpp-vararg,
-    -clang-analyzer-*,
-    -google-objc-*,
-    -openmp-*,
-    -portability-restrict-system-includes,
-    -cppcoreguidelines-narrowing-conversions,
-    -cppcoreguidelines-explicit-virtual-functions,
-    -hicpp-use-override,
-    -cppcoreguidelines-macro-to-enum,
-    -hicpp-special-member-functions,
-    -cppcoreguidelines-use-default-member-init,
-    -google-readability-braces-around-statements,
-    -hicpp-braces-around-statements,
-    -hicpp-deprecated-headers,
-    -hicpp-uppercase-literal-suffix,
-    -hicpp-use-auto,
-    -hicpp-use-emplace,
-    -hicpp-use-equals-default,
-    -hicpp-use-equals-delete,
-    -hicpp-use-noexcept,
-    -hicpp-use-nullptr
+    -cppcoreguidelines-avoid-goto
 
 HeaderFilterRegex: '(src|include|tests)/.*'
 
