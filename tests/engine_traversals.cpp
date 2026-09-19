@@ -232,15 +232,21 @@ TEST(TraversalLikeConcept, AllFourTraversalsSatisfyIt) {
 // raw rows (Layout::PaddedSize()), but OpInvoker feeds a traversal's index
 // straight into a batched View::Load/Store, which addresses storage in
 // units of Stride-sized groups (see TreeTraversal's own comment). Every
-// test above uses the default Stride=1, where group == raw row -- these
-// exercise Stride > 1 directly against TreeTraversal/LinearTraversal in
-// isolation, independent of any real View/SimAllocator, at every lane size
-// TESTING.md 9.4 requires (4, 8, 32).
+// test above uses ForwardTreeTraversal/ForwardLinearTraversal (and their
+// Backward counterparts), which hardcode Stride=1 -- there's no default to
+// fall back on (Stride is a mandatory second template argument on
+// TreeTraversal/LinearTraversal themselves) -- where group == raw row --
+// these exercise Stride > 1 directly against TreeTraversal/LinearTraversal
+// in isolation, independent of any real View/SimAllocator, at every lane
+// size TESTING.md 9.4 requires (4, 8, 32).
 // ---------------------------------------------------------------------------
 
-static_assert(achilles::engine::pass::TreeTraversal<Direction::kForward>::kStride == 1);
 static_assert(
-    achilles::engine::pass::LinearTraversal<Direction::kForward>::kStride == 1
+    achilles::engine::pass::TreeTraversal<Direction::kForward, 1>::kStride == 1
+);
+static_assert(
+    achilles::engine::pass::LinearTraversal<Direction::kForward, 1>::kStride ==
+    1
 );
 
 namespace {
