@@ -5,37 +5,58 @@ on:
     branches: [main]
   pull_request:
 
-# Cancel superseded runs on the same branch/PR so pushing a fixup doesn't
-# leave stale runs occupying CI minutes.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  setup:
+    name: resolve CI image
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine image tag
+        id: image
+        run: |
+          BASE="ghcr.io/ericjgoossen/achilles-ci"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            PR_TAG="$BASE:pr-${{ github.event.pull_request.number }}"
+            if docker manifest inspect "$PR_TAG" > /dev/null 2>&1; then
+              echo "image=$PR_TAG" >> "$GITHUB_OUTPUT"
+            else
+              echo "No PR image found at $PR_TAG, falling back to :latest"
+              echo "image=$BASE:latest" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "image=$BASE:latest" >> "$GITHUB_OUTPUT"
+          fi
   format:
     name: clang-format
+    needs: setup
     runs-on: ubuntu-latest
-    container: ghcr.io/ericjgoossen/achilles-ci:latest
+    container: ${{ needs.setup.outputs.image }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Check formatting (src/, include/)
         run: ./scripts/check-format.sh
 
   tidy:
     name: clang-tidy
+    needs: setup
     runs-on: ubuntu-latest
-    container: ghcr.io/ericjgoossen/achilles-ci:latest
+    container: ${{ needs.setup.outputs.image }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      # clang-tidy reads compile flags from compile_commands.json, which
-      # CMake writes at configure time -- no need to actually build first.
-      # BUILD_TESTS stays ON (the default) so add_subdirectory(tests) runs
-      # and compile_commands.json gets entries for tests/*.cpp too --
-      # check-tidy.sh lints those as well now. That means this configure
-      # step fetches googletest via FetchContent (network access), same as
-      # a normal build would.
       - name: Configure
         env:
           CC: clang
@@ -47,10 +68,11 @@ jobs:
 
   tidy-analyzer:
     name: clang-tidy (analyzer)
+    needs: setup
     runs-on: ubuntu-latest
-    container: ghcr.io/ericjgoossen/achilles-ci:latest
+    container: ${{ needs.setup.outputs.image }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Configure
         env:
@@ -58,22 +80,16 @@ jobs:
           CXX: clang++
         run: cmake -S . -B build -G Ninja
 
-      # Kept as its own job rather than folded into the `tidy` job above:
-      # the Clang Static Analyzer (clang-analyzer-*, see
-      # .clang-tidy-analyzer) is path-sensitive symbolic execution, far
-      # more expensive per translation unit than the AST-matcher checks
-      # `tidy` runs -- a separate job lets it run in parallel with `tidy`
-      # instead of serializing behind it, and keeps its own cache
-      # (build/.check-tidy-analyzer-cache) independent of check-tidy.sh's.
       - name: Check clang-tidy analyzer checks (src/, include/, tests/)
         run: ./scripts/check-tidy-analyzer.sh build
 
   test:
     name: build & test
+    needs: setup
     runs-on: ubuntu-latest
-    container: ghcr.io/ericjgoossen/achilles-ci:latest
+    container: ${{ needs.setup.outputs.image }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Configure
         env:

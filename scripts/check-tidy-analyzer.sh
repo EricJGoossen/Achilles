@@ -44,7 +44,8 @@ HEADER_FILTER="^${ROOT_DIR}/(src|include|tests)/.*"
 EIGEN_INCLUDE_DIR="$BUILD_DIR/_deps/eigen-src"
 GOOGLETEST_INCLUDE_DIR="$BUILD_DIR/_deps/googletest-src/googletest/include"
 YAML_CPP_INCLUDE_DIR="$BUILD_DIR/_deps/yaml-cpp-src/include"
-DEP_ARGS=(-x c++ -std=c++20 -I"$ROOT_DIR/src" -I"$ROOT_DIR/include" -isystem"$EIGEN_INCLUDE_DIR" -isystem"$GOOGLETEST_INCLUDE_DIR" -isystem"$YAML_CPP_INCLUDE_DIR")
+GLFW_INCLUDE_DIR="$BUILD_DIR/_deps/glfw-src/include"
+DEP_ARGS=(-x c++ -std=c++20 -I"$ROOT_DIR/src" -I"$ROOT_DIR/include" -isystem"$EIGEN_INCLUDE_DIR" -isystem"$GOOGLETEST_INCLUDE_DIR" -isystem"$YAML_CPP_INCLUDE_DIR" -isystem"$GLFW_INCLUDE_DIR")
 
 # Hashes .clang-tidy-analyzer and this script itself, so a config or flag
 # change invalidates every cache entry at once, the same as a source edit

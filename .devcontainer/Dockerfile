@@ -17,6 +17,20 @@ RUN apt-get update && apt-get install -y \
     doxygen \
     && rm -rf /var/lib/apt/lists/*
 
+# GLFW (fetched from source by the root CMakeLists.txt, backing
+# src/render/ -- see interface::Simulation's own headless flag) needs its
+# own X11/OpenGL dev headers to configure; these are build-time only, no
+# display required (a headless build/test run never opens a window).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1-mesa-dev \
+    libx11-dev \
+    libxrandr-dev \
+    libxinerama-dev \
+    libxcursor-dev \
+    libxi-dev \
+    libxext-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 # clang-format/clang-tidy are pinned to an explicit LLVM version (via the
 # official apt.llvm.org script) rather than whatever "clang-format"/
 # "clang-tidy" happen to resolve to in this base image's default apt

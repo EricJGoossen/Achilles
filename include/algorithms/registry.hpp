@@ -3,6 +3,7 @@
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/pi/pi_step.hpp"
 #include "algorithms/vi/vi_step.hpp"
+#include "algorithms/viz/viz_step.hpp"
 #include "util/tmp.hpp"
 
 namespace achilles::algorithms {
@@ -21,7 +22,16 @@ namespace achilles::algorithms {
 // kJointVelocity into kJointPosition for ABA's next tick to read. Running
 // VI/PI before ABA in a given tick would integrate stale acceleration/
 // velocity instead of this tick's own.
-using RegisteredAlgorithms =
-    util::TypeList<aba::ABAAlgorithm, vi::VIAlgorithm, pi::PIAlgorithm>;
+//
+// viz::VizAlgorithm is last, and Step-order-irrelevant: it names
+// engine::NoStep (viz_step.hpp), so SimContext::Step skips it entirely --
+// it only ever supplies memory (its own kWorldTransform aliases ABA's,
+// via WorldTransformSlot) for a renderer to read after a real Step() call,
+// never something this pack itself steps.
+using RegisteredAlgorithms = util::TypeList<
+    aba::ABAAlgorithm,
+    vi::VIAlgorithm,
+    pi::PIAlgorithm,
+    viz::VizAlgorithm>;
 
 }  // namespace achilles::algorithms

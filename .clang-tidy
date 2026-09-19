@@ -96,6 +96,7 @@ Checks: >
     -cppcoreguidelines-use-default-member-init,
     -google-readability-braces-around-statements,
     -cppcoreguidelines-non-private-member-variables-in-classes,
+    -cppcoreguidelines-avoid-non-const-global-variables
 
 HeaderFilterRegex: '(src|include|tests)/.*'
 
@@ -106,9 +107,17 @@ CheckOptions:
     # rule doesn't apply to it; excluding it here avoids fighting the
     # library's own documented usage pattern. yaml-cpp follows the same
     # umbrella-header convention (<yaml-cpp/yaml.h>, never its internal
-    # node/exception headers directly), for the same reason.
+    # node/exception headers directly), for the same reason. GL/.* is
+    # different again: <GL/gl.h> (render/gl.hpp's own include, see its
+    # header comment) is the one place GL_VERSION_1_1 types/constants/
+    # entry points (GLuint, GL_TRIANGLES, glClear, ...) are meant to come
+    # from -- render/*.cpp calls plenty of these unprefixed per gl.hpp's
+    # own documented convention, without necessarily using anything from
+    # render/gl.hpp's own post-1.1 loader, so requiring a *direct*
+    # render/gl.hpp include there would be enforcing an unused import
+    # instead of a missing one.
     - key: misc-include-cleaner.IgnoreHeaders
-      value: 'xsimd/.*|yaml-cpp/.*'
+      value: 'xsimd/.*|yaml-cpp/.*|GL/.*'
 
     # Types: classes, structs, enums, unions, typedefs, aliases — all PascalCase
     - key: readability-identifier-naming.ClassCase

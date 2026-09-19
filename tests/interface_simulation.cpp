@@ -472,8 +472,9 @@ TEST(
   ASSERT_TRUE(sim.Step(kDt));
 
   Velocity qd_after_1(qdd_expected.AsVector6() * B(kDt));
-  Transform x_after_1 = Transform::Identity() *
-                        Transform::Exp(Velocity(s * qd_after_1.AsVector6()) * B(kDt));
+  Transform x_after_1 =
+      Transform::Identity() *
+      Transform::Exp(Velocity(s * qd_after_1.AsVector6()) * B(kDt));
 
   EXPECT_TRUE(Lane0Approx(JointVelocityField(sim), qd_after_1));
   EXPECT_TRUE(
@@ -483,9 +484,11 @@ TEST(
 
   ASSERT_TRUE(sim.Step(kDt));
 
-  Velocity qd_after_2(qd_after_1.AsVector6() + qdd_expected.AsVector6() * B(kDt));
-  Transform x_after_2 = x_after_1 *
-                        Transform::Exp(Velocity(s * qd_after_2.AsVector6()) * B(kDt));
+  Velocity qd_after_2(
+      qd_after_1.AsVector6() + qdd_expected.AsVector6() * B(kDt)
+  );
+  Transform x_after_2 =
+      x_after_1 * Transform::Exp(Velocity(s * qd_after_2.AsVector6()) * B(kDt));
 
   EXPECT_TRUE(Lane0Approx(JointVelocityField(sim), qd_after_2));
   EXPECT_TRUE(
