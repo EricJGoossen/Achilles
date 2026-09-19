@@ -81,7 +81,7 @@ concept TraversalLike =
 // straddles two different tree positions. Stride=1 (every existing scalar
 // caller) makes every division here a no-op, so this is a strictly
 // backward-compatible extension.
-template <Direction Dir, size_t Stride = 1>
+template <Direction Dir, size_t Stride>
 struct TreeTraversal {
   static constexpr Direction kDirection = Dir;
   static constexpr size_t kStride = Stride;
@@ -111,8 +111,8 @@ struct TreeTraversal {
     }
   }
 };
-using ForwardTreeTraversal = TreeTraversal<Direction::kForward>;
-using BackwardTreeTraversal = TreeTraversal<Direction::kBackward>;
+using ForwardTreeTraversal = TreeTraversal<Direction::kForward, 1>;
+using BackwardTreeTraversal = TreeTraversal<Direction::kBackward, 1>;
 static_assert(
     TraversalLike<ForwardTreeTraversal>,
     "ForwardTreeTraversal must satisfy TraversalLike concept"
@@ -136,7 +136,7 @@ static_assert(
 // instance count, and a batched Op needs size/Stride groups, not size raw
 // steps. There's no separate parent value to divide here (target and
 // parent are always the same group index already).
-template <Direction Dir, size_t Stride = 1>
+template <Direction Dir, size_t Stride>
 struct LinearTraversal {
   static constexpr Direction kDirection = Dir;
   static constexpr size_t kStride = Stride;
@@ -184,8 +184,8 @@ struct LinearTraversal {
     }
   }
 };
-using ForwardLinearTraversal = LinearTraversal<Direction::kForward>;
-using BackwardLinearTraversal = LinearTraversal<Direction::kBackward>;
+using ForwardLinearTraversal = LinearTraversal<Direction::kForward, 1>;
+using BackwardLinearTraversal = LinearTraversal<Direction::kBackward, 1>;
 static_assert(
     TraversalLike<ForwardLinearTraversal>,
     "ForwardLinearTraversal must satisfy TraversalLike concept"
