@@ -107,15 +107,14 @@ class Simulation {
   // guard would just have to invent a return value for the "precondition
   // violated" case this class's whole contract already says never happens.
   template <engine::AlgorithmLike AlgorithmT>
-  bool ViewFor(typename AlgorithmT::View* output) const {
+  typename AlgorithmT::View ViewFor() const {
     if (!state_.has_value()) {
-      return util::Warning(
+      throw std::runtime_error(
           "Simulation::ViewFor() called before Simulation::Init() -- "
           "the sim is not yet initialized."
       );
     }
-    *output = state_->context.template ViewFor<AlgorithmT>();
-    return true;
+    return state_->context.template ViewFor<AlgorithmT>();
   }
 
   // Read-only access to the one JointTopology built for a given ordering
@@ -124,15 +123,14 @@ class Simulation {
   // parent (e.g. to draw a bone from a joint to its parent's world
   // position) the same way ABAStep itself does.
   template <engine::topology::LayoutPolicyLike PolicyT>
-  bool TopologyFor(domain::JointTopology* output) const {
+  domain::JointTopology TopologyFor() const {
     if (!state_.has_value()) {
-      return util::Warning(
+      throw std::runtime_error(
           "Simulation::TopologyFor() called before Simulation::Init() -- "
           "the sim is not yet initialized."
       );
     }
-    *output = state_->context.template TopologyFor<PolicyT>();
-    return true;
+    return state_->context.template TopologyFor<PolicyT>();
   }
 
  private:
