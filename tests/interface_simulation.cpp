@@ -536,7 +536,7 @@ TEST(
   ASSERT_NE(root_group, child_group);
 
   SimConfig sim_config;
-  ABAStep::Step(view, sim.SimContext(), sim_config, 0.0F);
+  ABAStep::Step(sim.SimContext(), sim_config, 0.0F);
 
   // Same reference as PropagatesThroughTwoJointChain
   // (algorithms_aba_aba_step.cpp): joint 0's own nonzero qd, joint 1's

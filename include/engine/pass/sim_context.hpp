@@ -9,6 +9,7 @@
 #include "engine/algorithm_contract.hpp"
 #include "engine/memory/binding.hpp"
 #include "engine/topology/layout_policy.hpp"
+#include "engine/view/view_contract.hpp"
 #include "util/tmp.hpp"
 
 namespace achilles::engine::pass {
@@ -45,9 +46,7 @@ void StepAlgorithm(
 ) {
   using StepT = typename AlgorithmT::Step;
   if constexpr (!std::is_same_v<StepT, NoStep>) {
-    StepT::Step(
-        sim_context.template ViewFor<AlgorithmT>(), sim_context, config, dt
-    );
+    StepT::Step(sim_context, config, dt);
   }
 }
 
@@ -58,14 +57,24 @@ void StepAlgorithm(
 // Step function naming SimContext<Algorithms...> directly -- it has no
 // reason to know the full Algorithms... pack of whichever sim hosts it (see
 // ABAStep's own comment on why SimStateT stays a template parameter). Only
-// checks TopologyFor, the one member a Step function actually calls itself:
-// ViewFor is called on a Step function's behalf, by SimContext::Step, before
-// a Step function ever sees sim_state (detail::StepAlgorithm above), so it
-// isn't part of the surface a Step function needs constrained here. Probed
-// with LayoutPolicyProbe the same way TraversalLike
-// (engine/pass/traversals.hpp) probes Apply/InitOp with a TraversalProbe --
-// TopologyFor is templated on the caller's Policy, so checking it at all
-// means picking some concrete stand-in Policy to instantiate with.
+// checks TopologyFor, not ViewFor, even though a Step function calls both on
+// itself now (detail::StepAlgorithm above no longer looks up the view on a
+// Step function's behalf). TopologyFor can be probed generically because
+// TopologyMap is keyed at runtime by memory::SlotId<Policy>() -- any Policy
+// type typechecks against it, whether or not that policy is actually
+// registered. ViewFor, by contrast, is keyed at compile time by std::get on
+// the concrete std::tuple<Algorithms::View...> a real SimContext holds: only
+// a View type that's actually a member of *that* tuple compiles, so there's
+// no single probe View that would typecheck against every possible
+// SimContext<...> instantiation the way LayoutPolicyProbe does for
+// TopologyFor. A Step function naming a View that its host sim doesn't
+// actually carry simply fails to compile where it's really instantiated,
+// same as it would for any other mistyped member access -- just not
+// something this concept can catch structurally ahead of that. Probed with
+// LayoutPolicyProbe the same way TraversalLike (engine/pass/traversals.hpp)
+// probes Apply/InitOp with a TraversalProbe -- TopologyFor is templated on
+// the caller's Policy, so checking it at all means picking some concrete
+// stand-in Policy to instantiate with.
 template <typename T>
 concept SimContextLike = requires(const T& ctx) {
   {
@@ -86,8 +95,8 @@ concept SimContextLike = requires(const T& ctx) {
 // Lives in engine::pass (not engine::memory, where it's built, or domain,
 // which stays a dependency-free value-type layer) so it can sit next to
 // Step, its one real consumer. Still templated on the same Algorithms...
-// pack as whichever SimAllocator built it, so View<A>() can return A::View
-// directly.
+// pack as whichever SimAllocator built it, so ViewFor<ViewT>() has a real
+// std::tuple<Algorithms::View...> to std::get out of.
 template <AlgorithmLike... Algorithms>
 class SimContext {
  public:
@@ -101,20 +110,44 @@ class SimContext {
     return topologies_.at(memory::SlotId<Policy>());
   }
 
+  // The original, Algorithm-keyed overload -- kept for existing external
+  // callers that only ever have the whole AlgorithmT in hand and shouldn't
+  // have to also know its View type by name (SimAllocator::ViewFor,
+  // interface::Simulation::ViewFor, and every test that reaches a View
+  // through one of those). Just resolves A::View and hands off to the
+  // View-keyed overload below.
   template <AlgorithmLike A>
   typename A::View ViewFor() const {
-    return std::get<typename A::View>(views_);
+    return ViewFor<typename A::View>();
   }
 
-  // Runs every hosted Algorithm's own Step exactly once, each over its own
-  // View plus this same context and `config` -- whatever caller-supplied,
-  // whole-simulation config value a real Step actually reads (see
-  // algorithms::SimConfig), left as a template parameter here so
-  // engine::pass never has to name a concrete config type. `dt` is the
-  // tick's own timestep. One shared shape (View, SimContext, Config, dt)
-  // for every Step::Step, regardless of whether it uses all of it: state
-  // only some algorithms would receive is exactly the kind of ambient
-  // global that's easy to wire wrong silently.
+  // Keyed by the View type itself, via std::get on views_ -- mirrors
+  // TopologyFor<Policy> being keyed by the Policy type, so a Step function
+  // can name its own View the same way it already names its own Policy
+  // (sim_state.template ViewFor<ABAView>()), rather than having its View
+  // resolved and handed to it up front. Constrained to !AlgorithmLike<ViewT>
+  // purely to stay unambiguous against the overload above -- a View type is
+  // never itself AlgorithmLike (it has no ::Enum/::View/::Step), so every
+  // real call resolves to exactly one overload. A Step naming a View type
+  // its host sim doesn't actually carry fails to compile here, not at
+  // runtime -- see SimContextLike's own comment on why that can't be
+  // checked structurally ahead of time.
+  template <typename ViewT>
+    requires(!AlgorithmLike<ViewT>)
+  ViewT ViewFor() const {
+    return std::get<ViewT>(views_);
+  }
+
+  // Runs every hosted Algorithm's own Step exactly once, passing along this
+  // same context and `config` -- whatever caller-supplied, whole-simulation
+  // config value a real Step actually reads (see algorithms::SimConfig),
+  // left as a template parameter here so engine::pass never has to name a
+  // concrete config type. `dt` is the tick's own timestep. One shared shape
+  // (SimContext, Config, dt) for every Step::Step, regardless of whether it
+  // uses all of it: state only some algorithms would receive is exactly the
+  // kind of ambient global that's easy to wire wrong silently. Each Step
+  // looks up its own View via sim_context.ViewFor<ViewT>(), the same way it
+  // looks up its own Topology.
   template <typename Config>
   void Step(float dt, const Config& config) const {
     (detail::StepAlgorithm<Algorithms>(*this, config, dt), ...);
