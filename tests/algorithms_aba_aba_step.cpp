@@ -100,9 +100,14 @@ void PopulateRevoluteZJoint(
   view.Store<ABAField::kJointActivationMask, MaskB>(group, DOF0ActiveMask());
   view.Store<ABAField::kFixedJointTransform, B>(group, Transform::Identity());
   view.Store<ABAField::kRigidBodyInertia, B>(group, SimpleInertia());
-  view.Store<ABAField::kJointPosition, B>(
-      group, Vector6(q0, B(0.0F), B(0.0F), B(0.0F), B(0.0F), B(0.0F))
-  );
+  // kJointPosition holds the joint's own pose (x_joint), not raw
+  // generalized coordinates -- lift q0 through the subspace into a real
+  // twist and exponentiate it, the same way IntegratePositionOp
+  // (pi_ops.hpp) builds/maintains this field in a real simulation loop.
+  Vector6 q_coords(q0, B(0.0F), B(0.0F), B(0.0F), B(0.0F), B(0.0F));
+  Transform x_joint =
+      Transform::Exp(Velocity(RevoluteZSubspace() * q_coords));
+  view.Store<ABAField::kJointPosition, B>(group, x_joint);
   view.Store<ABAField::kJointVelocity, B>(group, qd);
   view.Store<ABAField::kJointTorque, B>(group, tau);
 }
@@ -129,7 +134,7 @@ TEST(AbaStep, AtRestStaysAtRest) {
   PopulateRevoluteZJoint(view, group, B(0.0F));
 
   SimConfig sim_config;
-  ABAStep::Step(view, sim.SimContext(), sim_config, 0.0F);
+  ABAStep::Step(sim.SimContext(), sim_config, 0.0F);
 
   EXPECT_TRUE(BatchApprox(
       view.Load<ABAField::kWorldTransform, B>(group).Translation(),
@@ -157,7 +162,7 @@ TEST(AbaStep, NonzeroJointAngleRotatesWorldTransform) {
   PopulateRevoluteZJoint(view, group, B(0.3F));
 
   SimConfig sim_config;
-  ABAStep::Step(view, sim.SimContext(), sim_config, 0.0F);
+  ABAStep::Step(sim.SimContext(), sim_config, 0.0F);
 
   Transform world = view.Load<ABAField::kWorldTransform, B>(group);
   EXPECT_FALSE(achilles::util::AllTrue(world.Rotation().IsIdentity()));
@@ -193,7 +198,7 @@ TEST(AbaStep, PropagatesThroughTwoJointChain) {
   PopulateRevoluteZJoint(view, group1, B(0.0F));
 
   SimConfig sim_config;
-  ABAStep::Step(view, sim.SimContext(), sim_config, 0.0F);
+  ABAStep::Step(sim.SimContext(), sim_config, 0.0F);
 
   // Reference: joint 0 reads the base row (identity transform, zero
   // velocity, per the default SimConfig); joint 1 reads joint 0's own real
@@ -252,7 +257,7 @@ TEST(AbaStep, AccumulatesMultipleChildrenIntoSharedParent) {
   PopulateRevoluteZJoint(view, group2, B(0.0F));
 
   SimConfig sim_config;
-  ABAStep::Step(view, sim.SimContext(), sim_config, 0.0F);
+  ABAStep::Step(sim.SimContext(), sim_config, 0.0F);
 
   AbaVelocityOutputs joint0 =
       ComputeAbaVelocity(Transform::Identity(), Velocity::Zero(), B(0.0F));
@@ -301,7 +306,7 @@ TEST(AbaStep, PropagatesThroughMultiLevelTree) {
   Acceleration gravity(Vector3::Zero(), Vector3(B(0.0F), B(0.0F), B(-9.8F)));
   SimConfig sim_config;
   sim_config.base_acceleration = gravity;
-  ABAStep::Step(view, sim.SimContext(), sim_config, 0.0F);
+  ABAStep::Step(sim.SimContext(), sim_config, 0.0F);
 
   // Forward (velocity) pass: at rest, every level's own v/c/p is zero, but
   // I_A/x_up/x_world are still real per-joint values the backward/forward
@@ -374,7 +379,7 @@ TEST(AbaStep, RepeatedStepsProduceConsistentResults) {
   PopulateRevoluteZJoint(view, group, B(0.3F));
 
   SimConfig sim_config;
-  ABAStep::Step(view, sim.SimContext(), sim_config, 0.0F);
+  ABAStep::Step(sim.SimContext(), sim_config, 0.0F);
   Transform world_after_first = view.Load<ABAField::kWorldTransform, B>(group);
   Acceleration accel_after_first =
       view.Load<ABAField::kSpatialAcceleration, B>(group);
@@ -386,7 +391,7 @@ TEST(AbaStep, RepeatedStepsProduceConsistentResults) {
   // articulated-inertia accumulation would start from nonzero leftovers
   // and diverge from the first call's result.
   PopulateRevoluteZJoint(view, group, B(0.3F));
-  ABAStep::Step(view, sim.SimContext(), sim_config, 0.0F);
+  ABAStep::Step(sim.SimContext(), sim_config, 0.0F);
 
   EXPECT_TRUE(BatchApprox(
       view.Load<ABAField::kWorldTransform, B>(group).Translation(),

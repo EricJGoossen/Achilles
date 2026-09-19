@@ -74,7 +74,7 @@ struct PropagateVelocityOp {
       const Inertia& I,
       const Transform& x_world_parent,
       const Transform& x_tree,
-      const Vector6& q,
+      const Transform& x_joint,
       const Velocity& qd,
       const Velocity& v_parent,
       InertiaOperator<false>* I_A_out,

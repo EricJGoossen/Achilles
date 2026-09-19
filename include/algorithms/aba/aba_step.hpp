@@ -16,9 +16,11 @@
 namespace achilles::algorithms::aba {
 
 // Runs one full ABA step (velocity, inertia, acceleration passes) for a
-// single archetype over `view`. `sim_state` supplies the JointTopology for
-// joint order/parentage (looked up by ABA's own TopologicalOrdering
-// policy); `sim_config` supplies the base row's seed state --
+// single archetype. `sim_state` supplies both this Step's own ABAView
+// (looked up via ViewFor<ABAView>(), the same way it names its own View type
+// as engine::pass::Step's Op arguments below) and the JointTopology for
+// joint order/parentage (looked up by ABA's own TopologicalOrdering policy);
+// `sim_config` supplies the base row's seed state --
 // `world_base_transform`/`base_velocity` (PropagateVelocityOp::Initialize)
 // and `base_acceleration` (PropagateAccelerationOp::Initialize, typically
 // -gravity for the common fixed-base case, or Acceleration::Zero() for a
@@ -27,7 +29,7 @@ namespace achilles::algorithms::aba {
 // index (see the comment on aba_ops.hpp for the full list); there's no
 // separate seed pass to keep in sync with them. `dt` is unused -- ABA
 // solves for acceleration, it doesn't integrate -- but still declared, the
-// same (View, SimContext, Config, dt) shape every Step::Step takes (see
+// same (SimContext, Config, dt) shape every Step::Step takes (see
 // engine/pass/sim_step.hpp).
 //
 // A struct (rather than a bare free function) so it can be named as
@@ -36,12 +38,20 @@ namespace achilles::algorithms::aba {
 // SimStateT is a template parameter, not engine::pass::SimContext<...>
 // named directly: SimContext is templated on the full Algorithms... pack of
 // whichever sim hosts this Algorithm, which ABAStep itself has no reason to
-// know -- it only ever calls sim_state.TopologyFor<Policy>(), checked
-// structurally the same way TraversalLike's Apply/InitOp duck-type their
-// own Topology parameter. SimConfig, by contrast, is one concrete,
-// whole-simulation-wide type (algorithms/sim_config.hpp) -- not templated,
-// since every Step in a given sim already agrees on its shape (engine::pass
-// itself stays generic over Config; ABA just always asks for this one).
+// know -- it only ever calls sim_state.ViewFor<ABAView>()/
+// TopologyFor<Policy>(), constrained by engine::pass::SimContextLike
+// (engine/pass/sim_context.hpp) purely to check "is this actually a
+// SimContext<...>", not "does it structurally have ABA's own View/Policy" --
+// see SimContextLike's own comment on why the latter can't be probed
+// generically now that both ViewFor and TopologyFor are std::get on real
+// per-sim tuples. A SimStateT that doesn't actually carry ABA's View/
+// Topology still just fails to compile inside Step's own body, same as any
+// other mistyped member access; SimContextLike only catches the coarser
+// mistake of the wrong object entirely. SimConfig, by contrast, is one
+// concrete, whole-simulation-wide type (algorithms/sim_config.hpp) -- not
+// templated, since every Step in a given sim already agrees on its shape
+// (engine::pass itself stays generic over Config; ABA just always asks for
+// this one).
 //
 // All three passes here walk the tree, but nothing about engine::pass::Step
 // (the Op-level one, run inside Step below) requires that -- a future pass
@@ -68,16 +78,14 @@ struct ABAStep {
       engine::pass::Direction::kBackward,
       util::LaneCountOf<MathematicalT>()>;
 
-  template <typename SimStateT>
+  template <engine::pass::SimContextLike SimStateT>
   static void Step(
-      ABAView view,
-      const SimStateT& sim_state,
-      const SimConfig& sim_config,
-      float dt
+      const SimStateT& sim_state, const SimConfig& sim_config, float dt
   ) {
     (void)dt;
     using engine::pass::Pass;
 
+    const auto view = sim_state.template ViewFor<ABAView>();
     const ABATopology& topology =
         sim_state.template TopologyFor<engine::topology::TopologicalOrdering>();
 

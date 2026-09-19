@@ -124,4 +124,22 @@ struct Unique {
 
 template <typename List>
 using UniqueT = typename Unique<List>::Type;
+
+// Applies a unary type-metafunction to every element of a TypeList. Used
+// wherever a bare element type can legitimately repeat across a pack (so it
+// can't itself be a distinct std::get key -- e.g. two different ordering
+// policies both resolving to the exact same domain::JointTopology type) and
+// each element needs wrapping in something that's *per-element* distinct
+// (e.g. TopologySlot<Policy>, engine/pass/sim_context.hpp) before ToTupleT
+// turns the list into a std::tuple a real std::get can key into.
+template <template <typename> class F, typename List>
+struct Transform;
+
+template <template <typename> class F, typename... Ts>
+struct Transform<F, TypeList<Ts...>> {
+  using Type = TypeList<F<Ts>...>;
+};
+
+template <template <typename> class F, typename List>
+using TransformT = typename Transform<F, List>::Type;
 }  // namespace achilles::util

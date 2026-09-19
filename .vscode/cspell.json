@@ -12,6 +12,7 @@
     "Eigen",
     "endforeach",
     "errorlens",
+    "exponentiated",
     "invertibility",
     "libgtest",
     "nlerp",

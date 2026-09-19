@@ -1,59 +1,79 @@
-# Checks below `-misc-unused-using-decls,` are grouped rather than
-# interleaved because YAML block-scalar folding (`Checks: >`) doesn't allow
-# inline comments on individual entries -- everything indented under it is
-# literal string content, so any `#` there would get folded straight into
-# the check-name list instead of being treated as a comment.
+# Explicit allowlist of check *categories* (bugprone-*, cppcoreguidelines-*,
+# google-*, misc-*, modernize-*, performance-*, readability-*) rather than
+# "*, minus everything we don't want". The previous approach enabled every
+# registered check (cert-*, hicpp-*, llvm-*, altera-*, concurrency-*,
+# portability-*, and more) and excluded down from there. Every enabled AST
+# matcher costs real per-translation-unit time even when it never fires,
+# and profiling (--enable-check-profile against a single 614-line source
+# file) showed no single check over ~5% of total time -- the cost was
+# breadth, not a few pathological checks. Naming only the categories that
+# carry the most signal for this codebase cuts that breadth down.
 #
-# - clang-analyzer-*: the Clang Static Analyzer, run separately by
-#   scripts/check-tidy-analyzer.sh / .clang-tidy-analyzer instead of every
-#   routine check-tidy run (see that file for why).
-# - google-objc-*, openmp-*: structurally can't fire on this codebase --
-#   pure C++20, no Objective-C and no -fopenmp/#pragma omp anywhere.
-# - portability-restrict-system-includes: needs a configured
-#   `Includes` allowlist that nothing here sets, so it's a no-op as-is.
-# - Everything after that is one half of a pair/trio that clang-tidy
-#   registers as the *same* check under multiple names (confirmed
-#   empirically: enabling both names merges into one diagnostic tagged
-#   with every enabled alias, not two separate diagnostics). Keeping every
-#   alias enabled doesn't add coverage, just a noisier bracket on every
-#   hit, so one name survives per group and the rest are excluded here:
+# Starts with `-*,`: without it, clang-tidy falls back to each check's own
+# built-in default state for anything no pattern here matches -- and
+# clang-analyzer-* (the whole point of keeping it out, see below) defaults
+# to *enabled*, so it silently comes back regardless of what's listed
+# after it unless `-*,` disables everything first.
+#
+# Dropped entirely (not carried over as "*, minus X"): cert-*, hicpp-*,
+# llvm-*, llvmlibc-*, fuchsia-*, zircon-*, altera-*, android-*, darwin-*,
+# linuxkernel-*, objc-*, mpi-*, abseil-*, boost-*, concurrency-*,
+# portability-*. Where one of those had an alias into a category kept
+# below (e.g. hicpp-use-override -> modernize-use-override), the
+# surviving name still fires, so no enforcement is lost there -- what's
+# lost is the checks with no equivalent in the kept categories (e.g.
+# cert-dcl37-c/cert-dcl51-cpp reserved-identifier rules).
+#
+# clang-analyzer-*: not part of this file at all -- run separately by
+# scripts/check-tidy-analyzer.sh / .clang-tidy-analyzer instead of every
+# routine check-tidy run (see that file for why: path-sensitive symbolic
+# execution, an order of magnitude more expensive per TU than an
+# AST-matcher pass).
+#
+# Checks below `-readability-convert-member-functions-to-static,` are
+# grouped rather than interleaved because YAML block-scalar folding
+# (`Checks: >`) doesn't allow inline comments on individual entries --
+# everything indented under it is literal string content, so any `#`
+# there would get folded straight into the check-name list instead of
+# being treated as a comment.
+#
+# - google-objc-*: structurally can't fire on this codebase (pure C++20,
+#   no Objective-C) but is still part of the google-* wildcard above, so
+#   it's excluded explicitly rather than left to register no-op matchers.
+# - Everything after that is one half of a pair that clang-tidy registers
+#   as the *same* check under multiple names (confirmed empirically:
+#   enabling both names merges into one diagnostic tagged with every
+#   enabled alias, not two separate diagnostics). One name survives per
+#   pair; only pairs where *both* names fall inside the categories above
+#   need an explicit exclusion here (a pair with a dropped-category name,
+#   e.g. hicpp-use-override, needs no exclusion -- that name was never
+#   enabled to begin with):
 #   cppcoreguidelines-narrowing-conversions (bugprone-narrowing-conversions
-#   survives), cppcoreguidelines-avoid-c-arrays + hicpp-avoid-c-arrays
-#   (modernize-avoid-c-arrays survives), hicpp-avoid-goto
-#   (cppcoreguidelines-avoid-goto survives), cppcoreguidelines-no-malloc
-#   (hicpp-no-malloc survives), cppcoreguidelines-explicit-virtual-functions
-#   + hicpp-use-override (modernize-use-override survives),
-#   cppcoreguidelines-macro-to-enum (modernize-macro-to-enum survives),
-#   hicpp-special-member-functions
-#   (cppcoreguidelines-special-member-functions survives),
+#   survives), cppcoreguidelines-avoid-c-arrays (modernize-avoid-c-arrays
+#   survives), cppcoreguidelines-explicit-virtual-functions
+#   (modernize-use-override survives), cppcoreguidelines-macro-to-enum
+#   (modernize-macro-to-enum survives),
 #   cppcoreguidelines-use-default-member-init
 #   (modernize-use-default-member-init survives),
-#   google-readability-braces-around-statements +
-#   hicpp-braces-around-statements (readability-braces-around-statements
-#   survives), hicpp-deprecated-headers (modernize-deprecated-headers
-#   survives), hicpp-uppercase-literal-suffix
-#   (readability-uppercase-literal-suffix survives), and hicpp-use-auto /
-#   hicpp-use-emplace / hicpp-use-equals-default / hicpp-use-equals-delete
-#   / hicpp-use-noexcept / hicpp-use-nullptr (their modernize-use-*
-#   counterparts survive).
+#   google-readability-braces-around-statements
+#   (readability-braces-around-statements survives), and
+#   cppcoreguidelines-non-private-member-variables-in-classes
+#   (misc-non-private-member-variables-in-classes survives -- this pair
+#   wasn't caught by the previous config's dedup list, so both names fired
+#   together there; confirmed here the same way as the others).
 ---
 Checks: >
-    *,
-    -llvm-*,
-    -llvmlibc-*,
-    -fuchsia-*,
-    -zircon-*,
-    -altera-*,
-    -android-*,
-    -darwin-*,
-    -linuxkernel-*,
-    -objc-*,
-    -mpi-*,
-    -abseil-*,
-    -boost-*,
+    -*,
+    bugprone-*,
+    cppcoreguidelines-*,
+    google-*,
+    misc-*,
+    modernize-*,
+    performance-*,
+    readability-*,
+    -google-objc-*,
     -google-readability-todo,
     -cppcoreguidelines-avoid-magic-numbers,
-    -cppcoreguidelines-non-private-member-variables-in-classes,
     -modernize-use-trailing-return-type,
     -modernize-use-nodiscard,
     -bugprone-easily-swappable-parameters,
@@ -63,40 +83,19 @@ Checks: >
     -cppcoreguidelines-pro-bounds-constant-array-index,
     -readability-magic-numbers,
     -readability-identifier-length,
-    -cert-err58-cpp,
     -misc-definitions-in-headers,
     -readability-named-parameter,
     -misc-const-correctness,
-    -hicpp-named-parameter,
-    -hicpp-signed-bitwise,
     -readability-convert-member-functions-to-static,
     -misc-unused-using-decls,
-    -clang-analyzer-*,
-    -google-objc-*,
-    -openmp-*,
-    -portability-restrict-system-includes,
+    -misc-no-recursion,
     -cppcoreguidelines-narrowing-conversions,
     -cppcoreguidelines-avoid-c-arrays,
-    -hicpp-avoid-c-arrays,
-    -hicpp-avoid-goto,
-    -cppcoreguidelines-no-malloc,
     -cppcoreguidelines-explicit-virtual-functions,
-    -hicpp-use-override,
     -cppcoreguidelines-macro-to-enum,
-    -hicpp-special-member-functions,
     -cppcoreguidelines-use-default-member-init,
     -google-readability-braces-around-statements,
-    -hicpp-braces-around-statements,
-    -hicpp-deprecated-headers,
-    -hicpp-uppercase-literal-suffix,
-    -hicpp-use-auto,
-    -hicpp-use-emplace,
-    -hicpp-use-equals-default,
-    -hicpp-use-equals-delete,
-    -hicpp-use-noexcept,
-    -hicpp-use-nullptr,
-    -hicpp-no-array-decay,
-    -misc-no-recursion,
+    -cppcoreguidelines-non-private-member-variables-in-classes,
 
 HeaderFilterRegex: '(src|include|tests)/.*'
 

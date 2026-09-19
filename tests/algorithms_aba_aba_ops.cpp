@@ -98,7 +98,7 @@ TEST(PropagateVelocityOpTest, AtRestPassesParentStateThroughUnchanged) {
       Vector3(B(1.0F), B(0.0F), B(0.0F)), Quaternion::Identity()
   );
   Transform x_tree = Transform::Identity();
-  Vector6 q = Vector6::Zero();
+  Transform x_joint = Transform::Identity();
   Velocity qd = Velocity::Zero();
   Velocity v_parent(
       Vector3(B(0.0F), B(0.0F), B(0.3F)), Vector3(B(1.0F), B(0.0F), B(0.0F))
@@ -117,7 +117,7 @@ TEST(PropagateVelocityOpTest, AtRestPassesParentStateThroughUnchanged) {
      inertia,
      x_world_parent,
      x_tree,
-     q,
+     x_joint,
      qd,
      v_parent,
      &i_a_out,
@@ -156,6 +156,8 @@ TEST(
   );
   Transform x_tree(Vector3(B(0.5F), B(0.0F), B(0.0F)), Quaternion::Identity());
   Vector6 q(B(0.3F), B(0.0F), B(0.0F), B(0.0F), B(0.0F), B(0.0F));
+  Velocity joint_twist(s * q);
+  Transform x_joint = Transform::Exp(joint_twist);
   Velocity qd(Vector3(B(0.0F), B(0.0F), B(0.2F)), Vector3::Zero());
   Velocity v_parent = Velocity::Zero();
 
@@ -172,7 +174,7 @@ TEST(
      inertia,
      x_world_parent,
      x_tree,
-     q,
+     x_joint,
      qd,
      v_parent,
      &i_a_out,
@@ -182,7 +184,6 @@ TEST(
      &c_out,
      &p_out);
 
-  Velocity joint_twist(s * q);
   Transform expected_x_up = x_tree * Transform::Exp(joint_twist);
   Velocity qd_spatial(s * qd.AsVector6());
   Velocity expected_v = expected_x_up.Inverse().Apply(v_parent) + qd_spatial;

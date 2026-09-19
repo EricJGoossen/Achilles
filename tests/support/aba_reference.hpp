@@ -77,12 +77,19 @@ inline AbaVelocityOutputs ComputeAbaVelocity(
       algorithms::Transform::Identity(), algorithms::Velocity::Zero()
   );
   AbaVelocityOutputs out;
-  algorithms::Vector6 q(q0, B(0.0F), B(0.0F), B(0.0F), B(0.0F), B(0.0F));
+  // kJointPosition is now the joint's own pose (x_joint), not raw
+  // generalized coordinates -- build it here the same way
+  // IntegratePositionOp (pi_ops.hpp) does: lift the generalized coordinate
+  // through the subspace into a real twist, then exponentiate it.
+  algorithms::Vector6 q_coords(q0, B(0.0F), B(0.0F), B(0.0F), B(0.0F), B(0.0F));
+  algorithms::Transform x_joint = algorithms::Transform::Exp(
+      algorithms::Velocity(RevoluteZSubspace() * q_coords)
+  );
   op(RevoluteZSubspace(),
      SimpleInertia(),
      x_world_parent,
      algorithms::Transform::Identity(),
-     q,
+     x_joint,
      qd,
      v_parent,
      &out.i_a,

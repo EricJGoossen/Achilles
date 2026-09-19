@@ -15,7 +15,7 @@ void PropagateVelocityOp::operator()(
     const Inertia& I,
     const Transform& x_world_parent,
     const Transform& x_tree,
-    const Vector6& q,
+    const Transform& x_joint,
     const Velocity& qd,
     const Velocity& v_parent,
     InertiaOperator<false>* I_A_out,
@@ -25,9 +25,6 @@ void PropagateVelocityOp::operator()(
     Acceleration* c_out,
     Force* p_out
 ) const {
-  Velocity joint_twist(S * q);
-  Transform x_joint = Transform::Exp(joint_twist);
-
   Transform x_up = x_tree * x_joint;
 
   Velocity qd_spatial = S * qd;

@@ -236,6 +236,10 @@ template <util::ArithmeticLike T>
 class SpatialAcceleration : public Dual<SpatialAcceleration, T> {
  public:
   using Dual<SpatialAcceleration, T>::Dual;
+
+  constexpr SpatialVelocity<T> Integrate(T dt) const {
+    return SpatialVelocity<T>(this->AsVector6() * dt);
+  }
 };
 template <typename T>
 using SpatialAccelerationAssembler =

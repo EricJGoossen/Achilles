@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <cstddef>
 #include <filesystem>
 #include <sstream>
@@ -22,9 +23,11 @@
 using achilles::algorithms::Acceleration;
 using achilles::algorithms::InertiaOperator;
 using achilles::algorithms::MathematicalT;
+using achilles::algorithms::Matrix6x6;
 using achilles::algorithms::SimConfig;
 using achilles::algorithms::Transform;
 using achilles::algorithms::Vector3;
+using achilles::algorithms::Vector6;
 using achilles::algorithms::Velocity;
 using achilles::algorithms::aba::ABAAlgorithm;
 using achilles::algorithms::aba::ABAField;
@@ -37,6 +40,7 @@ using achilles::interface::Simulation;
 using achilles::test_support::AccumulateAbaInertia;
 using achilles::test_support::ComputeAbaAcceleration;
 using achilles::test_support::ComputeAbaVelocity;
+using achilles::test_support::RevoluteZSubspace;
 using achilles::test_support::TempDir;
 
 using B = MathematicalT;
@@ -57,13 +61,20 @@ std::string RevoluteZFieldsYaml(
     float q0, float qd0 = 0.0F, float tau0 = 0.0F, int mask = 1
 ) {
   std::ostringstream out;
+  // joint_position is x_joint itself (an SE(3) pose), not a raw
+  // generalized coordinate -- q0 is a yaw angle about Z (this joint's own
+  // subspace axis), so its equivalent pose is a pure Z-rotation, written
+  // out here as the same [tx,ty,tz, qw,qx,qy,qz] leaf order
+  // domain/archetype.hpp's own comment describes for a Transform field.
+  float half_q0 = q0 * 0.5F;
   out << "      joint_subspace: [0,0,0,0,0,0,0,0,0,0,0,0,"
          "1,"
          "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]\n"
       << "      joint_activation_mask: [" << mask << "]\n"
       << "      fixed_joint_transform: [0,0,0, 1,0,0,0]\n"
       << "      rigid_body_inertia: [2, 0,0,0, 2,3,4, 0,0,0]\n"
-      << "      joint_position: [" << q0 << ", 0,0,0,0,0]\n"
+      << "      joint_position: [0,0,0, " << std::cos(half_q0) << ", 0,0, "
+      << std::sin(half_q0) << "]\n"
       << "      joint_velocity: [" << qd0 << ", 0,0,0,0,0]\n"
       << "      joint_torque: [" << tau0 << ", 0,0,0,0,0]\n";
   return out.str();
@@ -111,6 +122,21 @@ Velocity SpatialVelocity(Simulation& sim) {
 
 Acceleration SpatialAcceleration(Simulation& sim) {
   return sim.ViewFor<ABAAlgorithm>().Load<ABAField::kSpatialAcceleration, B>(0);
+}
+
+// Reads kJointPosition/kJointVelocity back through ABA's OWN view --
+// deliberately not through VI's/PI's own View types -- so a passing
+// assertion against these actually proves the SharedAs wiring
+// (algorithms/shared_slots.hpp) is doing its job: if kJointVelocity/
+// kJointPosition weren't shared, ABA's own view would never see VI's/
+// PI's writes and would stay frozen at whatever the archetype originally
+// populated.
+Transform JointPosition(Simulation& sim) {
+  return sim.ViewFor<ABAAlgorithm>().Load<ABAField::kJointPosition, B>(0);
+}
+
+Velocity JointVelocityField(Simulation& sim) {
+  return sim.ViewFor<ABAAlgorithm>().Load<ABAField::kJointVelocity, B>(0);
 }
 
 ::testing::AssertionResult BatchTrue(const auto& mask) {
@@ -390,6 +416,92 @@ TEST(Simulation, TorqueFromArowChangesAcceleration) {
   ));
 }
 
+// Proves the SharedAs wiring between ABA/VI/PI (algorithms/shared_slots.hpp)
+// actually connects the three algorithms into one real pipeline, rather
+// than each carving its own private, unconnected copy of
+// kJointVelocity/kJointPosition/kJointAcceleration -- reading
+// kJointPosition/kJointVelocity back through ABA's OWN view (see
+// JointPosition/JointVelocityField above) after real Step() calls must
+// reflect VI's/PI's writes, not the archetype's original populated
+// values.
+//
+// For this joint (a diagonal inertia -- SimpleInertia in
+// aba_reference.hpp -- spun about its own principal Z axis by a constant
+// torque, starting at rest), the bias/Coriolis term is exactly zero
+// regardless of velocity -- NonzeroVelocityFromArowProducesTheExact
+// SpatialVelocity above establishes the same fact for qd0 != 0/tau0 == 0
+// -- so qdd is the same constant on every tick. That lets this test
+// predict both kJointVelocity and kJointPosition after two real ticks
+// from one independently computed qdd (via the same aba_reference
+// helpers GravityFromConfigFileProducesTheExactAcceleration above uses),
+// without re-deriving ABA's own math per tick.
+TEST(
+    Simulation, PositionAndVelocityIntegrateAcrossRealTicksThroughSharedFields
+) {
+  TempDir dir;
+  constexpr float kTau0 = 5.0F;
+  Simulation sim = MakeInitializedSim(dir, 0.0F, 0.0F, kTau0);
+
+  Matrix6x6 s = RevoluteZSubspace();
+  auto velocity =
+      ComputeAbaVelocity(Transform::Identity(), Velocity::Zero(), B(0.0F));
+  InertiaOperator<false> i_a_base = InertiaOperator<false>::Zero();
+  achilles::algorithms::Force p_base = achilles::algorithms::Force::Zero();
+  achilles::algorithms::Force tau(
+      Vector3(B(kTau0), B(0.0F), B(0.0F)), Vector3::Zero()
+  );
+  auto inertia = AccumulateAbaInertia(velocity, tau, i_a_base, p_base);
+  // ComputeAbaAcceleration returns the full SPATIAL acceleration `a`
+  // (kSpatialAcceleration = a_pre + S*qdd), not the generalized qdd VI/PI
+  // actually consume as kJointAcceleration/read via S themselves --
+  // RevoluteZSubspace's single nonzero entry (row 2, column 0, see its
+  // own comment) means that lift is exactly 1:1, so the generalized
+  // value is recovered losslessly from a's own angular-Z component
+  // rather than re-deriving D_inv/U by hand here.
+  Acceleration spatial_a_expected = ComputeAbaAcceleration(
+      inertia, velocity.x_up, velocity.c, Acceleration::Zero()
+  );
+  Acceleration qdd_expected(
+      Vector3(spatial_a_expected.Angular().Z(), B(0.0F), B(0.0F)),
+      Vector3::Zero()
+  );
+  ASSERT_FALSE(achilles::util::AllTrue(qdd_expected.IsZero()))
+      << "Test premise violated: torque produced zero acceleration.";
+
+  constexpr float kDt = 0.1F;
+  ASSERT_TRUE(sim.Step(kDt));
+
+  Velocity qd_after_1(qdd_expected.AsVector6() * B(kDt));
+  Transform x_after_1 = Transform::Identity() *
+                        Transform::Exp(Velocity(s * qd_after_1.AsVector6()) * B(kDt));
+
+  EXPECT_TRUE(Lane0Approx(JointVelocityField(sim), qd_after_1));
+  EXPECT_TRUE(
+      Lane0Approx(JointPosition(sim).Translation(), x_after_1.Translation())
+  );
+  EXPECT_TRUE(Lane0Approx(JointPosition(sim).Rotation(), x_after_1.Rotation()));
+
+  ASSERT_TRUE(sim.Step(kDt));
+
+  Velocity qd_after_2(qd_after_1.AsVector6() + qdd_expected.AsVector6() * B(kDt));
+  Transform x_after_2 = x_after_1 *
+                        Transform::Exp(Velocity(s * qd_after_2.AsVector6()) * B(kDt));
+
+  EXPECT_TRUE(Lane0Approx(JointVelocityField(sim), qd_after_2));
+  EXPECT_TRUE(
+      Lane0Approx(JointPosition(sim).Translation(), x_after_2.Translation())
+  );
+  EXPECT_TRUE(Lane0Approx(JointPosition(sim).Rotation(), x_after_2.Rotation()));
+
+  // And, concretely: the pose must have visibly moved further on tick 2
+  // than tick 1 -- proving accumulation across ticks, not e.g. an
+  // unshared, private-per-algorithm kJointPosition leaving ABA's own view
+  // frozen at its archetype-populated initial value.
+  EXPECT_FALSE(achilles::util::AllTrue(
+      JointPosition(sim).Rotation().IsApprox(x_after_1.Rotation())
+  ));
+}
+
 // ABA solves for acceleration directly -- it doesn't integrate over time --
 // so `dt` is declared but never read (see ABAStep::Step's own comment).
 // Two otherwise-identical simulations stepped with wildly different dt
@@ -536,7 +648,7 @@ TEST(
   ASSERT_NE(root_group, child_group);
 
   SimConfig sim_config;
-  ABAStep::Step(view, sim.SimContext(), sim_config, 0.0F);
+  ABAStep::Step(sim.SimContext(), sim_config, 0.0F);
 
   // Same reference as PropagatesThroughTwoJointChain
   // (algorithms_aba_aba_step.cpp): joint 0's own nonzero qd, joint 1's
