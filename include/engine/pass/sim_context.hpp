@@ -1,5 +1,6 @@
 #pragma once
 
+#include <concepts>
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
@@ -19,6 +20,16 @@ namespace achilles::engine::pass {
 using TopologyMap = std::unordered_map<const void*, domain::JointTopology>;
 
 namespace detail {
+
+// Stand-in LayoutPolicy purely for probing SimContextLike below -- it only
+// needs to satisfy LayoutPolicyLike (std::is_empty_v), the same way
+// TraversalProbe (engine/pass/traversals.hpp) stands in for a JointTopology
+// when checking TraversalLike. TopologyFor is a template, so SimContextLike
+// can't ask "does this type have a TopologyFor" without naming some concrete
+// Policy to instantiate it with; this one is never meant to be looked up
+// against a real TopologyMap, only to typecheck.
+struct LayoutPolicyProbe {};
+static_assert(topology::LayoutPolicyLike<LayoutPolicyProbe>);
 
 // Steps one Algorithm, unless it declares NoStep (see algorithm_contract.hpp)
 // -- an Algorithm with nothing to step on its own account is silently
@@ -41,6 +52,26 @@ void StepAlgorithm(
 }
 
 }  // namespace detail
+
+// Structural counterpart to SimContext, for constraining a Step function's
+// SimStateT (e.g. ABAStep::Step, algorithms/aba/aba_step.hpp) without that
+// Step function naming SimContext<Algorithms...> directly -- it has no
+// reason to know the full Algorithms... pack of whichever sim hosts it (see
+// ABAStep's own comment on why SimStateT stays a template parameter). Only
+// checks TopologyFor, the one member a Step function actually calls itself:
+// ViewFor is called on a Step function's behalf, by SimContext::Step, before
+// a Step function ever sees sim_state (detail::StepAlgorithm above), so it
+// isn't part of the surface a Step function needs constrained here. Probed
+// with LayoutPolicyProbe the same way TraversalLike
+// (engine/pass/traversals.hpp) probes Apply/InitOp with a TraversalProbe --
+// TopologyFor is templated on the caller's Policy, so checking it at all
+// means picking some concrete stand-in Policy to instantiate with.
+template <typename T>
+concept SimContextLike = requires(const T& ctx) {
+  {
+    ctx.template TopologyFor<detail::LayoutPolicyProbe>()
+  } -> std::same_as<const domain::JointTopology&>;
+};
 
 // The allocator-built half of what a Step function needs: every hosted
 // Algorithm's own View, plus the per-ordering-policy JointTopology map.
@@ -93,6 +124,7 @@ class SimContext {
   TopologyMap topologies_;
   std::tuple<typename Algorithms::View...> views_;
 };
+static_assert(SimContextLike<SimContext<>>);
 
 // Builds SimContext<Algorithms...> from a util::TypeList<Algorithms...>
 // instead of a caller restating the pack -- same shape as, and for the same

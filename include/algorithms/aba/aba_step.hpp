@@ -36,7 +36,8 @@ namespace achilles::algorithms::aba {
 // SimStateT is a template parameter, not engine::pass::SimContext<...>
 // named directly: SimContext is templated on the full Algorithms... pack of
 // whichever sim hosts this Algorithm, which ABAStep itself has no reason to
-// know -- it only ever calls sim_state.TopologyFor<Policy>(), checked
+// know -- it only ever calls sim_state.TopologyFor<Policy>(), constrained by
+// engine::pass::SimContextLike (engine/pass/sim_context.hpp), checked
 // structurally the same way TraversalLike's Apply/InitOp duck-type their
 // own Topology parameter. SimConfig, by contrast, is one concrete,
 // whole-simulation-wide type (algorithms/sim_config.hpp) -- not templated,
@@ -68,7 +69,7 @@ struct ABAStep {
       engine::pass::Direction::kBackward,
       util::LaneCountOf<MathematicalT>()>;
 
-  template <typename SimStateT>
+  template <engine::pass::SimContextLike SimStateT>
   static void Step(
       ABAView view,
       const SimStateT& sim_state,
