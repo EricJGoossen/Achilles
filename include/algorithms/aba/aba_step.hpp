@@ -40,13 +40,18 @@ namespace achilles::algorithms::aba {
 // whichever sim hosts this Algorithm, which ABAStep itself has no reason to
 // know -- it only ever calls sim_state.ViewFor<ABAView>()/
 // TopologyFor<Policy>(), constrained by engine::pass::SimContextLike
-// (engine/pass/sim_context.hpp), checked structurally the same way
-// TraversalLike's Apply/InitOp duck-type their own Topology parameter (note
-// SimContextLike itself only checks TopologyFor, not ViewFor -- see its own
-// comment on why). SimConfig, by contrast, is one concrete,
-// whole-simulation-wide type (algorithms/sim_config.hpp) -- not templated,
-// since every Step in a given sim already agrees on its shape (engine::pass
-// itself stays generic over Config; ABA just always asks for this one).
+// (engine/pass/sim_context.hpp) purely to check "is this actually a
+// SimContext<...>", not "does it structurally have ABA's own View/Policy" --
+// see SimContextLike's own comment on why the latter can't be probed
+// generically now that both ViewFor and TopologyFor are std::get on real
+// per-sim tuples. A SimStateT that doesn't actually carry ABA's View/
+// Topology still just fails to compile inside Step's own body, same as any
+// other mistyped member access; SimContextLike only catches the coarser
+// mistake of the wrong object entirely. SimConfig, by contrast, is one
+// concrete, whole-simulation-wide type (algorithms/sim_config.hpp) -- not
+// templated, since every Step in a given sim already agrees on its shape
+// (engine::pass itself stays generic over Config; ABA just always asks for
+// this one).
 //
 // All three passes here walk the tree, but nothing about engine::pass::Step
 // (the Op-level one, run inside Step below) requires that -- a future pass

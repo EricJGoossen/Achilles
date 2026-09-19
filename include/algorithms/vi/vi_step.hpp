@@ -14,11 +14,12 @@ namespace achilles::algorithms::vi {
 
 // Runs one velocity-integration step for a single archetype. `sim_state`
 // supplies this Step's own VIView, looked up via ViewFor<VIView>() the same
-// way ABAStep looks up its own ABAView (see aba_step.hpp's comment). Unlike
-// ABA, VI has no JointTopology to look up -- IntegrateVelocityOp reads/
-// writes each row independently, so ForwardBatched below is a
-// LinearTraversal driven by view.Size() rather than a TreeTraversal driven
-// by a topology.
+// way ABAStep looks up its own ABAView (see aba_step.hpp's comment,
+// including why SimStateT stays constrained by engine::pass::SimContextLike
+// rather than naming SimContext<...> directly). Unlike ABA, VI has no
+// JointTopology to look up -- IntegrateVelocityOp reads/writes each row
+// independently, so ForwardBatched below is a LinearTraversal driven by
+// view.Size() rather than a TreeTraversal driven by a topology.
 struct VIStep {
   using FieldEnum = VIField;
 

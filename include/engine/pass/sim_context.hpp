@@ -1,9 +1,9 @@
 #pragma once
 
-#include <concepts>
+#include <cstddef>
 #include <tuple>
 #include <type_traits>
-#include <unordered_map>
+#include <utility>
 
 #include "domain/joint_topology.hpp"
 #include "engine/algorithm_contract.hpp"
@@ -14,23 +14,7 @@
 
 namespace achilles::engine::pass {
 
-// Keyed by memory::SlotId<Policy>() -- one entry per distinct ordering
-// policy any hosted field actually names. Lives here (not in engine::memory,
-// where it's built) because SimContext's own constructor has to name this
-// type, and SimContext lives here -- see SimContext's own comment for why.
-using TopologyMap = std::unordered_map<const void*, domain::JointTopology>;
-
 namespace detail {
-
-// Stand-in LayoutPolicy purely for probing SimContextLike below -- it only
-// needs to satisfy LayoutPolicyLike (std::is_empty_v), the same way
-// TraversalProbe (engine/pass/traversals.hpp) stands in for a JointTopology
-// when checking TraversalLike. TopologyFor is a template, so SimContextLike
-// can't ask "does this type have a TopologyFor" without naming some concrete
-// Policy to instantiate it with; this one is never meant to be looked up
-// against a real TopologyMap, only to typecheck.
-struct LayoutPolicyProbe {};
-static_assert(topology::LayoutPolicyLike<LayoutPolicyProbe>);
 
 // Steps one Algorithm, unless it declares NoStep (see algorithm_contract.hpp)
 // -- an Algorithm with nothing to step on its own account is silently
@@ -50,64 +34,99 @@ void StepAlgorithm(
   }
 }
 
-}  // namespace detail
+// Collects FieldOrderingT<EnumT, Traits, F> for every field of one Algorithm
+// into a TypeList -- UsedOrderingsFor below concatenates and de-dups these
+// across a whole Algorithms... pack to find every distinct ordering policy
+// actually in play. Lives here, not engine::memory (where this computation
+// used to live, back when only SimAllocator needed it): SimContext now needs
+// the same result to size its own topology tuple below, and SimAllocator --
+// which already depends on this header -- reuses UsedOrderingsFor itself
+// rather than keeping a second copy that could silently drift out of sync
+// with it.
+template <typename EnumT, template <EnumT> class Traits, std::size_t... Is>
+auto CollectFieldOrderings(std::index_sequence<Is...>)
+    -> util::TypeList<
+        memory::FieldOrderingT<EnumT, Traits, static_cast<EnumT>(Is)>...>;
 
-// Structural counterpart to SimContext, for constraining a Step function's
-// SimStateT (e.g. ABAStep::Step, algorithms/aba/aba_step.hpp) without that
-// Step function naming SimContext<Algorithms...> directly -- it has no
-// reason to know the full Algorithms... pack of whichever sim hosts it (see
-// ABAStep's own comment on why SimStateT stays a template parameter). Only
-// checks TopologyFor, not ViewFor, even though a Step function calls both on
-// itself now (detail::StepAlgorithm above no longer looks up the view on a
-// Step function's behalf). TopologyFor can be probed generically because
-// TopologyMap is keyed at runtime by memory::SlotId<Policy>() -- any Policy
-// type typechecks against it, whether or not that policy is actually
-// registered. ViewFor, by contrast, is keyed at compile time by std::get on
-// the concrete std::tuple<Algorithms::View...> a real SimContext holds: only
-// a View type that's actually a member of *that* tuple compiles, so there's
-// no single probe View that would typecheck against every possible
-// SimContext<...> instantiation the way LayoutPolicyProbe does for
-// TopologyFor. A Step function naming a View that its host sim doesn't
-// actually carry simply fails to compile where it's really instantiated,
-// same as it would for any other mistyped member access -- just not
-// something this concept can catch structurally ahead of that. Probed with
-// LayoutPolicyProbe the same way TraversalLike (engine/pass/traversals.hpp)
-// probes Apply/InitOp with a TraversalProbe -- TopologyFor is templated on
-// the caller's Policy, so checking it at all means picking some concrete
-// stand-in Policy to instantiate with.
-template <typename T>
-concept SimContextLike = requires(const T& ctx) {
-  {
-    ctx.template TopologyFor<detail::LayoutPolicyProbe>()
-  } -> std::same_as<const domain::JointTopology&>;
+template <typename AlgorithmT>
+struct AlgorithmOrderings;
+
+template <typename EnumT, template <EnumT> class Traits, typename StepT>
+struct AlgorithmOrderings<Algorithm<EnumT, Traits, StepT>> {
+  using Type = decltype(CollectFieldOrderings<EnumT, Traits>(
+      std::make_index_sequence<static_cast<std::size_t>(EnumT::kCount)>{}
+  ));
 };
 
+}  // namespace detail
+
+// Every distinct ordering policy named by any field of any of Algorithms...,
+// de-duplicated -- two algorithms sharing the same policy (e.g. ABA and VI
+// both naming TopologicalOrdering, see algorithms/vi/vi_data.hpp) collapse
+// to one entry, since TopologyFor<Policy> only ever needs one JointTopology
+// per policy no matter how many fields share it. Public, not detail: both
+// SimContext (to size its own topology tuple below) and SimAllocator (to
+// build the matching real JointTopology values, engine/memory/
+// sim_allocator.hpp) need to name this exact same list.
+template <AlgorithmLike... Algorithms>
+using UsedOrderingsFor = util::UniqueT<
+    util::ConcatT<typename detail::AlgorithmOrderings<Algorithms>::Type...>>;
+
+// One JointTopology per distinct ordering policy, wrapped so each entry gets
+// its own distinct tuple-element type even though every wrapped value is the
+// exact same domain::JointTopology type underneath -- std::get<T> needs T to
+// be unique within the tuple, and multiple ordering policies routinely share
+// a JointTopology's shape without being the same policy. View itself never
+// needed a wrapper like this: ViewFactory<EnumT, Traits> already produces a
+// distinct type per Algorithm, so std::tuple<Algorithms::View...> has no
+// such collision to begin with.
+template <typename Policy>
+struct TopologySlot {
+  domain::JointTopology topology;
+};
+
+// The concrete tuple type SimContext<Algorithms...> stores its topologies
+// in -- one TopologySlot<Policy> per entry of UsedOrderingsFor<Algorithms...>,
+// in the same order.
+template <AlgorithmLike... Algorithms>
+using TopologyTupleFor = util::ToTupleT<
+    util::TransformT<TopologySlot, UsedOrderingsFor<Algorithms...>>>;
+
 // The allocator-built half of what a Step function needs: every hosted
-// Algorithm's own View, plus the per-ordering-policy JointTopology map.
-// Holds its own copies of both (a small map plus a tuple of lightweight
-// View handles into Arena memory -- cheap to copy, since a View is itself
-// just a few pointers/strides into that memory, never the memory itself),
-// rather than borrowing SimAllocator's own storage -- so a SimContext
-// legitimately outlives the SimAllocator that built it (see
-// SimAllocator::State()/Extract()); the only thing it actually depends on
-// staying alive is the Arena backing the Views it holds.
+// Algorithm's own View, plus one JointTopology per distinct ordering policy.
+// Holds its own copies of both -- a tuple of TopologySlots plus a tuple of
+// lightweight View handles into Arena memory, both cheap to copy since
+// neither owns the memory it points/refers into -- rather than borrowing
+// SimAllocator's own storage, so a SimContext legitimately outlives the
+// SimAllocator that built it (see SimAllocator::State()/Extract()); the only
+// thing it actually depends on staying alive is the Arena backing the Views
+// and JointTopology instances it holds.
 //
 // Lives in engine::pass (not engine::memory, where it's built, or domain,
 // which stays a dependency-free value-type layer) so it can sit next to
 // Step, its one real consumer. Still templated on the same Algorithms...
-// pack as whichever SimAllocator built it, so ViewFor<ViewT>() has a real
-// std::tuple<Algorithms::View...> to std::get out of.
+// pack as whichever SimAllocator built it, so both ViewFor<ViewT>() and
+// TopologyFor<Policy>() have a real tuple to std::get out of -- both keyed
+// by std::get at compile time now, rather than TopologyFor being the odd
+// one out on a runtime std::unordered_map: naming a Policy or a View type
+// the host sim doesn't actually carry fails to compile here, not at
+// runtime, for either one.
 template <AlgorithmLike... Algorithms>
 class SimContext {
  public:
   SimContext(
-      TopologyMap topologies, std::tuple<typename Algorithms::View...> views
+      TopologyTupleFor<Algorithms...> topologies,
+      std::tuple<typename Algorithms::View...> views
   )
       : topologies_(std::move(topologies)), views_(std::move(views)) {}
 
+  // Keyed by the Policy type itself, via std::get on topologies_ -- a Step
+  // function names its own ordering policy the same way it names its own
+  // View type below (sim_state.template TopologyFor<TopologicalOrdering>()),
+  // rather than having its Topology resolved and handed to it up front.
   template <topology::LayoutPolicyLike Policy>
   const domain::JointTopology& TopologyFor() const {
-    return topologies_.at(memory::SlotId<Policy>());
+    return std::get<TopologySlot<Policy>>(topologies_).topology;
   }
 
   // The original, Algorithm-keyed overload -- kept for existing external
@@ -122,16 +141,13 @@ class SimContext {
   }
 
   // Keyed by the View type itself, via std::get on views_ -- mirrors
-  // TopologyFor<Policy> being keyed by the Policy type, so a Step function
-  // can name its own View the same way it already names its own Policy
-  // (sim_state.template ViewFor<ABAView>()), rather than having its View
-  // resolved and handed to it up front. Constrained to !AlgorithmLike<ViewT>
-  // purely to stay unambiguous against the overload above -- a View type is
-  // never itself AlgorithmLike (it has no ::Enum/::View/::Step), so every
-  // real call resolves to exactly one overload. A Step naming a View type
-  // its host sim doesn't actually carry fails to compile here, not at
-  // runtime -- see SimContextLike's own comment on why that can't be
-  // checked structurally ahead of time.
+  // TopologyFor<Policy> above being keyed by the Policy type, so a Step
+  // function can name its own View the same way it already names its own
+  // Policy, rather than having its View resolved and handed to it up front.
+  // Constrained to !AlgorithmLike<ViewT> purely to stay unambiguous against
+  // the overload above -- a View type is never itself AlgorithmLike (it has
+  // no ::Enum/::View/::Step), so every real call resolves to exactly one
+  // overload.
   template <typename ViewT>
     requires(!AlgorithmLike<ViewT>)
   ViewT ViewFor() const {
@@ -146,18 +162,50 @@ class SimContext {
   // (SimContext, Config, dt) for every Step::Step, regardless of whether it
   // uses all of it: state only some algorithms would receive is exactly the
   // kind of ambient global that's easy to wire wrong silently. Each Step
-  // looks up its own View via sim_context.ViewFor<ViewT>(), the same way it
-  // looks up its own Topology.
+  // looks up its own View and Topology from sim_context itself
+  // (ViewFor<ViewT>()/TopologyFor<Policy>()), rather than either being
+  // resolved and handed to it up front.
   template <typename Config>
   void Step(float dt, const Config& config) const {
     (detail::StepAlgorithm<Algorithms>(*this, config, dt), ...);
   }
 
  private:
-  TopologyMap topologies_;
+  TopologyTupleFor<Algorithms...> topologies_;
   std::tuple<typename Algorithms::View...> views_;
 };
-static_assert(SimContextLike<SimContext<>>);
+
+// Nominal (not duck-typed) check that SimStateT is actually some
+// SimContext<Algorithms...>. This concept used to duck-type-probe
+// TopologyFor with a stand-in Policy the same way TraversalLike probes
+// Apply/InitOp -- that worked only because TopologyFor was, at the time, a
+// runtime std::unordered_map lookup that type-checked for any Policy at
+// all. Now that both TopologyFor and ViewFor are std::get on real tuples,
+// no single stand-in Policy/ViewT compiles against every possible
+// SimContext<...> instantiation (not even SimContext<> itself, whose
+// tuples are empty), so that style of probe is gone for good -- see the
+// git history on this file if the old approach is ever worth revisiting.
+//
+// This still doesn't require a Step function to name the Algorithms...
+// pack (it matches any pack via the partial specialization below), so it
+// keeps the original decoupling ABAStep's own comment describes. It just
+// checks something coarser: is this literally a SimContext, not merely
+// something shaped like one. That still catches the class of mistake the
+// old check would have -- the wrong object entirely (a typo, sim_config
+// where sim.SimContext() was meant, ...) -- with a clean "constraint not
+// satisfied" error at Step's own template parameter, rather than a deep
+// cascading error from inside Step's body. It can't tell you *which*
+// View/Policy is missing, though -- that's still only ever caught where
+// ViewFor/TopologyFor are actually called, same as any other unconstrained
+// member access.
+template <typename T>
+struct IsSimContext : std::false_type {};
+
+template <AlgorithmLike... Algorithms>
+struct IsSimContext<SimContext<Algorithms...>> : std::true_type {};
+
+template <typename T>
+concept SimContextLike = IsSimContext<T>::value;
 
 // Builds SimContext<Algorithms...> from a util::TypeList<Algorithms...>
 // instead of a caller restating the pack -- same shape as, and for the same

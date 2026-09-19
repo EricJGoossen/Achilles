@@ -283,24 +283,6 @@ std::size_t MeasureAlgorithm(
   );
 }
 
-// Collects FieldOrderingT<EnumT, Traits, F> for every field of one
-// Algorithm into a TypeList -- SimAllocator concatenates and de-dups these
-// across its whole Algorithms... pack to find every distinct ordering
-// policy actually in play (see SimAllocator::UsedOrderings).
-template <typename EnumT, template <EnumT> class Traits, std::size_t... Is>
-auto CollectFieldOrderings(std::index_sequence<Is...>)
-    -> util::TypeList<FieldOrderingT<EnumT, Traits, static_cast<EnumT>(Is)>...>;
-
-template <typename AlgorithmT>
-struct AlgorithmOrderings;
-
-template <typename EnumT, template <EnumT> class Traits, typename StepT>
-struct AlgorithmOrderings<Algorithm<EnumT, Traits, StepT>> {
-  using Type = decltype(CollectFieldOrderings<EnumT, Traits>(
-      std::make_index_sequence<static_cast<std::size_t>(EnumT::kCount)>{}
-  ));
-};
-
 // Builds one Layout per distinct ordering policy in `List`, keyed the same
 // way FieldVisitor::FieldLayoutFor looks them back up (SlotId<Policy>()).
 template <typename List>
@@ -322,6 +304,27 @@ struct BuildLayoutMap<util::TypeList<Policies...>> {
     (layouts.emplace(SlotId<Policies>(), Policies::Build(tree, lane_size)),
      ...);
     return layouts;
+  }
+};
+
+// Allocates one JointTopology per distinct ordering policy in `List` (the
+// same List BuildLayoutMap above was built from), wrapped into the exact
+// tuple shape SimContext<Algorithms...> expects (pass::TopologyTupleFor,
+// engine/pass/sim_context.hpp) rather than a second, independently-shaped
+// tuple this file would otherwise have to keep hand-in-sync with it.
+template <typename List>
+struct BuildTopologyTuple;
+
+template <typename... Policies>
+struct BuildTopologyTuple<util::TypeList<Policies...>> {
+  static std::tuple<pass::TopologySlot<Policies>...> Build(
+      LayoutMap& layouts, Arena& arena
+  ) {
+    return std::tuple<pass::TopologySlot<Policies>...>{
+        pass::TopologySlot<Policies>{
+            layouts.at(SlotId<Policies>()).AllocateTopology(arena)
+        }...
+    };
   }
 };
 
@@ -466,8 +469,11 @@ struct AlgorithmVisitor<Algorithm<EnumT, Traits, StepT>> {
 // resize.
 template <AlgorithmLike... Algorithms>
 class SimAllocator {
-  using UsedOrderings = util::UniqueT<
-      util::ConcatT<typename detail::AlgorithmOrderings<Algorithms>::Type...>>;
+  // Reuses SimContext's own computation (engine/pass/sim_context.hpp)
+  // rather than keeping a second, independent copy here that this file's
+  // BuildLayoutMap/BuildTopologyTuple and SimContext's own topology tuple
+  // could silently drift out of sync against.
+  using UsedOrderings = pass::UsedOrderingsFor<Algorithms...>;
 
  public:
   struct State {
@@ -561,13 +567,12 @@ class SimAllocator {
     return total;
   }
 
-  // Allocates one JointTopology per distinct ordering policy in the Arena.
-  pass::TopologyMap BuildTopologies() {
-    pass::TopologyMap topologies;
-    for (auto& [id, layout] : layouts_) {
-      topologies.emplace(id, layout.AllocateTopology(state_.arena));
-    }
-    return topologies;
+  // Allocates one JointTopology per distinct ordering policy in the Arena,
+  // wrapped into the exact tuple shape SimContext<Algorithms...> expects.
+  pass::TopologyTupleFor<Algorithms...> BuildTopologies() {
+    return detail::BuildTopologyTuple<UsedOrderings>::Build(
+        layouts_, state_.arena
+    );
   }
 
   // Pack order is left-to-right: first algorithm naming a SharedAs tag owns it.
