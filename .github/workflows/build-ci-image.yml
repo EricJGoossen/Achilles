@@ -30,7 +30,7 @@ jobs:
       packages: write  # required to push to GHCR
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Log in to GHCR
         uses: docker/login-action@v3

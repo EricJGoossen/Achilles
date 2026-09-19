@@ -44,7 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     container: ${{ needs.setup.outputs.image }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Check formatting (src/, include/)
         run: ./scripts/check-format.sh
@@ -55,7 +55,7 @@ jobs:
     runs-on: ubuntu-latest
     container: ${{ needs.setup.outputs.image }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Configure
         env:
@@ -72,7 +72,7 @@ jobs:
     runs-on: ubuntu-latest
     container: ${{ needs.setup.outputs.image }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Configure
         env:
@@ -89,7 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     container: ${{ needs.setup.outputs.image }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Configure
         env:
