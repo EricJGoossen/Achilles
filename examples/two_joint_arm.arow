@@ -1,0 +1,68 @@
+# A minimal demo scene for achilles_viewer: a two-joint revolute arm
+# (shoulder -> elbow), each joint a single DOF about its own local Z axis
+# (see joint_subspace/joint_activation_mask below), each drawn as a colored
+# box via the visual_extents/visual_color fields algorithms::viz reads
+# (see include/algorithms/viz/viz_data.hpp).
+#
+# Build+run (see the root CMakeLists.txt's own comment on
+# ACHILLES_ENABLE_RENDERER for what this needs installed):
+#   cmake -S . -B build -DACHILLES_ENABLE_RENDERER=ON
+#   cmake --build build --target achilles_viewer
+#   ./build/achilles_viewer examples/two_joint_arm.arow examples/sim_config.yaml
+archetype: arm
+joints:
+  - name: shoulder
+    parent: null
+    fields:
+      # A single active DOF (angular Z, i.e. yaw -- row 2 of the 6x6
+      # subspace, see domain::spatial::Dual's own Roll/Pitch/Yaw/X/Y/Z row
+      # order) with every other column left at zero; joint_activation_mask
+      # is the packed bitmask marking column 0 as this joint's only real
+      # DOF (see math::ActivationMaskAssembler's own comment).
+      joint_subspace:
+        [
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          1, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+        ]
+      joint_activation_mask: [1]
+      fixed_joint_transform:
+        translation: [0, 0, 0]
+        rotation: [1, 0, 0, 0]
+      rigid_body_inertia: [1.0, 0, 0, 0, 0.05, 0.05, 0.05, 0, 0, 0]
+      joint_position:
+        translation: [0, 0, 0]
+        rotation: [1, 0, 0, 0]
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.15, 0.5, 0.15]
+      visual_color: [0.85, 0.3, 0.2]
+  - name: elbow
+    parent: shoulder
+    fields:
+      joint_subspace:
+        [
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          1, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+        ]
+      joint_activation_mask: [1]
+      # Offset 1 unit up shoulder's own local Y from its parent -- this is
+      # where the elbow's own joint frame sits before any rotation.
+      fixed_joint_transform:
+        translation: [0, 1.0, 0]
+        rotation: [1, 0, 0, 0]
+      rigid_body_inertia: [0.6, 0, 0, 0, 0.02, 0.02, 0.02, 0, 0, 0]
+      joint_position:
+        translation: [0, 0, 0]
+        rotation: [1, 0, 0, 0]
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.12, 0.4, 0.12]
+      visual_color: [0.2, 0.55, 0.9]

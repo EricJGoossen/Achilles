@@ -63,7 +63,8 @@ TEST_HEADER_FILTER="^${ROOT_DIR}/tests/.*"
 EIGEN_INCLUDE_DIR="$BUILD_DIR/_deps/eigen-src"
 GOOGLETEST_INCLUDE_DIR="$BUILD_DIR/_deps/googletest-src/googletest/include"
 YAML_CPP_INCLUDE_DIR="$BUILD_DIR/_deps/yaml-cpp-src/include"
-DEP_ARGS=(-x c++ -std=c++20 -I"$ROOT_DIR/src" -I"$ROOT_DIR/include" -isystem"$EIGEN_INCLUDE_DIR" -isystem"$GOOGLETEST_INCLUDE_DIR" -isystem"$YAML_CPP_INCLUDE_DIR")
+GLFW_INCLUDE_DIR="$BUILD_DIR/_deps/glfw-src/include"
+DEP_ARGS=(-x c++ -std=c++20 -I"$ROOT_DIR/src" -I"$ROOT_DIR/include" -isystem"$EIGEN_INCLUDE_DIR" -isystem"$GOOGLETEST_INCLUDE_DIR" -isystem"$YAML_CPP_INCLUDE_DIR" -isystem"$GLFW_INCLUDE_DIR")
 
 # Hashes both .clang-tidy configs (root and tests/ -- a tests/*.cpp file
 # resolves tests/.clang-tidy as its nearest config, not the root one) and
