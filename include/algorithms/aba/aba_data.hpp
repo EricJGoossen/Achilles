@@ -7,7 +7,6 @@
 #include "domain/joint_topology.hpp"
 #include "domain/math/activation_mask.hpp"
 #include "domain/math/matrix.hpp"
-#include "domain/math/vector6.hpp"
 #include "domain/spatial/dual.hpp"
 #include "domain/spatial/inertia.hpp"
 #include "domain/spatial/transform.hpp"
@@ -99,7 +98,7 @@ struct ABAFieldTraits<ABAField::kRigidBodyInertia> {
 };
 template <>
 struct ABAFieldTraits<ABAField::kJointPosition> {
-  using Assembler = math::Vector6Assembler<ScalarOperationT>;
+  using Assembler = spatial::TransformAssembler<ScalarOperationT>;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
   static constexpr std::string_view kName = "joint_position";

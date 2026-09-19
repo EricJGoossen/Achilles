@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <cstddef>
 #include <filesystem>
 #include <sstream>
@@ -57,13 +58,20 @@ std::string RevoluteZFieldsYaml(
     float q0, float qd0 = 0.0F, float tau0 = 0.0F, int mask = 1
 ) {
   std::ostringstream out;
+  // joint_position is x_joint itself (an SE(3) pose), not a raw
+  // generalized coordinate -- q0 is a yaw angle about Z (this joint's own
+  // subspace axis), so its equivalent pose is a pure Z-rotation, written
+  // out here as the same [tx,ty,tz, qw,qx,qy,qz] leaf order
+  // domain/archetype.hpp's own comment describes for a Transform field.
+  float half_q0 = q0 * 0.5F;
   out << "      joint_subspace: [0,0,0,0,0,0,0,0,0,0,0,0,"
          "1,"
          "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]\n"
       << "      joint_activation_mask: [" << mask << "]\n"
       << "      fixed_joint_transform: [0,0,0, 1,0,0,0]\n"
       << "      rigid_body_inertia: [2, 0,0,0, 2,3,4, 0,0,0]\n"
-      << "      joint_position: [" << q0 << ", 0,0,0,0,0]\n"
+      << "      joint_position: [0,0,0, " << std::cos(half_q0) << ", 0,0, "
+      << std::sin(half_q0) << "]\n"
       << "      joint_velocity: [" << qd0 << ", 0,0,0,0,0]\n"
       << "      joint_torque: [" << tau0 << ", 0,0,0,0,0]\n";
   return out.str();

@@ -100,9 +100,14 @@ void PopulateRevoluteZJoint(
   view.Store<ABAField::kJointActivationMask, MaskB>(group, DOF0ActiveMask());
   view.Store<ABAField::kFixedJointTransform, B>(group, Transform::Identity());
   view.Store<ABAField::kRigidBodyInertia, B>(group, SimpleInertia());
-  view.Store<ABAField::kJointPosition, B>(
-      group, Vector6(q0, B(0.0F), B(0.0F), B(0.0F), B(0.0F), B(0.0F))
-  );
+  // kJointPosition holds the joint's own pose (x_joint), not raw
+  // generalized coordinates -- lift q0 through the subspace into a real
+  // twist and exponentiate it, the same way IntegratePositionOp
+  // (pi_ops.hpp) builds/maintains this field in a real simulation loop.
+  Vector6 q_coords(q0, B(0.0F), B(0.0F), B(0.0F), B(0.0F), B(0.0F));
+  Transform x_joint =
+      Transform::Exp(Velocity(RevoluteZSubspace() * q_coords));
+  view.Store<ABAField::kJointPosition, B>(group, x_joint);
   view.Store<ABAField::kJointVelocity, B>(group, qd);
   view.Store<ABAField::kJointTorque, B>(group, tau);
 }
