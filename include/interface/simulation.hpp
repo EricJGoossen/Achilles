@@ -4,12 +4,15 @@
 
 #include "algorithms/registry.hpp"
 #include "algorithms/sim_config.hpp"
+#include "algorithms/viz/viz_step.hpp"
 #include "domain/archetype.hpp"
 #include "domain/joint_topology.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/layout_policy.hpp"
+#include "engine/topology/ordering_policy.hpp"
 #include "interface/archetype_loader.hpp"
 #include "interface/sim_config_loader.hpp"
+#include "render/scene_renderer.hpp"
 #include "util/io.hpp"
 
 namespace achilles::interface {
@@ -19,6 +22,14 @@ class Simulation {
       engine::memory::SimAllocatorForT<algorithms::RegisteredAlgorithms>;
 
  public:
+  // Headless by default -- constructing a Simulation never opens a window
+  // unless a caller explicitly opts in, so existing/programmatic/test
+  // usage (which never calls this) is completely unaffected. When set to
+  // false, Step() renders one frame per call (lazily opening a window on
+  // its first non-headless Step()) via render::SceneRenderer, walking
+  // this sim's own viz::VizAlgorithm state -- see that module's own
+  // comment (algorithms/viz/viz_data.hpp) for what gets drawn.
+  void SetHeadless(bool headless) { headless_ = headless; }
   bool LoadConfigFile(const std::string& path) {
     try {
       config_ = LoadSimConfig(path);
@@ -52,6 +63,11 @@ class Simulation {
     return true;
   }
 
+  // Steps the physics, then -- unless SetHeadless(true) (the default) --
+  // renders exactly one frame of the resulting state. Returns false (the
+  // same "stop" signal a caller already checks for on any other failure)
+  // once the render window has been closed, so a simple `while (sim.
+  // Step(dt)) {}` loop is both the headless and the visual shape.
   bool Step(float dt) {
     if (!state_.has_value()) {
       return util::Warning(
@@ -64,6 +80,21 @@ class Simulation {
     } catch (const std::exception& e) {
       return util::Warning("Simulation step failed", e.what());
     }
+
+    if (!headless_) {
+      if (!renderer_.has_value()) {
+        renderer_.emplace("Achilles Viewer");
+      }
+      renderer_->PollInput();
+      if (renderer_->ShouldClose()) {
+        return false;
+      }
+      renderer_->RenderFrame(
+          ViewFor<algorithms::viz::VizAlgorithm>(),
+          TopologyFor<engine::topology::TopologicalOrdering>()
+      );
+      renderer_->SwapBuffers();
+    }
     return true;
   }
 
@@ -71,10 +102,20 @@ class Simulation {
   // run -- the same ViewFor<AlgorithmT>() forwarding SimAllocator/SimContext
   // already expose, for a caller (or a test) that needs to inspect state
   // Step() produced. Only ever called after a successful Init(), the same
-  // precondition Step() itself relies on.
+  // documented precondition Step() itself relies on -- not re-checked
+  // here (state_->context, not state_.value()->context) since a runtime
+  // guard would just have to invent a return value for the "precondition
+  // violated" case this class's whole contract already says never happens.
   template <engine::AlgorithmLike AlgorithmT>
-  typename AlgorithmT::View ViewFor() const {
-    return state_->context.template ViewFor<AlgorithmT>();
+  bool ViewFor(typename AlgorithmT::View* output) const {
+    if (!state_.has_value()) {
+      return util::Warning(
+          "Simulation::ViewFor() called before Simulation::Init() -- "
+          "the sim is not yet initialized."
+      );
+    }
+    *output = state_->context.template ViewFor<AlgorithmT>();
+    return true;
   }
 
   // Read-only access to the one JointTopology built for a given ordering
@@ -83,14 +124,23 @@ class Simulation {
   // parent (e.g. to draw a bone from a joint to its parent's world
   // position) the same way ABAStep itself does.
   template <engine::topology::LayoutPolicyLike PolicyT>
-  domain::JointTopology TopologyFor() const {
-    return state_->context.template TopologyFor<PolicyT>();
+  bool TopologyFor(domain::JointTopology* output) const {
+    if (!state_.has_value()) {
+      return util::Warning(
+          "Simulation::TopologyFor() called before Simulation::Init() -- "
+          "the sim is not yet initialized."
+      );
+    }
+    *output = state_->context.template TopologyFor<PolicyT>();
+    return true;
   }
 
  private:
   algorithms::SimConfig config_;
   std::optional<Allocator::State> state_;
   std::vector<domain::Archetype> archetypes_;
+  bool headless_ = true;
+  std::optional<render::SceneRenderer> renderer_;
 };
 
 }  // namespace achilles::interface

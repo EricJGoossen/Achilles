@@ -46,6 +46,30 @@ set(YAML_CPP_BUILD_CONTRIB OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_INSTALL OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(yaml-cpp)
 
+# GLFW backs the OpenGL visualization module (src/render/, wired into
+# interface::Simulation's own headless flag -- see simulation.hpp) --
+# always fetched, the same as Eigen/yaml-cpp above, since the renderer is
+# now a normal part of achilles_lib rather than an opt-in module. Building
+# GLFW from source needs its own X11/OpenGL dev headers (on Linux:
+# libgl1-mesa-dev, libx11-dev, libxrandr-dev, libxinerama-dev,
+# libxcursor-dev, libxi-dev, libxext-dev -- see .devcontainer/Dockerfile).
+FetchContent_Declare(
+    glfw
+    GIT_REPOSITORY https://github.com/glfw/glfw.git
+    GIT_TAG 3.4
+    GIT_SHALLOW TRUE
+)
+set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+# X11 only -- Wayland support needs wayland-scanner, an extra build-time
+# dependency this project doesn't otherwise carry, and the renderer has no
+# Wayland-specific code of its own to lose by disabling it.
+set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(glfw)
+find_package(OpenGL REQUIRED)
+
 file(GLOB_RECURSE ACHILLES_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
 )
@@ -72,7 +96,7 @@ target_include_directories(achilles_lib ${ACHILLES_LIB_TYPE}
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
 )
 
-target_link_libraries(achilles_lib ${ACHILLES_LIB_TYPE} Eigen3::Eigen yaml-cpp::yaml-cpp)
+target_link_libraries(achilles_lib ${ACHILLES_LIB_TYPE} Eigen3::Eigen yaml-cpp::yaml-cpp glfw OpenGL::GL)
 
 add_executable(achilles "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
 target_link_libraries(achilles PRIVATE achilles_lib)
