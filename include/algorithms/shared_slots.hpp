@@ -25,5 +25,10 @@ struct JointSubspaceSlot;
 struct JointPositionSlot;
 struct JointVelocitySlot;
 struct JointAccelerationSlot;
+// ABA's own kWorldTransform (aba_data.hpp) -- shared so a read-only
+// consumer (e.g. algorithms::viz's own kWorldTransform, viz/viz_data.hpp)
+// can see the exact world pose ABA already computes every tick, instead of
+// re-deriving it from kJointPosition/kFixedJointTransform itself.
+struct WorldTransformSlot;
 
 }  // namespace achilles::algorithms

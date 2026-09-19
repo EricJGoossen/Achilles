@@ -5,7 +5,9 @@
 #include "algorithms/registry.hpp"
 #include "algorithms/sim_config.hpp"
 #include "domain/archetype.hpp"
+#include "domain/joint_topology.hpp"
 #include "engine/memory/sim_allocator.hpp"
+#include "engine/topology/layout_policy.hpp"
 #include "interface/archetype_loader.hpp"
 #include "interface/sim_config_loader.hpp"
 #include "util/io.hpp"
@@ -73,6 +75,16 @@ class Simulation {
   template <engine::AlgorithmLike AlgorithmT>
   typename AlgorithmT::View ViewFor() const {
     return state_->context.template ViewFor<AlgorithmT>();
+  }
+
+  // Read-only access to the one JointTopology built for a given ordering
+  // policy, once Init() has run -- same precondition and same forwarding
+  // shape as ViewFor above. A renderer walks this to find each row's
+  // parent (e.g. to draw a bone from a joint to its parent's world
+  // position) the same way ABAStep itself does.
+  template <engine::topology::LayoutPolicyLike PolicyT>
+  domain::JointTopology TopologyFor() const {
+    return state_->context.template TopologyFor<PolicyT>();
   }
 
  private:
