@@ -7,6 +7,7 @@
 
 #include "algorithms/viz/viz_data.hpp"
 #include "domain/joint_topology.hpp"
+#include "domain/math/quaternion.hpp"
 #include "domain/math/vector3.hpp"
 #include "domain/spatial/transform.hpp"
 #include "render/mat4.hpp"
@@ -19,6 +20,7 @@ using achilles::algorithms::viz::VizField;
 using achilles::algorithms::viz::VizView;
 using ScalarTransform = domain::spatial::Transform<float>;
 using ScalarVector3 = domain::math::Vector3<float>;
+using ScalarQuaternion = domain::math::Quaternion<float>;
 
 constexpr std::string_view kLitVertexSource = R"(#version 330 core
 layout(location = 0) in vec3 a_pos;
@@ -171,8 +173,25 @@ void SceneRenderer::RenderFrame(
     Vec3 rgb = color.IsZero() ? FallbackColor(row)
                               : Vec3(color.X(), color.Y(), color.Z());
 
+    // The cube mesh itself is centered on the origin ([-1, 1]^3, see
+    // CubeMesh's own comment), so placing it directly at `transform` would
+    // draw every joint's box straddling its own pivot -- centered on the
+    // joint rather than extending away from it the way a bone/limb segment
+    // actually should. Offsetting by half the box's own length along its
+    // local +Y (the same axis fixed_joint_transform's own translation uses
+    // to place a child joint, see two_joint_arm.arow's own comment) instead
+    // draws it from the joint outward, so a child joint offset by this same
+    // convention sits right at the box's far face rather than the middle.
+    // `transform` itself -- the real, unshifted joint position -- is still
+    // what the bone line below is drawn from/to, so this offset is purely
+    // cosmetic (the cube's own placement), never the physics.
+    ScalarTransform box_pose =
+        transform *
+        ScalarTransform(
+            ScalarVector3(0.0F, extents.Y(), 0.0F), ScalarQuaternion::Identity()
+        );
     Mat4 model = FromTransformAndScale(
-        transform, Vec3(extents.X(), extents.Y(), extents.Z())
+        box_pose, Vec3(extents.X(), extents.Y(), extents.Z())
     );
     lit_shader_.SetMat4("u_model", model);
     lit_shader_.SetVec3("u_color", rgb.X(), rgb.Y(), rgb.Z());

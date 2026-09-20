@@ -1,8 +1,12 @@
 # A minimal demo scene for achilles_viewer: a two-joint revolute arm
-# (shoulder -> elbow), each joint a single DOF about its own local Z axis
+# (shoulder -> elbow), each joint a single DOF about its own local X axis
 # (see joint_subspace/joint_activation_mask below), each drawn as a colored
 # box via the visual_extents/visual_color fields algorithms::viz reads
-# (see include/algorithms/viz/viz_data.hpp).
+# (see include/algorithms/viz/viz_data.hpp). The rotation axis is
+# deliberately perpendicular to sim_config.yaml's gravity (along Z) so the
+# arm actually swings -- gravity parallel to a joint's own rotation axis
+# produces zero torque about that axis for any mass distribution, so a
+# Z-axis (yaw) joint under Z-axis gravity would never move at all.
 #
 # Build+run (see the root CMakeLists.txt's own comment on
 # ACHILLES_ENABLE_RENDERER for what this needs installed):
@@ -14,16 +18,16 @@ joints:
   - name: shoulder
     parent: null
     fields:
-      # A single active DOF (angular Z, i.e. yaw -- row 2 of the 6x6
+      # A single active DOF (angular X, i.e. roll -- row 0 of the 6x6
       # subspace, see domain::spatial::Dual's own Roll/Pitch/Yaw/X/Y/Z row
       # order) with every other column left at zero; joint_activation_mask
       # is the packed bitmask marking column 0 as this joint's only real
       # DOF (see math::ActivationMaskAssembler's own comment).
       joint_subspace:
         [
-          0, 0, 0, 0, 0, 0,
-          0, 0, 0, 0, 0, 0,
           1, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
           0, 0, 0, 0, 0, 0,
           0, 0, 0, 0, 0, 0,
           0, 0, 0, 0, 0, 0,
@@ -32,7 +36,22 @@ joints:
       fixed_joint_transform:
         translation: [0, 0, 0]
         rotation: [1, 0, 0, 0]
-      rigid_body_inertia: [1.0, 0, 0, 0, 0.05, 0.05, 0.05, 0, 0, 0]
+      # Center of mass offset 0.3 up the local Y axis (rigid_body_inertia's
+      # h, the second field) rather than sitting at the joint origin -- a
+      # joint can only feel a gravity torque about its own axis when its own
+      # body has mass offset from that axis (see two_joint_arm.arow's own
+      # header comment); with h = 0 here, gravity would only ever be able
+      # to move this joint via the *child's* offset mass (elbow), and the
+      # elbow itself -- having no child of its own to lean on -- would never
+      # feel any torque about its own hinge at all, so it'd hold a constant
+      # world-frame orientation while the shoulder swung under it instead of
+      # swinging along with it. Ixx/Izz (0.18083, about the joint, not the
+      # body's own center of mass) are raised accordingly via the parallel
+      # axis theorem (I_about_joint = I_about_com + mass * offset^2) --
+      # Inertia::IsPhysicallyValid (domain/spatial/inertia.hpp) asserts this
+      # at load time, since an unraised Ixx/Izz here would describe a body
+      # lighter, rotationally, than the offset mass itself requires.
+      rigid_body_inertia: [1.0, 0, 0.3, 0, 0.18083, 0.015, 0.18083, 0, 0, 0]
       joint_position:
         translation: [0, 0, 0]
         rotation: [1, 0, 0, 0]
@@ -45,9 +64,9 @@ joints:
     fields:
       joint_subspace:
         [
-          0, 0, 0, 0, 0, 0,
-          0, 0, 0, 0, 0, 0,
           1, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
           0, 0, 0, 0, 0, 0,
           0, 0, 0, 0, 0, 0,
           0, 0, 0, 0, 0, 0,
@@ -58,7 +77,13 @@ joints:
       fixed_joint_transform:
         translation: [0, 1.0, 0]
         rotation: [1, 0, 0, 0]
-      rigid_body_inertia: [0.6, 0, 0, 0, 0.02, 0.02, 0.02, 0, 0, 0]
+      # Same reasoning as the shoulder's own rigid_body_inertia comment
+      # above: center of mass offset 0.25 up this joint's own local Y axis
+      # (this is a leaf joint, with no child of its own to borrow a lever
+      # arm from, so without its own offset it would never feel any
+      # gravity torque at all), with Ixx/Izz raised to match via the
+      # parallel axis theorem.
+      rigid_body_inertia: [1.2, 0, 0.45, 0, 0.21238, 0.01576, 0.21238, 0, 0, 0]
       joint_position:
         translation: [0, 0, 0]
         rotation: [1, 0, 0, 0]
