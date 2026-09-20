@@ -40,8 +40,10 @@
 #include <string>
 
 #include "algorithms/aba/aba_data.hpp"
+#include "algorithms/aba/aba_energy.hpp"
 #include "algorithms/conventions.hpp"
 #include "domain/joint_topology.hpp"
+#include "domain/math/vector3.hpp"
 #include "engine/topology/ordering_policy.hpp"
 #include "interface/simulation.hpp"
 #include "support/temp_dir.hpp"
@@ -49,7 +51,9 @@
 using achilles::algorithms::MathematicalT;
 using achilles::algorithms::aba::ABAAlgorithm;
 using achilles::algorithms::aba::ABAField;
+using achilles::algorithms::aba::ComputeSystemEnergy;
 using achilles::domain::JointTopology;
+using achilles::domain::math::Vector3;
 using achilles::engine::topology::TopologicalOrdering;
 using achilles::interface::Simulation;
 using achilles::test_support::TempDir;
@@ -69,14 +73,16 @@ namespace {
 // about which scene it's checking, not silently pass on stale physics.
 struct LinkParams {
   float mass;
-  float pivot_to_com;        // r -- rigid_body_inertia's h, divided by mass
-  float inertia_about_pivot; // Ixx == Izz (both perpendicular to the pivot
+  float pivot_to_com;         // r -- rigid_body_inertia's h, divided by mass
+  float inertia_about_pivot;  // Ixx == Izz (both perpendicular to the pivot
                               // -> CoM offset, which points along Y)
 };
-constexpr LinkParams kShoulder{.mass = 1.0F, .pivot_to_com = 0.3F,
-                                .inertia_about_pivot = 0.18083F};
-constexpr LinkParams kElbow{.mass = 0.6F, .pivot_to_com = 0.25F,
-                             .inertia_about_pivot = 0.07238F};
+constexpr LinkParams kShoulder{
+    .mass = 1.0F, .pivot_to_com = 0.3F, .inertia_about_pivot = 0.18083F
+};
+constexpr LinkParams kElbow{
+    .mass = 0.4F, .pivot_to_com = 0.375F, .inertia_about_pivot = 0.07238F
+};
 constexpr float kLinkLength = 1.0F;  // shoulder -> elbow offset (local Y)
 
 // examples/sim_config.yaml's own base_acceleration.linear.z. ABA treats a
@@ -125,7 +131,7 @@ std::string TwoJointArmYaml() {
          "      fixed_joint_transform:\n"
          "        translation: [0, 1.0, 0]\n"
          "        rotation: [1, 0, 0, 0]\n"
-         "      rigid_body_inertia: [0.6, 0, 0.15, 0, 0.07238, 0.00576, "
+         "      rigid_body_inertia: [0.4, 0, 0.15, 0, 0.07238, 0.00576, "
          "0.07238, 0, 0, 0]\n"
          "      joint_position:\n"
          "        translation: [0, 0, 0]\n"
@@ -145,7 +151,8 @@ std::string SimConfigYaml() {
 }
 
 Simulation MakeTwoJointArmSim(const TempDir& dir) {
-  std::filesystem::path arow = dir.Write("two_joint_arm.arow", TwoJointArmYaml());
+  std::filesystem::path arow =
+      dir.Write("two_joint_arm.arow", TwoJointArmYaml());
   std::filesystem::path config = dir.Write("sim_config.yaml", SimConfigYaml());
   Simulation sim;
   [[maybe_unused]] bool loaded_arow = sim.LoadArowFile(arow.string());
@@ -193,9 +200,7 @@ JointRows FindJointRows(const JointTopology& topology) {
 // position update): composing two pure-X rotations by quaternion
 // multiplication is exact angle addition, so reading the angle back this
 // way round-trips exactly too.
-float ExtractAngleAboutX(float w, float x) {
-  return 2.0F * std::atan2(x, w);
-}
+float ExtractAngleAboutX(float w, float x) { return 2.0F * std::atan2(x, w); }
 
 // The closed-form (phi'', psi'') solved from the Euler-Lagrange equations
 // for this exact two-link system -- see this file's own header comment for
@@ -233,10 +238,9 @@ Accelerations ReferenceAngularAcceleration(
   const float m21 = m12;
   const float m22 = Q;
 
-  const float b1 = 2.0F * R * sin_psi * phi_dot * psi_dot +
-                    R * sin_psi * psi_dot * psi_dot +
-                    (m1 * r1 + m2 * l1) * g * cos_phi +
-                    m2 * r2 * g * cos_phi_psi;
+  const float b1 =
+      2.0F * R * sin_psi * phi_dot * psi_dot + R * sin_psi * psi_dot * psi_dot +
+      (m1 * r1 + m2 * l1) * g * cos_phi + m2 * r2 * g * cos_phi_psi;
   const float b2 = -R * sin_psi * phi_dot * phi_dot + m2 * r2 * g * cos_phi_psi;
 
   const float det = m11 * m22 - m12 * m21;
@@ -266,7 +270,8 @@ struct ReferenceState {
   float psi_dot = 0.0F;
 
   void Step(float dt) {
-    Accelerations qdd = ReferenceAngularAcceleration(phi, psi, phi_dot, psi_dot);
+    Accelerations qdd =
+        ReferenceAngularAcceleration(phi, psi, phi_dot, psi_dot);
     phi_dot += qdd.phi_dd * dt;
     psi_dot += qdd.psi_dd * dt;
     phi += phi_dot * dt;
@@ -339,12 +344,12 @@ TEST(TwoJointArmReference, TrajectoryMatchesIndependentModelOverTwoSeconds) {
     reference.Step(kDt);
 
     auto view = sim.ViewFor<ABAAlgorithm>();
-    auto shoulder_q =
-        view.Load<ABAField::kJointPosition, float>(rows.shoulder);
+    auto shoulder_q = view.Load<ABAField::kJointPosition, float>(rows.shoulder);
     auto elbow_q = view.Load<ABAField::kJointPosition, float>(rows.elbow);
 
-    float engine_phi =
-        ExtractAngleAboutX(shoulder_q.Rotation().W(), shoulder_q.Rotation().X());
+    float engine_phi = ExtractAngleAboutX(
+        shoulder_q.Rotation().W(), shoulder_q.Rotation().X()
+    );
     float engine_psi =
         ExtractAngleAboutX(elbow_q.Rotation().W(), elbow_q.Rotation().X());
 
@@ -385,7 +390,9 @@ TEST(TwoJointArmReference, TrajectoryMatchesIndependentModelOverTwoSeconds) {
 // diverging to some huge magnitude or NaN, which is what an actual
 // energy-injection bug (as opposed to this scheme's own known dissipation)
 // would look like instead.
-TEST(TwoJointArmReference, TotalEnergyStaysFiniteAndPhysicallyBoundedOverALongRun) {
+TEST(
+    TwoJointArmReference, TotalEnergyStaysFiniteAndPhysicallyBoundedOverALongRun
+) {
   TempDir dir;
   Simulation sim = MakeTwoJointArmSim(dir);
 
@@ -412,15 +419,15 @@ TEST(TwoJointArmReference, TotalEnergyStaysFiniteAndPhysicallyBoundedOverALongRu
     ASSERT_TRUE(sim.Step(kDt));
 
     auto view = sim.ViewFor<ABAAlgorithm>();
-    auto shoulder_q =
-        view.Load<ABAField::kJointPosition, float>(rows.shoulder);
+    auto shoulder_q = view.Load<ABAField::kJointPosition, float>(rows.shoulder);
     auto elbow_q = view.Load<ABAField::kJointPosition, float>(rows.elbow);
     auto shoulder_qd =
         view.Load<ABAField::kJointVelocity, float>(rows.shoulder);
     auto elbow_qd = view.Load<ABAField::kJointVelocity, float>(rows.elbow);
 
-    float phi =
-        ExtractAngleAboutX(shoulder_q.Rotation().W(), shoulder_q.Rotation().X());
+    float phi = ExtractAngleAboutX(
+        shoulder_q.Rotation().W(), shoulder_q.Rotation().X()
+    );
     float psi =
         ExtractAngleAboutX(elbow_q.Rotation().W(), elbow_q.Rotation().X());
     float phi_dot = shoulder_qd.Angular().X();
@@ -428,9 +435,9 @@ TEST(TwoJointArmReference, TotalEnergyStaysFiniteAndPhysicallyBoundedOverALongRu
     float omega2 = phi_dot + psi_dot;
 
     float kinetic = 0.5F * P * phi_dot * phi_dot + 0.5F * Q * omega2 * omega2 +
-                     R * std::cos(psi) * phi_dot * omega2;
+                    R * std::cos(psi) * phi_dot * omega2;
     float potential = -(m1 * r1 + m2 * l1) * g * std::sin(phi) -
-                       m2 * r2 * g * std::sin(phi + psi);
+                      m2 * r2 * g * std::sin(phi + psi);
     float total_energy = kinetic + potential;
     max_abs_energy = std::max(max_abs_energy, std::abs(total_energy));
   }
@@ -440,7 +447,167 @@ TEST(TwoJointArmReference, TotalEnergyStaysFiniteAndPhysicallyBoundedOverALongRu
   // pointing straight against gravity), a small, fixed number -- nowhere
   // near what an actual energy-injection bug (unbounded growth) would
   // produce over 30 simulated seconds / 3600 ticks.
-  float max_possible_potential =
-      (m1 * r1 + m2 * l1) * g + m2 * r2 * g;
+  float max_possible_potential = (m1 * r1 + m2 * l1) * g + m2 * r2 * g;
   EXPECT_LT(max_abs_energy, max_possible_potential * 1.5F);
+}
+
+// Simulation::SetSubsteps exists specifically to shrink the per-tick error
+// behind the dissipation the test above documents and bounds, by running
+// VI/PI's own scheme at a smaller effective dt without changing the scheme
+// itself (see its own comment). This locks in that it actually works: the
+// same scene, run for the same simulated time, must drift dramatically
+// less with substeps than without -- not just "still bounded" (the weaker
+// claim above), but *meaningfully closer to true energy conservation*.
+// Ratio-based rather than a fixed absolute threshold, since this is
+// deliberately the exact same chaotic system both runs -- the claim under
+// test is the *relative* improvement substepping buys, not some specific
+// number this scene's own chaos happens to produce today.
+TEST(TwoJointArmReference, SubstepsSubstantiallyReduceEnergyDissipation) {
+  const float m1 = kShoulder.mass;
+  const float r1 = kShoulder.pivot_to_com;
+  const float I1 = kShoulder.inertia_about_pivot;
+  const float m2 = kElbow.mass;
+  const float r2 = kElbow.pivot_to_com;
+  const float I2 = kElbow.inertia_about_pivot;
+  const float l1 = kLinkLength;
+  const float g = kGravity;
+  const float P = I1 + m2 * l1 * l1;
+  const float Q = I2;
+  const float R = m2 * l1 * r2;
+
+  auto max_abs_total_energy = [&](int substeps) {
+    TempDir dir;
+    Simulation sim = MakeTwoJointArmSim(dir);
+    sim.SetSubsteps(substeps);
+
+    JointTopology topology = sim.TopologyFor<TopologicalOrdering>();
+    JointRows rows = FindJointRows(topology);
+
+    constexpr int kSteps = 120 * 10;  // 10 simulated seconds.
+    float max_abs_energy = 0.0F;
+    for (int i = 0; i < kSteps; ++i) {
+      EXPECT_TRUE(sim.Step(kDt));
+
+      auto view = sim.ViewFor<ABAAlgorithm>();
+      auto shoulder_q =
+          view.Load<ABAField::kJointPosition, float>(rows.shoulder);
+      auto elbow_q = view.Load<ABAField::kJointPosition, float>(rows.elbow);
+      auto shoulder_qd =
+          view.Load<ABAField::kJointVelocity, float>(rows.shoulder);
+      auto elbow_qd = view.Load<ABAField::kJointVelocity, float>(rows.elbow);
+
+      float phi = ExtractAngleAboutX(
+          shoulder_q.Rotation().W(), shoulder_q.Rotation().X()
+      );
+      float psi =
+          ExtractAngleAboutX(elbow_q.Rotation().W(), elbow_q.Rotation().X());
+      float phi_dot = shoulder_qd.Angular().X();
+      float psi_dot = elbow_qd.Angular().X();
+      float omega2 = phi_dot + psi_dot;
+
+      float kinetic = 0.5F * P * phi_dot * phi_dot +
+                      0.5F * Q * omega2 * omega2 +
+                      R * std::cos(psi) * phi_dot * omega2;
+      float potential = -(m1 * r1 + m2 * l1) * g * std::sin(phi) -
+                        m2 * r2 * g * std::sin(phi + psi);
+      max_abs_energy = std::max(max_abs_energy, std::abs(kinetic + potential));
+    }
+    return max_abs_energy;
+  };
+
+  float max_energy_1 = max_abs_total_energy(1);
+  float max_energy_8 = max_abs_total_energy(8);
+
+  EXPECT_LT(max_energy_8, max_energy_1 * 0.5F)
+      << "substeps=1 max |energy|: " << max_energy_1
+      << ", substeps=8 max |energy|: " << max_energy_8;
+}
+
+// algorithms::aba::ComputeSystemEnergy is a *generic* walk over every row of
+// a topology (see its own comment); this test holds it to the exact same
+// closed-form energy this file already trusts (the test above), rather than
+// just checking ComputeSystemEnergy is self-consistent. If a sign were
+// wrong anywhere in it -- gravity's direction, which frame H()/mass is
+// offset in, kinetic energy's own spatial quadratic form -- this diverges
+// from the closed form almost immediately; matching it at every tick over a
+// real run is a much stronger check than TotalEnergyStaysFiniteAndPhysically
+// BoundedOverALongRun's own boundedness-only assertion above.
+//
+// Compares ComputeSystemEnergy(view) after Step() N against the closed form
+// evaluated at (phi, psi, phi_dot, psi_dot) from *before* that same Step()
+// call, not after: ComputeSystemEnergy reads kWorldTransform/
+// kSpatialVelocity, which ABA only (re)writes from whatever kJointPosition/
+// kJointVelocity held before that Step() call's own VI/PI sub-passes then
+// advance them -- so it always describes the state as of one dt earlier
+// than kJointPosition/kJointVelocity's own post-Step() values (see
+// ComputeSystemEnergy's own comment). Comparing against the same-tick
+// (post-Step()) angles instead looks fine while the arm is barely moving,
+// then visibly diverges once it picks up real speed -- exactly the
+// symptom an off-by-one-tick bug produces, not a physics bug.
+TEST(TwoJointArmReference, GenericSystemEnergyMatchesClosedFormAtEveryTick) {
+  TempDir dir;
+  Simulation sim = MakeTwoJointArmSim(dir);
+
+  JointTopology topology = sim.TopologyFor<TopologicalOrdering>();
+  JointRows rows = FindJointRows(topology);
+  ASSERT_NE(rows.shoulder, topology.Size());
+  ASSERT_NE(rows.elbow, topology.Size());
+
+  const float m1 = kShoulder.mass;
+  const float r1 = kShoulder.pivot_to_com;
+  const float I1 = kShoulder.inertia_about_pivot;
+  const float m2 = kElbow.mass;
+  const float r2 = kElbow.pivot_to_com;
+  const float I2 = kElbow.inertia_about_pivot;
+  const float l1 = kLinkLength;
+  const float g = kGravity;
+  const float P = I1 + m2 * l1 * l1;
+  const float Q = I2;
+  const float R = m2 * l1 * r2;
+
+  // Real gravity, not sim_config.yaml's literal (negated) base_acceleration
+  // -- see this file's own kGravity comment.
+  Vector3<float> gravity(0.0F, 0.0F, kGravity);
+
+  // The archetype's own initial state (both links at rest, identity
+  // rotation) -- what ComputeSystemEnergy reports right after the first
+  // Step() call, since that call's ABA pass computes kWorldTransform/
+  // kSpatialVelocity from exactly this pre-Step() state.
+  float phi_prev = 0.0F;
+  float psi_prev = 0.0F;
+  float phi_dot_prev = 0.0F;
+  float psi_dot_prev = 0.0F;
+
+  constexpr int kSteps = 120 * 5;  // 5 simulated seconds.
+  for (int i = 0; i < kSteps; ++i) {
+    ASSERT_TRUE(sim.Step(kDt));
+
+    auto view = sim.ViewFor<ABAAlgorithm>();
+
+    float omega2_prev = phi_dot_prev + psi_dot_prev;
+    float closed_form_kinetic =
+        0.5F * P * phi_dot_prev * phi_dot_prev +
+        0.5F * Q * omega2_prev * omega2_prev +
+        R * std::cos(psi_prev) * phi_dot_prev * omega2_prev;
+    float closed_form_potential =
+        -(m1 * r1 + m2 * l1) * g * std::sin(phi_prev) -
+        m2 * r2 * g * std::sin(phi_prev + psi_prev);
+
+    auto energy = ComputeSystemEnergy(view, topology, gravity);
+    EXPECT_NEAR(energy.kinetic, closed_form_kinetic, 1e-3F) << "tick " << i;
+    EXPECT_NEAR(energy.potential, closed_form_potential, 1e-3F) << "tick " << i;
+
+    auto shoulder_q = view.Load<ABAField::kJointPosition, float>(rows.shoulder);
+    auto elbow_q = view.Load<ABAField::kJointPosition, float>(rows.elbow);
+    auto shoulder_qd =
+        view.Load<ABAField::kJointVelocity, float>(rows.shoulder);
+    auto elbow_qd = view.Load<ABAField::kJointVelocity, float>(rows.elbow);
+    phi_prev = ExtractAngleAboutX(
+        shoulder_q.Rotation().W(), shoulder_q.Rotation().X()
+    );
+    psi_prev =
+        ExtractAngleAboutX(elbow_q.Rotation().W(), elbow_q.Rotation().X());
+    phi_dot_prev = shoulder_qd.Angular().X();
+    psi_dot_prev = elbow_qd.Angular().X();
+  }
 }

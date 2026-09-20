@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstddef>
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -225,6 +226,40 @@ joints:
 TEST(Simulation, LoadConfigFileReturnsTrueAndFallsBackForMissingFile) {
   Simulation sim;
   EXPECT_TRUE(sim.LoadConfigFile("/nonexistent/path/does_not_exist.yaml"));
+}
+
+TEST(Simulation, EnableEnergyLogReturnsFalseForAnUnwritablePath) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.3F);
+  EXPECT_FALSE(sim.EnableEnergyLog("/no/such/directory/energy.csv"));
+}
+
+// Wiring-level check that EnableEnergyLog/Step actually produce a real CSV
+// -- algorithms_aba_aba_energy-level correctness of the numbers themselves
+// (gravity's sign, the kinetic/potential formulas) is covered by
+// examples_two_joint_arm.cpp's own GenericSystemEnergyMatchesClosedFormAt
+// EveryTick, which cross-checks ComputeSystemEnergy against an independent
+// closed-form model tick by tick; this only needs to show Simulation
+// actually calls it and writes what it returns.
+TEST(Simulation, EnableEnergyLogWritesOneRowPerStep) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.3F);
+  std::filesystem::path log_path = dir.Write("energy.csv", "");
+
+  ASSERT_TRUE(sim.EnableEnergyLog(log_path.string()));
+  ASSERT_TRUE(sim.Step(0.01F));
+  ASSERT_TRUE(sim.Step(0.01F));
+
+  std::ifstream log(log_path);
+  std::string header;
+  std::getline(log, header);
+  EXPECT_EQ(header, "time,kinetic,potential,total");
+
+  std::size_t row_count = 0;
+  for (std::string line; std::getline(log, line);) {
+    ++row_count;
+  }
+  EXPECT_EQ(row_count, 2U);
 }
 
 TEST(Simulation, InitReturnsFalseWithoutLoadingAnArowFileFirst) {

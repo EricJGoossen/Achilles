@@ -83,7 +83,7 @@ joints:
       # arm from, so without its own offset it would never feel any
       # gravity torque at all), with Ixx/Izz raised to match via the
       # parallel axis theorem.
-      rigid_body_inertia: [1.2, 0, 0.45, 0, 0.21238, 0.01576, 0.21238, 0, 0, 0]
+      rigid_body_inertia: [0.4, 0, 0.15, 0, 0.07238, 0.00576, 0.07238, 0, 0, 0]
       joint_position:
         translation: [0, 0, 0]
         rotation: [1, 0, 0, 0]
