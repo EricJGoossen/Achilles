@@ -3,4 +3,5 @@ build/
 compile_commands.json
 .clangd
 .claude/
-settings.json
+settings.jsonbuild-bench/
+build-bench-native/
