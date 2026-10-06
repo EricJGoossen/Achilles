@@ -10,10 +10,10 @@
 namespace achilles::algorithms::aba {
 
 namespace {
-using ScalarTransform = domain::spatial::Transform<float>;
-using ScalarInertia = domain::spatial::Inertia<float>;
-using ScalarVelocity = domain::spatial::SpatialVelocity<float>;
-using ScalarVector3 = domain::math::Vector3<float>;
+using ScalarTransform = domain::spatial::Transform<ScalarOperationT>;
+using ScalarInertia = domain::spatial::Inertia<ScalarOperationT>;
+using ScalarVelocity = domain::spatial::SpatialVelocity<ScalarOperationT>;
+using ScalarVector3 = domain::math::Vector3<ScalarOperationT>;
 }  // namespace
 
 SystemEnergy ComputeSystemEnergy(
@@ -24,11 +24,14 @@ SystemEnergy ComputeSystemEnergy(
   SystemEnergy energy;
   std::size_t row_count = topology.Size();
   for (std::size_t row = 0; row < row_count; ++row) {
-    ScalarTransform x_world = view.Load<ABAField::kWorldTransform, float>(row);
-    ScalarInertia inertia = view.Load<ABAField::kRigidBodyInertia, float>(row);
-    ScalarVelocity v = view.Load<ABAField::kSpatialVelocity, float>(row);
+    ScalarTransform x_world =
+        view.Load<ABAField::kWorldTransform, ScalarOperationT>(row);
+    ScalarInertia inertia =
+        view.Load<ABAField::kRigidBodyInertia, ScalarOperationT>(row);
+    ScalarVelocity v =
+        view.Load<ABAField::kSpatialVelocity, ScalarOperationT>(row);
 
-    energy.kinetic += 0.5F * v.AsVector6().Dot(inertia.Apply(v).AsVector6());
+    energy.kinetic += 0.5 * v.AsVector6().Dot(inertia.Apply(v).AsVector6());
 
     // H() is the body's first moment of mass (m * center-of-mass offset)
     // about the same origin rigid_body_inertia is expressed at -- which,

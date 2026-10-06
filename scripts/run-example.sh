@@ -4,11 +4,12 @@
 # way to see the OpenGL viewer working. Left-drag orbits the camera,
 # scroll zooms; close the window to stop.
 #
-# achilles itself now defaults to the implicit-midpoint integrator (see
-# src/main.cpp's own comment) -- this double pendulum should swing
+# achilles itself now defaults to the RK4 integrator at a 2ms timestep
+# (see src/main.cpp's own comment) -- this double pendulum should swing
 # essentially indefinitely without visibly bleeding energy/slowing down.
-# Pass --integrator euler --substeps 1 to see the old, visibly-dissipative
-# semi-implicit-Euler behavior for comparison.
+# Pass --integrator euler to see the old, visibly-dissipative
+# semi-implicit-Euler behavior for comparison, or --dt 0.0333 to trade
+# some of that fidelity back for a much cheaper run.
 #
 # Usage: scripts/run-example.sh [extra achilles args, e.g. --headless]
 set -euo pipefail

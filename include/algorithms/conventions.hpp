@@ -16,8 +16,8 @@ namespace achilles::algorithms {
 namespace math = achilles::domain::math;
 namespace spatial = achilles::domain::spatial;
 
-using BatchOperationT = xsimd::batch<float>;
-using ScalarOperationT = float;
+using BatchOperationT = xsimd::batch<double>;
+using ScalarOperationT = double;
 using MathematicalT = BatchOperationT;
 
 // Math

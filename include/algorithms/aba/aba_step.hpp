@@ -61,7 +61,7 @@ struct ABAStep {
   using FieldEnum = ABAField;
 
   // Every ABA Op is called with TargetScalar = MathematicalT =
-  // xsimd::batch<float> (see aba_data.hpp), never a scalar -- so the
+  // BatchOperationT (see algorithms/conventions.hpp), never a scalar -- so the
   // traversal driving them must walk batch-GROUPS of the real,
   // TopologicalOrdering-built topology, not its raw rows one at a time
   // (see engine::pass::TreeTraversal's own comment on Stride for why a raw

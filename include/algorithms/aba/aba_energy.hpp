@@ -1,6 +1,7 @@
 #pragma once
 
 #include "algorithms/aba/aba_data.hpp"
+#include "algorithms/conventions.hpp"
 #include "domain/joint_topology.hpp"
 #include "domain/math/vector3.hpp"
 
@@ -35,9 +36,9 @@ namespace achilles::algorithms::aba {
 // GenericSystemEnergyMatchesClosedFormAtEveryTick, which compares against
 // the *previous* tick's closed-form state for exactly this reason).
 struct SystemEnergy {
-  float kinetic = 0.0F;
-  float potential = 0.0F;
-  float Total() const { return kinetic + potential; }
+  ScalarOperationT kinetic = 0.0;
+  ScalarOperationT potential = 0.0;
+  ScalarOperationT Total() const { return kinetic + potential; }
 };
 
 // `gravity` is the real gravitational acceleration vector (e.g. (0, 0,
@@ -49,7 +50,7 @@ struct SystemEnergy {
 SystemEnergy ComputeSystemEnergy(
     const ABAView& view,
     const domain::JointTopology& topology,
-    const domain::math::Vector3<float>& gravity
+    const domain::math::Vector3<ScalarOperationT>& gravity
 );
 
 }  // namespace achilles::algorithms::aba

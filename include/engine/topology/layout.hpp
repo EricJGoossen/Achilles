@@ -143,7 +143,9 @@ class Layout {
     for (std::size_t i = 0; i < size; ++i) {
       storage[i] = parents_[i];
     }
-    return domain::JointTopology(std::span<std::size_t>(storage, size));
+    return domain::JointTopology(
+        std::span<std::size_t>(storage, size), lane_size_
+    );
   }
 
  private:

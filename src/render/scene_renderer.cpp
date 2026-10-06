@@ -5,6 +5,7 @@
 #include <string_view>
 #include <vector>
 
+#include "algorithms/conventions.hpp"
 #include "algorithms/viz/viz_data.hpp"
 #include "domain/joint_topology.hpp"
 #include "domain/math/quaternion.hpp"
@@ -16,11 +17,38 @@ namespace achilles::render {
 
 namespace {
 
+using achilles::algorithms::ScalarOperationT;
 using achilles::algorithms::viz::VizField;
 using achilles::algorithms::viz::VizView;
-using ScalarTransform = domain::spatial::Transform<float>;
-using ScalarVector3 = domain::math::Vector3<float>;
-using ScalarQuaternion = domain::math::Quaternion<float>;
+using ScalarTransform = domain::spatial::Transform<ScalarOperationT>;
+using ScalarVector3 = domain::math::Vector3<ScalarOperationT>;
+using ScalarQuaternion = domain::math::Quaternion<ScalarOperationT>;
+
+// The simulation runs in ScalarOperationT (double, see algorithms/
+// conventions.hpp), but the renderer -- GPU vertex data, Vec3/Mat4 in
+// render/mat4.hpp -- is deliberately float32 throughout, matching the
+// conventional GL_FLOAT vertex format. These two convert at exactly that
+// boundary, rather than letting float32 leak back into the simulation's
+// own types or double leak into the render ones.
+Vec3 ToRenderVec3(const ScalarVector3& v) {
+  return {
+      static_cast<float>(v.X()),
+      static_cast<float>(v.Y()),
+      static_cast<float>(v.Z())
+  };
+}
+domain::spatial::Transform<float> ToRenderTransform(const ScalarTransform& t) {
+  const ScalarQuaternion& q = t.Rotation();
+  return {
+      ToRenderVec3(t.Translation()),
+      domain::math::Quaternion<float>(
+          static_cast<float>(q.W()),
+          static_cast<float>(q.X()),
+          static_cast<float>(q.Y()),
+          static_cast<float>(q.Z())
+      )
+  };
+}
 
 constexpr std::string_view kLitVertexSource = R"(#version 330 core
 layout(location = 0) in vec3 a_pos;
@@ -162,16 +190,17 @@ void SceneRenderer::RenderFrame(
   std::vector<float> bone_verts;
   std::size_t row_count = topology.Size();
   for (std::size_t row = 0; row < row_count; ++row) {
-    ScalarVector3 extents = view.Load<VizField::kVisualExtents, float>(row);
+    ScalarVector3 extents =
+        view.Load<VizField::kVisualExtents, ScalarOperationT>(row);
     if (extents.IsZero()) {
       continue;
     }
 
     ScalarTransform transform =
-        view.Load<VizField::kWorldTransform, float>(row);
-    ScalarVector3 color = view.Load<VizField::kVisualColor, float>(row);
-    Vec3 rgb = color.IsZero() ? FallbackColor(row)
-                              : Vec3(color.X(), color.Y(), color.Z());
+        view.Load<VizField::kWorldTransform, ScalarOperationT>(row);
+    ScalarVector3 color =
+        view.Load<VizField::kVisualColor, ScalarOperationT>(row);
+    Vec3 rgb = color.IsZero() ? FallbackColor(row) : ToRenderVec3(color);
 
     // The cube mesh itself is centered on the origin ([-1, 1]^3, see
     // CubeMesh's own comment), so placing it directly at `transform` would
@@ -188,10 +217,10 @@ void SceneRenderer::RenderFrame(
     ScalarTransform box_pose =
         transform *
         ScalarTransform(
-            ScalarVector3(0.0F, extents.Y(), 0.0F), ScalarQuaternion::Identity()
+            ScalarVector3(0.0, extents.Y(), 0.0), ScalarQuaternion::Identity()
         );
     Mat4 model = FromTransformAndScale(
-        box_pose, Vec3(extents.X(), extents.Y(), extents.Z())
+        ToRenderTransform(box_pose), ToRenderVec3(extents)
     );
     lit_shader_.SetMat4("u_model", model);
     lit_shader_.SetVec3("u_color", rgb.X(), rgb.Y(), rgb.Z());
@@ -199,9 +228,9 @@ void SceneRenderer::RenderFrame(
 
     std::size_t parent_row = topology[row];
     ScalarTransform parent_transform =
-        view.Load<VizField::kWorldTransform, float>(parent_row);
-    const ScalarVector3& p0 = transform.Translation();
-    const ScalarVector3& p1 = parent_transform.Translation();
+        view.Load<VizField::kWorldTransform, ScalarOperationT>(parent_row);
+    Vec3 p0 = ToRenderVec3(transform.Translation());
+    Vec3 p1 = ToRenderVec3(parent_transform.Translation());
     bone_verts.insert(
         bone_verts.end(), {p0.X(), p0.Y(), p0.Z(), p1.X(), p1.Y(), p1.Z()}
     );

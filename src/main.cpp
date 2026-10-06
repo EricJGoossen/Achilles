@@ -66,15 +66,27 @@ struct CliArgs {
   std::string arow_path;
   std::string config_path;
   std::string energy_log_path;
-  // 1, not kSemiImplicitEuler's earlier 8: kImplicitMidpoint's own inner
-  // iteration already buys far better energy behavior than substepped
-  // Euler did, at a fraction of the ABA evaluations (4 per tick here vs.
-  // 8 for substepped Euler) -- see the energy-log comparison this
-  // default is based on (PR description / conversation history has the
-  // numbers: mean drift ~0.003 here vs. ~1.0-1.3 for Euler at substeps=8
-  // over the same 30s run).
+  // Substepping is off: it exists to shrink kSemiImplicitEuler's own
+  // per-step error, and kRungeKutta4 below gets that accuracy from its
+  // own order instead (see Simulation::SetSubsteps / Integrator).
   int substeps = 1;
-  Integrator integrator = Integrator::kImplicitMidpoint;
+  // RK4 at a 2ms step. RK4 is the integrator MuJoCo itself points at for
+  // energy-conserving systems, and it measured far and away the best on
+  // this engine's own scenes -- roughly three orders of magnitude less
+  // energy drift than semi-implicit Euler at the same step, and the only
+  // scheme benchmarked here that stayed stable out to dt = 1/20.
+  //
+  // Note what this costs: 4 ABA evaluations per tick at 500 ticks per
+  // simulated second is 2000 evaluations/sim-second, which is the most
+  // expensive setting in the benchmark, not the cheapest. RK4's own
+  // efficiency argument is that it buys quality by taking *larger* steps
+  // (at dt = 0.05 it holds drift near 0.58 for only 80 evaluations/sim-
+  // second, a third of what Euler at 1/120 costs). A 2ms step spends that
+  // headroom on fidelity instead: drift falls well below what the 1/120
+  // row already measured at 0.001. Raise dt toward 0.0333 or 0.05 to trade
+  // that back for throughput.
+  Integrator integrator = Integrator::kRungeKutta4;
+  float dt = 0.002F;
 };
 
 // Parses argv into CliArgs, or returns std::nullopt (having already
@@ -82,6 +94,31 @@ struct CliArgs {
 // an unrecognized --integrator value. Split out of main() itself purely to
 // keep main()'s own cognitive complexity down -- this has no dependency on
 // anything main() sets up.
+std::optional<Integrator> ParseIntegrator(std::string_view name) {
+  if (name == "euler") {
+    return Integrator::kSemiImplicitEuler;
+  }
+  if (name == "verlet") {
+    return Integrator::kVelocityVerlet;
+  }
+  if (name == "midpoint") {
+    return Integrator::kImplicitMidpoint;
+  }
+  if (name == "mujoco" || name == "implicit") {
+    return Integrator::kImplicitVelocity;
+  }
+  if (name == "rk4") {
+    return Integrator::kRungeKutta4;
+  }
+  if (name == "implicitfast") {
+    return Integrator::kImplicitFast;
+  }
+  std::cerr << R"(--integrator must be one of euler, verlet, midpoint, )"
+               R"(implicit, implicitfast, rk4; got ")"
+            << name << "\"\n";
+  return std::nullopt;
+}
+
 std::optional<CliArgs> ParseArgs(int argc, char** argv) {
   CliArgs args;
   for (int i = 1; i < argc; ++i) {
@@ -100,26 +137,24 @@ std::optional<CliArgs> ParseArgs(int argc, char** argv) {
         return std::nullopt;
       }
       args.substeps = std::atoi(argv[i]);
+    } else if (arg == "--dt") {
+      if (++i >= argc) {
+        std::cerr << "--dt requires a floating-point seconds argument\n";
+        return std::nullopt;
+      }
+      args.dt = std::strtof(argv[i], nullptr);
     } else if (arg == "--integrator") {
       if (++i >= argc) {
-        std::cerr << R"(--integrator requires "euler", "verlet", or )"
-                     R"("midpoint")"
+        std::cerr << R"(--integrator requires one of euler, verlet, midpoint, )"
+                     R"(implicit, implicitfast, rk4)"
                   << '\n';
         return std::nullopt;
       }
-      std::string_view name = argv[i];
-      if (name == "euler") {
-        args.integrator = Integrator::kSemiImplicitEuler;
-      } else if (name == "verlet") {
-        args.integrator = Integrator::kVelocityVerlet;
-      } else if (name == "midpoint") {
-        args.integrator = Integrator::kImplicitMidpoint;
-      } else {
-        std::cerr << R"(--integrator must be "euler", "verlet", or )"
-                     R"("midpoint", got ")"
-                  << name << "\"\n";
+      std::optional<Integrator> integrator = ParseIntegrator(argv[i]);
+      if (!integrator.has_value()) {
         return std::nullopt;
       }
+      args.integrator = *integrator;
     } else if (args.arow_path.empty()) {
       args.arow_path = arg;
     } else {
@@ -132,7 +167,8 @@ std::optional<CliArgs> ParseArgs(int argc, char** argv) {
 }  // namespace
 
 // achilles <scene.arow> [sim_config.yaml] [--headless] [--energy-log <path>]
-//   [--substeps N] [--integrator euler|verlet|midpoint]
+//   [--substeps N] [--dt seconds] [--integrator
+//   euler|verlet|midpoint|implicit|implicitfast|rk4]
 //
 // Loads and initializes a Simulation from a .arow file (see
 // interface/archetype_loader.hpp for its format, and examples/ for a
@@ -144,18 +180,20 @@ std::optional<CliArgs> ParseArgs(int argc, char** argv) {
 // closed. See scripts/run-example.sh for the common case of running this
 // against examples/two_joint_arm.arow. --energy-log writes a CSV of system
 // energy over time (see Simulation::EnableEnergyLog) -- graph it with
-// scripts/plot.py. --substeps sets Simulation::SetSubsteps and --integrator
-// sets Simulation::Integrator (see their own comments); CliArgs's own
-// defaults (kImplicitMidpoint, substeps=1) are the CLI's, not Simulation's
-// -- library callers (tests, embedders) still get the original
-// unsubstepped semi-implicit-Euler behavior unless they ask for something
-// else. Pass --integrator euler [--substeps 8] to see the older,
-// visibly-dissipative behavior for comparison.
+// scripts/plot.py. --substeps sets Simulation::SetSubsteps, --integrator
+// sets Simulation::Integrator and --dt the fixed timestep (see their own
+// comments); CliArgs's own defaults (kRungeKutta4, dt = 2ms, substeps=1)
+// are the CLI's, not Simulation's -- library callers (tests, embedders)
+// still get the original unsubstepped semi-implicit-Euler behavior at
+// whatever dt they pass unless they ask for something else. Pass
+// --integrator euler to see the older, visibly-dissipative behavior for
+// comparison, or raise --dt to trade fidelity back for throughput.
 int main(int argc, char** argv) {
   if (argc < 2) {
-    std::cerr << "usage: achilles <scene.arow> [sim_config.yaml] "
-                 "[--headless] [--energy-log <path>] [--substeps N] "
-                 "[--integrator euler|verlet|midpoint]\n";
+    std::cerr
+        << "usage: achilles <scene.arow> [sim_config.yaml] "
+           "[--headless] [--energy-log <path>] [--substeps N] [--dt seconds] "
+           "[--integrator euler|verlet|midpoint|implicit|implicitfast|rk4]\n";
     return 1;
   }
 
@@ -182,7 +220,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  constexpr float kDt = 1.0F / 120.0F;
+  const float dt = args->dt;
   constexpr float kMaxFrameTime = 0.25F;
   float accumulator = 0.0F;
   auto last_time = std::chrono::steady_clock::now();
@@ -196,9 +234,9 @@ int main(int argc, char** argv) {
     // make the next real frame try to catch up with a huge burst of steps.
     accumulator += std::min(elapsed, kMaxFrameTime);
 
-    while (running && accumulator >= kDt) {
-      running = sim.Step(kDt);
-      accumulator -= kDt;
+    while (running && accumulator >= dt) {
+      running = sim.Step(dt);
+      accumulator -= dt;
     }
   }
 

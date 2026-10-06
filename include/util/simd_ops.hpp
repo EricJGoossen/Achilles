@@ -113,17 +113,40 @@ concept ArithmeticLike =
     std::is_arithmetic_v<T> ||
     (kIsXsimdBatch<T> && std::is_arithmetic_v<typename T::value_type>);
 
-// The int32 lane storage that pairs with some other scalar-or-batch type:
-// plain std::int32_t for a scalar type, or a matching-width
-// xsimd::batch<std::int32_t> for a batched one. Lets a bitmask-style type
-// (e.g. ActivationMask) track another type's scalar/batch-ness (e.g. the T
-// an Assembler is reading) without itself being templated on that
-// unrelated type.
+// The integer element width that shares ScalarOrBatch's own element size:
+// std::int32_t for a 4-byte element (float, std::int32_t, ...),
+// std::int64_t for an 8-byte one (double, ...). Picking an integer this
+// way, rather than always int32, matters because an xsimd batch's lane
+// count follows its element width -- an xsimd::batch<std::int32_t> packs
+// twice as many lanes per register as an xsimd::batch<double> does, so
+// pairing a double-based type with a fixed int32 mask would silently give
+// that mask a different (wider) lane count than the type it travels
+// alongside, splitting what should be one batch group into two.
+template <typename ScalarOrBatch, bool IsBatch = kIsXsimdBatch<ScalarOrBatch>>
+struct MaskElementFor {
+  using type = std::
+      conditional_t<sizeof(ScalarOrBatch) >= 8, std::int64_t, std::int32_t>;
+};
+template <typename ScalarOrBatch>
+struct MaskElementFor<ScalarOrBatch, true> {
+  using type = std::conditional_t<
+      sizeof(typename ScalarOrBatch::value_type) >= 8,
+      std::int64_t,
+      std::int32_t>;
+};
+
+// The lane-matching integer storage that pairs with some other scalar-or-
+// batch type: MaskElementFor's own integer for a scalar type, or a
+// same-width xsimd::batch of it for a batched one -- so the result always
+// has the exact same lane count as ScalarOrBatch itself. Lets a
+// bitmask-style type (e.g. ActivationMask) track another type's
+// scalar/batch-ness (e.g. the T an Assembler is reading) without itself
+// being templated on that unrelated type.
 template <typename ScalarOrBatch>
 using MaskStorageFor = std::conditional_t<
     kIsXsimdBatch<ScalarOrBatch>,
-    xsimd::batch<std::int32_t>,
-    std::int32_t>;
+    xsimd::batch<typename MaskElementFor<ScalarOrBatch>::type>,
+    typename MaskElementFor<ScalarOrBatch>::type>;
 
 // A scalar-or-batch type restricted to integer lanes: plain std::int32_t,
 // std::uint8_t, etc., or an xsimd::batch of one. Narrower than

@@ -5,6 +5,7 @@
 
 #include "algorithms/aba/aba_data.hpp"
 #include "algorithms/aba/aba_step.hpp"
+#include "algorithms/conventions.hpp"
 #include "algorithms/sim_config.hpp"
 #include "domain/math/matrix.hpp"
 #include "domain/spatial/dual.hpp"
@@ -44,10 +45,11 @@ struct ImplicitMidpointStep {
       float dt,
       int iterations = 4
   ) {
-    using ScalarTransform = domain::spatial::Transform<float>;
-    using ScalarVelocity = domain::spatial::SpatialVelocity<float>;
-    using ScalarAcceleration = domain::spatial::SpatialAcceleration<float>;
-    using ScalarSubspace = domain::math::Matrix6x6<float>;
+    using ScalarTransform = domain::spatial::Transform<ScalarOperationT>;
+    using ScalarVelocity = domain::spatial::SpatialVelocity<ScalarOperationT>;
+    using ScalarAcceleration =
+        domain::spatial::SpatialAcceleration<ScalarOperationT>;
+    using ScalarSubspace = domain::math::Matrix6x6<ScalarOperationT>;
 
     const auto view = sim_state.template ViewFor<ABAView>();
     const std::size_t n = view.Size();
@@ -62,9 +64,12 @@ struct ImplicitMidpointStep {
     std::vector<ScalarSubspace> subspace(n);
     std::vector<ScalarVelocity> v_next(n);
     for (std::size_t row = 0; row < n; ++row) {
-      q_n[row] = view.template Load<ABAField::kJointPosition, float>(row);
-      v_n[row] = view.template Load<ABAField::kJointVelocity, float>(row);
-      subspace[row] = view.template Load<ABAField::kJointSubspace, float>(row);
+      q_n[row] =
+          view.template Load<ABAField::kJointPosition, ScalarOperationT>(row);
+      v_n[row] =
+          view.template Load<ABAField::kJointVelocity, ScalarOperationT>(row);
+      subspace[row] =
+          view.template Load<ABAField::kJointSubspace, ScalarOperationT>(row);
       v_next[row] = v_n[row];  // Initial guess for v_{n+1}.
     }
 
@@ -74,8 +79,12 @@ struct ImplicitMidpointStep {
         ScalarVelocity qd_spatial = subspace[row] * v_mid;
         ScalarTransform q_mid =
             q_n[row] * ScalarTransform::Exp(qd_spatial * (dt * 0.5F));
-        view.template Store<ABAField::kJointPosition, float>(row, q_mid);
-        view.template Store<ABAField::kJointVelocity, float>(row, v_mid);
+        view.template Store<ABAField::kJointPosition, ScalarOperationT>(
+            row, q_mid
+        );
+        view.template Store<ABAField::kJointVelocity, ScalarOperationT>(
+            row, v_mid
+        );
       }
       // One full tree evaluation at every joint's own midpoint trial
       // simultaneously -- ABA's recursion needs the whole tree's state at
@@ -83,7 +92,9 @@ struct ImplicitMidpointStep {
       ABAStep::Step(sim_state, sim_config, dt);
       for (std::size_t row = 0; row < n; ++row) {
         ScalarAcceleration a_mid =
-            view.template Load<ABAField::kJointAcceleration, float>(row);
+            view.template Load<ABAField::kJointAcceleration, ScalarOperationT>(
+                row
+            );
         v_next[row] = v_n[row] + a_mid.Integrate(dt);
       }
     }
@@ -95,8 +106,16 @@ struct ImplicitMidpointStep {
       ScalarVelocity v_mid = (v_n[row] + v_next[row]) * 0.5F;
       ScalarVelocity qd_spatial = subspace[row] * v_mid;
       ScalarTransform q_next = q_n[row] * ScalarTransform::Exp(qd_spatial * dt);
-      view.template Store<ABAField::kJointPosition, float>(row, q_next);
-      view.template Store<ABAField::kJointVelocity, float>(row, v_next[row]);
+      // See Transform::NormalizeRotationInPlace's own comment -- this is
+      // the cross-tick-accumulating commit, unlike the trial q_mid above
+      // (which never survives past this same tick's own iteration).
+      q_next.NormalizeRotationInPlace();
+      view.template Store<ABAField::kJointPosition, ScalarOperationT>(
+          row, q_next
+      );
+      view.template Store<ABAField::kJointVelocity, ScalarOperationT>(
+          row, v_next[row]
+      );
     }
   }
 };

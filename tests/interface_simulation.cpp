@@ -680,7 +680,7 @@ TEST(
   SimAllocator<ABAAlgorithm> sim(archetypes);
   auto view = sim.ViewFor<ABAAlgorithm>();
   const auto& layout = sim.LayoutFor<TopologicalOrdering>();
-  std::size_t lane = xsimd::batch<float>::size;
+  std::size_t lane = B::size;
   std::size_t root_group = layout.ToSorted(0, 0) / lane;
   std::size_t child_group = layout.ToSorted(1, 0) / lane;
   ASSERT_NE(root_group, child_group);
