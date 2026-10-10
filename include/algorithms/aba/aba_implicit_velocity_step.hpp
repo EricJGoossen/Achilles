@@ -147,7 +147,7 @@ struct ImplicitVelocityStep {
       ScalarOperationT diagonal = system[col * n + col];
       for (std::size_t r = col + 1; r < n; ++r) {
         ScalarOperationT factor = system[r * n + col] / diagonal;
-        if (factor == 0.0) {
+        if (factor == ScalarOperationT{0}) {
           continue;
         }
         for (std::size_t c = col; c < n; ++c) {
@@ -168,7 +168,9 @@ struct ImplicitVelocityStep {
 
   template <engine::pass::SimContextLike SimStateT>
   static void Step(
-      const SimStateT& sim_state, const SimConfig& sim_config, float dt
+      const SimStateT& sim_state,
+      const SimConfig& sim_config,
+      ScalarOperationT dt
   ) {
     const auto view = sim_state.template ViewFor<ABAView>();
     // Real joints only -- a padding row's fields aren't meaningful under
@@ -207,7 +209,8 @@ struct ImplicitVelocityStep {
     for (std::size_t j = 0; j < n; ++j) {
       const Dof& dof = dofs[j];
       ScalarOperationT base = original[dof.row][dof.slot];
-      ScalarOperationT epsilon = 1e-3 * std::max(1.0, std::abs(base));
+      ScalarOperationT epsilon = ScalarOperationT{1e-3} *
+                                 std::max(ScalarOperationT{1}, std::abs(base));
       epsilons[j] = epsilon;
       view.template Store<ABAField::kJointVelocity, ScalarOperationT>(
           dof.row, WithSlot(original[dof.row], dof.slot, base + epsilon)
@@ -236,12 +239,14 @@ struct ImplicitVelocityStep {
     }
 
     // system = I - h J, with J(i,j) = (qdd_i(v + eps e_j) - qdd_i(v)) / eps.
-    std::vector<ScalarOperationT> system(n * n, 0.0);
+    std::vector<ScalarOperationT> system(n * n, ScalarOperationT{0});
     for (std::size_t j = 0; j < n; ++j) {
       for (std::size_t i = 0; i < n; ++i) {
         ScalarOperationT jacobian =
             (perturbed[i * n + j] - acceleration[i]) / epsilons[j];
-        system[i * n + j] = (i == j ? 1.0 : 0.0) - dt * jacobian;
+        system[i * n + j] =
+            (i == j ? ScalarOperationT{1} : ScalarOperationT{0}) -
+            dt * jacobian;
       }
     }
 

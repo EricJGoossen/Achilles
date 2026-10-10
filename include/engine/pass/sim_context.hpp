@@ -5,6 +5,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "algorithms/conventions.hpp"
 #include "domain/joint_topology.hpp"
 #include "engine/algorithm_contract.hpp"
 #include "engine/memory/binding.hpp"
@@ -26,7 +27,9 @@ namespace detail {
 // AlgorithmT::Step.
 template <typename AlgorithmT, typename SimContextT, typename Config>
 void StepAlgorithm(
-    const SimContextT& sim_context, const Config& config, float dt
+    const SimContextT& sim_context,
+    const Config& config,
+    algorithms::ScalarOperationT dt
 ) {
   using StepT = typename AlgorithmT::Step;
   if constexpr (!std::is_same_v<StepT, NoStep>) {
@@ -166,7 +169,7 @@ class SimContext {
   // (ViewFor<ViewT>()/TopologyFor<Policy>()), rather than either being
   // resolved and handed to it up front.
   template <typename Config>
-  void Step(float dt, const Config& config) const {
+  void Step(algorithms::ScalarOperationT dt, const Config& config) const {
     (detail::StepAlgorithm<Algorithms>(*this, config, dt), ...);
   }
 

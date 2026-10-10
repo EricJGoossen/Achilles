@@ -194,7 +194,7 @@ class Simulation {
   // same "stop" signal a caller already checks for on any other failure)
   // once the render window has been closed, so a simple `while (sim.
   // Step(dt)) {}` loop is both the headless and the visual shape.
-  bool Step(float dt) {
+  bool Step(algorithms::ScalarOperationT dt) {
     if (!state_.has_value()) {
       return util::Warning(
           "Simulation::Step() called before Simulation::Init() -- "
@@ -202,7 +202,8 @@ class Simulation {
       );
     }
     try {
-      float sub_dt = dt / static_cast<float>(substeps_);
+      algorithms::ScalarOperationT sub_dt =
+          dt / static_cast<algorithms::ScalarOperationT>(substeps_);
       for (int i = 0; i < substeps_; ++i) {
         StepOnce(sub_dt);
       }
@@ -227,7 +228,7 @@ class Simulation {
               GravityVector()
           );
       std::array<float, 4> row{
-          sim_time_,
+          static_cast<float>(sim_time_),
           static_cast<float>(energy.kinetic),
           static_cast<float>(energy.potential),
           static_cast<float>(energy.Total())
@@ -319,7 +320,9 @@ class Simulation {
           "Simulation::Init() -- the sim is not yet initialized."
       );
     }
-    algorithms::aba::ABAStep::Step(state_->context, config_, 0.0F);
+    algorithms::aba::ABAStep::Step(
+        state_->context, config_, algorithms::ScalarOperationT{0}
+    );
   }
 
  private:
@@ -338,17 +341,21 @@ class Simulation {
   // comment for what each case does. Called once per substep by Step(),
   // never directly by a caller (substeps_ == 1 makes it identical to
   // calling this once).
-  void StepOnce(float dt) {
+  void StepOnce(algorithms::ScalarOperationT dt) {
     switch (integrator_) {
       case Integrator::kSemiImplicitEuler:
         state_->context.Step(dt, config_);
         return;
       case Integrator::kVelocityVerlet:
         algorithms::aba::ABAStep::Step(state_->context, config_, dt);
-        algorithms::vi::VIStep::Step(state_->context, config_, dt * 0.5F);
+        algorithms::vi::VIStep::Step(
+            state_->context, config_, dt * algorithms::ScalarOperationT{0.5}
+        );
         algorithms::pi::PIStep::Step(state_->context, config_, dt);
         algorithms::aba::ABAStep::Step(state_->context, config_, dt);
-        algorithms::vi::VIStep::Step(state_->context, config_, dt * 0.5F);
+        algorithms::vi::VIStep::Step(
+            state_->context, config_, dt * algorithms::ScalarOperationT{0.5}
+        );
         return;
       case Integrator::kImplicitMidpoint:
         algorithms::aba::ImplicitMidpointStep::Step(
@@ -378,7 +385,7 @@ class Simulation {
   bool headless_ = true;
   std::optional<render::SceneRenderer> renderer_;
   std::optional<util::CsvLogger> energy_log_;
-  float sim_time_ = 0.0F;
+  algorithms::ScalarOperationT sim_time_ = 0;
   int substeps_ = 1;
   Integrator integrator_ = Integrator::kSemiImplicitEuler;
 };

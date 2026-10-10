@@ -24,12 +24,12 @@ using ScalarTransform = domain::spatial::Transform<ScalarOperationT>;
 using ScalarVector3 = domain::math::Vector3<ScalarOperationT>;
 using ScalarQuaternion = domain::math::Quaternion<ScalarOperationT>;
 
-// The simulation runs in ScalarOperationT (double, see algorithms/
-// conventions.hpp), but the renderer -- GPU vertex data, Vec3/Mat4 in
-// render/mat4.hpp -- is deliberately float32 throughout, matching the
-// conventional GL_FLOAT vertex format. These two convert at exactly that
-// boundary, rather than letting float32 leak back into the simulation's
-// own types or double leak into the render ones.
+// The simulation runs in ScalarOperationT (see algorithms/conventions.hpp),
+// but the renderer -- GPU vertex data, Vec3/Mat4 in render/mat4.hpp -- is
+// deliberately float32 throughout, matching the conventional GL_FLOAT
+// vertex format. These two convert at exactly that boundary, so the
+// simulation's precision can change without touching the render types
+// (and are no-ops while ScalarOperationT is itself float).
 Vec3 ToRenderVec3(const ScalarVector3& v) {
   return {
       static_cast<float>(v.X()),
@@ -214,11 +214,10 @@ void SceneRenderer::RenderFrame(
     // `transform` itself -- the real, unshifted joint position -- is still
     // what the bone line below is drawn from/to, so this offset is purely
     // cosmetic (the cube's own placement), never the physics.
-    ScalarTransform box_pose =
-        transform *
-        ScalarTransform(
-            ScalarVector3(0.0, extents.Y(), 0.0), ScalarQuaternion::Identity()
-        );
+    ScalarTransform box_pose = transform * ScalarTransform(
+                                               ScalarVector3(0, extents.Y(), 0),
+                                               ScalarQuaternion::Identity()
+                                           );
     Mat4 model = FromTransformAndScale(
         ToRenderTransform(box_pose), ToRenderVec3(extents)
     );

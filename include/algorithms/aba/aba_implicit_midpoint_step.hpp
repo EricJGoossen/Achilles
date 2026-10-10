@@ -42,7 +42,7 @@ struct ImplicitMidpointStep {
   static void Step(
       const SimStateT& sim_state,
       const SimConfig& sim_config,
-      float dt,
+      ScalarOperationT dt,
       int iterations = 4
   ) {
     using ScalarTransform = domain::spatial::Transform<ScalarOperationT>;

@@ -56,7 +56,8 @@ using achilles::test_support::TempDir;
 
 namespace {
 
-using ScalarVelocity = achilles::domain::spatial::SpatialVelocity<ScalarOperationT>;
+using ScalarVelocity =
+    achilles::domain::spatial::SpatialVelocity<ScalarOperationT>;
 using ScalarAcceleration =
     achilles::domain::spatial::SpatialAcceleration<ScalarOperationT>;
 using Vector6 = achilles::domain::math::Vector6<ScalarOperationT>;
@@ -72,7 +73,9 @@ constexpr ScalarOperationT kR2 = 0.375F;
 constexpr ScalarOperationT kI2 = 0.07238F;
 constexpr ScalarOperationT kLinkLength = 1.0F;
 
-std::string TwoJointArmYaml(ScalarOperationT shoulder_qd, ScalarOperationT elbow_qd) {
+std::string TwoJointArmYaml(
+    ScalarOperationT shoulder_qd, ScalarOperationT elbow_qd
+) {
   std::ostringstream out;
   out << "archetype: arm\n"
          "joints:\n"
@@ -195,24 +198,29 @@ std::array<ScalarOperationT, 4> EngineJacobian(
 
   ABAStep::Step(sim.SimContext(), config, 0.0F);
   std::array<ScalarOperationT, 2> baseline{
-      view.Load<ABAField::kJointAcceleration, ScalarOperationT>(rows.shoulder)[0],
+      view.Load<ABAField::kJointAcceleration, ScalarOperationT>(rows.shoulder
+      )[0],
       view.Load<ABAField::kJointAcceleration, ScalarOperationT>(rows.elbow)[0]
   };
 
   std::array<ScalarOperationT, 4> jacobian{};
   for (std::size_t j = 0; j < 2; ++j) {
     ScalarOperationT base = original[j][0];
-    ScalarOperationT epsilon = 1e-3 * std::max(1.0, std::abs(base));
+    ScalarOperationT epsilon =
+        ScalarOperationT{1e-3} * std::max(ScalarOperationT{1}, std::abs(base));
     view.Store<ABAField::kJointVelocity, ScalarOperationT>(
         dof_rows[j], ScalarVelocity(Vector6(base + epsilon, 0, 0, 0, 0, 0))
     );
     ABAStep::Step(sim.SimContext(), config, 0.0F);
     for (std::size_t i = 0; i < 2; ++i) {
       ScalarOperationT perturbed =
-          view.Load<ABAField::kJointAcceleration, ScalarOperationT>(dof_rows[i])[0];
+          view.Load<ABAField::kJointAcceleration, ScalarOperationT>(dof_rows[i]
+          )[0];
       jacobian[i * 2 + j] = (perturbed - baseline[i]) / epsilon;
     }
-    view.Store<ABAField::kJointVelocity, ScalarOperationT>(dof_rows[j], original[j]);
+    view.Store<ABAField::kJointVelocity, ScalarOperationT>(
+        dof_rows[j], original[j]
+    );
   }
   ABAStep::Step(sim.SimContext(), config, 0.0F);
   return jacobian;
@@ -279,7 +287,8 @@ TEST(ImplicitVelocityStepJacobian, MatchesClosedFormOnceTheArmHasMoved) {
   for (int i = 0; i < 60; ++i) {
     ABAStep::Step(sim.SimContext(), config, kDt);
     for (std::size_t row : {rows.shoulder, rows.elbow}) {
-      ScalarVelocity qd = view.Load<ABAField::kJointVelocity, ScalarOperationT>(row);
+      ScalarVelocity qd =
+          view.Load<ABAField::kJointVelocity, ScalarOperationT>(row);
       ScalarAcceleration qdd =
           view.Load<ABAField::kJointAcceleration, ScalarOperationT>(row);
       view.Store<ABAField::kJointVelocity, ScalarOperationT>(
@@ -292,15 +301,20 @@ TEST(ImplicitVelocityStepJacobian, MatchesClosedFormOnceTheArmHasMoved) {
   // Read the state J should be evaluated at. psi is the elbow's own
   // relative angle; extracted the same way examples_two_joint_arm.cpp
   // does (pure-X rotation quaternion).
-  auto elbow_q = view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.elbow);
-  ScalarOperationT psi = 2.0F * std::atan2(elbow_q.Rotation().X(), elbow_q.Rotation().W());
-  ScalarOperationT phi_dot = view.Load<ABAField::kJointVelocity, ScalarOperationT>(rows.shoulder)[0];
-  ScalarOperationT psi_dot = view.Load<ABAField::kJointVelocity, ScalarOperationT>(rows.elbow)[0];
+  auto elbow_q =
+      view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.elbow);
+  ScalarOperationT psi =
+      2.0F * std::atan2(elbow_q.Rotation().X(), elbow_q.Rotation().W());
+  ScalarOperationT phi_dot =
+      view.Load<ABAField::kJointVelocity, ScalarOperationT>(rows.shoulder)[0];
+  ScalarOperationT psi_dot =
+      view.Load<ABAField::kJointVelocity, ScalarOperationT>(rows.elbow)[0];
   ASSERT_GT(std::abs(std::sin(psi)), 0.05F)
       << "Test premise violated: arm never left the straight configuration.";
 
   std::array<ScalarOperationT, 4> engine = EngineJacobian(sim, config, rows);
-  std::array<ScalarOperationT, 4> reference = ReferenceJacobian(psi, phi_dot, psi_dot);
+  std::array<ScalarOperationT, 4> reference =
+      ReferenceJacobian(psi, phi_dot, psi_dot);
 
   for (std::size_t k = 0; k < 4; ++k) {
     EXPECT_NEAR(engine[k], reference[k], 5e-2F)

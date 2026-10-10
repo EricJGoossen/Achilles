@@ -36,8 +36,8 @@ namespace achilles::algorithms::aba {
 // GenericSystemEnergyMatchesClosedFormAtEveryTick, which compares against
 // the *previous* tick's closed-form state for exactly this reason).
 struct SystemEnergy {
-  ScalarOperationT kinetic = 0.0;
-  ScalarOperationT potential = 0.0;
+  ScalarOperationT kinetic = 0;
+  ScalarOperationT potential = 0;
   ScalarOperationT Total() const { return kinetic + potential; }
 };
 

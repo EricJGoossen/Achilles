@@ -31,7 +31,8 @@ SystemEnergy ComputeSystemEnergy(
     ScalarVelocity v =
         view.Load<ABAField::kSpatialVelocity, ScalarOperationT>(row);
 
-    energy.kinetic += 0.5 * v.AsVector6().Dot(inertia.Apply(v).AsVector6());
+    energy.kinetic +=
+        ScalarOperationT{0.5} * v.AsVector6().Dot(inertia.Apply(v).AsVector6());
 
     // H() is the body's first moment of mass (m * center-of-mass offset)
     // about the same origin rigid_body_inertia is expressed at -- which,

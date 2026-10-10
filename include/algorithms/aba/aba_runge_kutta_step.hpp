@@ -67,7 +67,9 @@ struct RungeKutta4Step {
 
   template <engine::pass::SimContextLike SimStateT>
   static void Step(
-      const SimStateT& sim_state, const SimConfig& sim_config, float dt
+      const SimStateT& sim_state,
+      const SimConfig& sim_config,
+      ScalarOperationT dt
   ) {
     const auto view = sim_state.template ViewFor<ABAView>();
     const auto& topology =
@@ -101,7 +103,7 @@ struct RungeKutta4Step {
     auto evaluate_stage = [&](std::size_t stage,
                               const std::vector<ScalarVelocity>* twist,
                               const std::vector<ScalarAcceleration>* accel,
-                              float scale) {
+                              ScalarOperationT scale) {
       if (twist != nullptr) {
         for (std::size_t row = 0; row < n; ++row) {
           ScalarVelocity stage_v =

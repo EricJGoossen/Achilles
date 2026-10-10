@@ -60,6 +60,7 @@
 namespace {
 
 using Integrator = achilles::interface::Simulation::Integrator;
+using achilles::algorithms::ScalarOperationT;
 
 struct CliArgs {
   bool headless = false;
@@ -86,7 +87,7 @@ struct CliArgs {
   // row already measured at 0.001. Raise dt toward 0.0333 or 0.05 to trade
   // that back for throughput.
   Integrator integrator = Integrator::kRungeKutta4;
-  float dt = 0.002F;
+  ScalarOperationT dt = 0.002F;
 };
 
 // Parses argv into CliArgs, or returns std::nullopt (having already
@@ -142,7 +143,7 @@ std::optional<CliArgs> ParseArgs(int argc, char** argv) {
         std::cerr << "--dt requires a floating-point seconds argument\n";
         return std::nullopt;
       }
-      args.dt = std::strtof(argv[i], nullptr);
+      args.dt = static_cast<ScalarOperationT>(std::strtod(argv[i], nullptr));
     } else if (arg == "--integrator") {
       if (++i >= argc) {
         std::cerr << R"(--integrator requires one of euler, verlet, midpoint, )"
@@ -220,15 +221,16 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  const float dt = args->dt;
-  constexpr float kMaxFrameTime = 0.25F;
-  float accumulator = 0.0F;
+  const ScalarOperationT dt = args->dt;
+  constexpr ScalarOperationT kMaxFrameTime = 0.25F;
+  ScalarOperationT accumulator = 0.0F;
   auto last_time = std::chrono::steady_clock::now();
 
   bool running = true;
   while (running) {
     auto now = std::chrono::steady_clock::now();
-    float elapsed = std::chrono::duration<float>(now - last_time).count();
+    ScalarOperationT elapsed =
+        std::chrono::duration<ScalarOperationT>(now - last_time).count();
     last_time = now;
     // Clamped so a debugger pause or a hitch (e.g. window drag) doesn't
     // make the next real frame try to catch up with a huge burst of steps.
