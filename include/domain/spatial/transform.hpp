@@ -41,6 +41,39 @@ class Transform {
   constexpr const Vector3& Translation() const { return translation_; }
   constexpr const Quaternion& Rotation() const { return rotation_; }
 
+  // Renormalizes just the rotation component in place. Composing two exact
+  // unit quaternions (operator*, or the result of Exp) is a unit
+  // quaternion in exact arithmetic, but repeated composition -- the same
+  // Transform accumulating position updates tick after tick, e.g.
+  // IntegratePositionOp's own `x_joint_out *= Exp(...)` -- lets floating-
+  // point rounding drift the norm away from 1 over enough repetitions,
+  // even though each individual composition is exact to within a ULP.
+  // Cheap enough (one rsqrt-scale operation) to call every tick rather
+  // than track when it's actually needed.
+  //
+  // Substitutes Identity before normalizing wherever the rotation's own
+  // squared norm is near zero, rather than calling Quaternion::
+  // NormalizeInPlace directly on it: a genuinely zero quaternion shows up
+  // on this engine's own SIMD-lane padding rows (kJointPosition's
+  // "absent data reads as an inert default" convention zero-fills them,
+  // not PaddingSeed's Identity -- see e.g. ComputeSystemEnergy's own
+  // comment on why padding rows need this kind of care), and
+  // NormalizeInPlace's own divide-by-norm asserts on exactly that input.
+  // A per-lane branchless select (rather than an if, since T may be a
+  // batch mixing real and padding lanes together) keeps every real lane's
+  // result identical to a plain NormalizeInPlace call.
+  constexpr Transform<T>& NormalizeRotationInPlace() {
+    auto near_zero = rotation_.SquaredNorm() < T{1e-12};
+    rotation_ = Quaternion(
+        util::Select(near_zero, T{1}, rotation_.W()),
+        util::Select(near_zero, T{0}, rotation_.X()),
+        util::Select(near_zero, T{0}, rotation_.Y()),
+        util::Select(near_zero, T{0}, rotation_.Z())
+    );
+    rotation_.NormalizeInPlace();
+    return *this;
+  }
+
   constexpr std::tuple<Vector3, Quaternion> ToTuple() const {
     return std::make_tuple(translation_, rotation_);
   }

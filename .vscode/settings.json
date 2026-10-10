@@ -12,6 +12,7 @@
     "C_Cpp.codeAnalysis.runAutomatically": true,
     "C_Cpp.intelliSenseEngine": "disabled",
     "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json",
+    "clang-format.executable": "/usr/bin/clang-format",
     "editor.tabSize": 2,
     "clangd.path": "/usr/bin/clangd",
     "cSpell.enabled": true,

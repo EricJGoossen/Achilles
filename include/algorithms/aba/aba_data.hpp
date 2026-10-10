@@ -79,7 +79,7 @@ struct ABAFieldTraits<ABAField::kJointSubspace> {
 };
 template <>
 struct ABAFieldTraits<ABAField::kJointActivationMask> {
-  using Assembler = math::ActivationMaskAssembler<6>;
+  using Assembler = math::ActivationMaskAssembler<6, ScalarOperationT>;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
   static constexpr std::string_view kName = "joint_activation_mask";
