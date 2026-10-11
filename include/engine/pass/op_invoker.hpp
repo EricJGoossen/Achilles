@@ -7,6 +7,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "engine/deferred.hpp"
 #include "engine/op_contract.hpp"
 #include "engine/view/view_contract.hpp"
 #include "util/tmp.hpp"
@@ -87,6 +88,20 @@ class OpInvokerBase {
       Op::kInputs.size() + I,
       util::ArgsOfT<decltype(&Op::operator())>>>;
 
+  // Input I as operator() takes it: loaded now, or -- for a Deferred<P>
+  // parameter (engine/deferred.hpp) -- a handle the Op loads from itself.
+  template <size_t I>
+  [[gnu::always_inline]] auto GatherInput(size_t index) const {
+    using Param = InputParam<I>;
+    if constexpr (kIsDeferred<Param>) {
+      return std::get<I>(this->input_cursors_)
+          .template Defer<typename Param::ScalarType>(index);
+    } else {
+      return std::get<I>(this->input_cursors_)
+          .template Load<typename Param::ScalarType>(index);
+    }
+  }
+
   // flatten: inline the Op's own body (and everything it calls) into this
   // gather/call/scatter, however large it is. Only then can the compiler
   // see that most outputs are overwritten without being read (dropping
@@ -105,10 +120,9 @@ class OpInvokerBase {
     };
 
     this->op_->operator()(
-        std::get<InIs>(this->input_cursors_)
-            .template Load<typename InputParam<InIs>::ScalarType>(
-                Op::kInputs[InIs].use_target ? target_index : parent_index
-            )...,
+        GatherInput<InIs>(
+            Op::kInputs[InIs].use_target ? target_index : parent_index
+        )...,
         &std::get<OutIs>(outputs)...
     );
 
@@ -132,10 +146,7 @@ class OpInvokerBase {
     };
 
     this->op_->operator()(
-        std::get<InIs>(this->input_cursors_)
-            .template Load<typename InputParam<InIs>::ScalarType>(target_index
-            )...,
-        &std::get<OutIs>(outputs)...
+        GatherInput<InIs>(target_index)..., &std::get<OutIs>(outputs)...
     );
 
     (std::get<OutIs>(this->output_cursors_)

@@ -7,6 +7,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "engine/deferred.hpp"
 #include "engine/field_contract.hpp"
 #include "engine/view/view_contract.hpp"
 #include "util/tmp.hpp"
@@ -73,11 +74,13 @@ concept OpHasInit = requires(T a) {
 
 // operator()'s I-th input is expected to be `const P&` where P is some
 // domain type that names its own scalar via `P::ScalarType` -- that's the T
-// an Op wants field kInputs[I].field read as. Checked with `if constexpr`/
-// `requires` throughout (rather than asserting directly) so a malformed
-// operator() -- wrong reference-ness, or a parameter type with no
-// ScalarType -- makes this consteval function return false instead of
-// hard-erroring, keeping OpArgsMatchView usable as an ordinary bool.
+// an Op wants field kInputs[I].field read as -- or `const Deferred<P>&`
+// for the same P, to read it on demand (see engine/deferred.hpp). Checked
+// with `if constexpr`/`requires` throughout (rather than asserting
+// directly) so a malformed operator() -- wrong reference-ness, or a
+// parameter type with no ScalarType -- makes this consteval function
+// return false instead of hard-erroring, keeping OpArgsMatchView usable as
+// an ordinary bool.
 template <typename Op, typename View, size_t I>
 consteval bool InputArgMatchesView() {
   using Declared =
@@ -90,11 +93,13 @@ consteval bool InputArgMatchesView() {
     if constexpr (!requires { typename Plain::ScalarType; }) {
       return false;
     } else {
-      return std::is_same_v<
-          Declared,
-          const typename View::template Value<
-              Op::kInputs[I].field,
-              typename Plain::ScalarType>&>;
+      using Expected = typename View::
+          template Value<Op::kInputs[I].field, typename Plain::ScalarType>;
+      if constexpr (kIsDeferred<Plain>) {
+        return std::is_same_v<Declared, const Deferred<Expected>&>;
+      } else {
+        return std::is_same_v<Declared, const Expected&>;
+      }
     }
   }
 }

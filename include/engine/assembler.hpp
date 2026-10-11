@@ -170,8 +170,14 @@ class Assembler {
   // several lanes' worth at once. Any other TargetScalar is rejected --
   // the same underlying planar float storage backs both, so the two are
   // just different strides over it, never different data.
+  //
+  // always_inline: an Op reading a Deferred input (engine/deferred.hpp)
+  // calls this through a function pointer; once that pointer is known this
+  // must still collapse into plain loads at the call site.
   template <typename TargetScalar>
-  static auto Read(const std::byte* field0, size_t field_stride_bytes) {
+  [[gnu::always_inline]] static auto Read(
+      const std::byte* field0, size_t field_stride_bytes
+  ) {
     static_assert(
         std::is_same_v<TargetScalar, ScalarType> ||
             std::is_same_v<TargetScalar, xsimd::batch<ScalarType>>,

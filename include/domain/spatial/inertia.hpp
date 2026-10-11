@@ -601,8 +601,9 @@ struct SymmetricInertiaOperatorAssembler {
   template <typename TargetScalar>
   using ExpectedTupleT = std::tuple<math::Matrix6x6<TargetScalar>>;
 
+  // always_inline: see engine::Assembler::Read.
   template <typename TargetScalar>
-  static InertiaOperator<TargetScalar, Inverted> Read(
+  [[gnu::always_inline]] static InertiaOperator<TargetScalar, Inverted> Read(
       const std::byte* field0, std::size_t field_stride_bytes
   ) {
     CheckTarget<TargetScalar>();

@@ -39,6 +39,62 @@ namespace achilles::algorithms::aba {
 // joints) -- a forest with multiple independently-seeded roots needs that
 // first.
 
+// The 1-DOF fast paths (PropagateInertiaOp/PropagateAccelerationOp's
+// SingleDof) apply to a batch group whose every lane is either a 1-DOF
+// joint driven by one shared slot or a no-DOF row (padding, a welded
+// joint), with S zero everywhere else. Both passes classify a group with
+// these same two checks, on the same S and mask, so the acceleration pass
+// takes its shortcut exactly when the inertia pass wrote U and D^-1 in
+// the shape it relies on.
+namespace single_dof {
+
+// The one DOF slot (column of S) any lane of the group has active, or -1
+// when the group's lanes between them have none or more than one.
+inline int SharedSlot(const Mat6Mask& mask) {
+  using MaskBatch = std::remove_cvref_t<decltype(mask.AsStorage())>;
+  using Lane = typename MaskBatch::value_type;
+  alignas(MaskBatch::arch_type::alignment()) std::array<Lane, MaskBatch::size>
+      lanes{};
+  mask.AsStorage().store_aligned(lanes.data());
+  Lane active = 0;
+  for (Lane lane : lanes) {
+    active |= lane;
+  }
+  // Exactly one bit set across the whole group: every lane is either that
+  // one slot or no slot at all.
+  if (active == 0 || (active & (active - 1)) != 0) {
+    return -1;
+  }
+  return std::countr_zero(static_cast<std::make_unsigned_t<Lane>>(active));
+}
+
+// Whether only column Dof of S is nonzero, and only in lanes that have
+// slot Dof active. Checked on the bit patterns: OR-ing together every
+// entry that has to be zero leaves no bit set only if all of them are. (A
+// -0.0 entry counts as nonzero here, which only means the dense path.)
+template <std::size_t Dof>
+bool SubspaceMatches(const MotionSubspace& S, const Mat6Mask& mask) {
+  using Bits = xsimd::batch<std::int32_t>;
+  auto bits = [](const MathematicalT& x) {
+    return xsimd::bitwise_cast<std::int32_t>(x);
+  };
+  Bits off_column(0);
+  Bits on_column(0);
+  for (std::size_t i = 0; i < 6; ++i) {
+    for (std::size_t j = 0; j < 6; ++j) {
+      if (j == Dof) {
+        on_column |= bits(S(i, j));
+      } else {
+        off_column |= bits(S(i, j));
+      }
+    }
+  }
+  const Bits stray = off_column | xsimd::select(mask[Dof], Bits(0), on_column);
+  return !xsimd::any(stray != Bits(0));
+}
+
+}  // namespace single_dof
+
 struct PropagateVelocityOp {
   using FieldEnum = ABAField;
   using ArgData = engine::ArgData<FieldEnum>;
@@ -142,14 +198,17 @@ struct PropagateInertiaOp {
       ArgData{FieldEnum::kJointBiasForce, true},
   };
 
+  // S and I_A are Deferred (engine/deferred.hpp): between them they're 57
+  // batches, read at different points by whichever of the two paths below
+  // runs, and gathered up front they'd all be spilled on arrival.
   void operator()(
-      const MotionSubspace& S,
+      const engine::Deferred<MotionSubspace>& S,
       const Mat6Mask& mask,
-      const Transform& x_up,
-      const InertiaOperator<false>& I_A,
-      const Acceleration& c,
-      const Force& tau,
-      const Force& p,
+      const engine::Deferred<Transform>& x_up,
+      const engine::Deferred<InertiaOperator<false>>& I_A,
+      const engine::Deferred<Acceleration>& c,
+      const engine::Deferred<Force>& tau,
+      const engine::Deferred<Force>& p,
       InertiaOperator<false>* I_A_parent_out,
       InertiaOperator<false>* U_out,
       InertiaOperator<true>* D_inv_out,
@@ -158,21 +217,41 @@ struct PropagateInertiaOp {
   ) const;
 
  private:
-  // The one DOF slot (column of S) any lane of this batch group has
-  // active, or -1 when the group's lanes between them have none or more
-  // than one -- see SingleDof.
-  static int SharedSingleDof(const Mat6Mask& mask);
+  // What the dense path produces: the outputs it writes, and the two
+  // contributions it adds into the parent's accumulators.
+  struct DenseResult {
+    InertiaOperator<false> U;
+    InertiaOperator<true> D_inv;
+    Force u;
+    InertiaOperator<false> I_A_to_parent;
+    Force p_to_parent;
+  };
+
+  // operator()'s general path: any mix of joint types in the group, any
+  // number of DOFs. Out of line, taking its inputs by value and returning
+  // by value, on purpose: its 6x6 loops index their operands at run time,
+  // and were it inlined, that alone would force every input and output of
+  // the whole pass to live on the stack -- the fast path below included.
+  [[gnu::noinline]] static DenseResult Dense(
+      MotionSubspace S,
+      Mat6Mask mask,
+      Transform x_up,
+      InertiaOperator<false> I_A,
+      Acceleration c,
+      Force tau,
+      Force p
+  );
 
   // operator()'s arguments, bundled so SingleDof's per-slot dispatch below
   // stays one line per slot.
   struct Args {
-    const MotionSubspace& S;
+    const engine::Deferred<MotionSubspace>& S;
     const Mat6Mask& mask;
-    const Transform& x_up;
-    const InertiaOperator<false>& I_A;
-    const Acceleration& c;
-    const Force& tau;
-    const Force& p;
+    const engine::Deferred<Transform>& x_up;
+    const engine::Deferred<InertiaOperator<false>>& I_A;
+    const engine::Deferred<Acceleration>& c;
+    const engine::Deferred<Force>& tau;
+    const engine::Deferred<Force>& p;
     InertiaOperator<false>* I_A_parent_out;
     InertiaOperator<false>* U_out;
     InertiaOperator<true>* D_inv_out;
@@ -180,18 +259,17 @@ struct PropagateInertiaOp {
     Force* u_out;
   };
 
-  // operator()'s fast path for a batch group whose every lane is either a
-  // 1-DOF joint driven by slot Dof or a no-DOF row (padding, a welded
-  // joint), with every other column of S zero. That is the common case --
-  // every revolute/prismatic joint, and a batch group of N copies of the
-  // same joint always shares its mask -- and there U = I_A S has a single
-  // nonzero column and D = S^T U is 1x1, so the 6x6 products and the
-  // masked 6x6 inverse of the dense path collapse to a 6-vector, a
-  // reciprocal and a rank-1 update. Every output equals the dense path's
-  // up to float rounding (including D^-1 = 1 on each slot the mask leaves
-  // inactive, and in every lane of a no-DOF row). Returns false, having
-  // written nothing, when S has a nonzero entry outside that pattern; the
-  // caller then runs the dense path.
+  // operator()'s fast path for a single_dof group with slot Dof (see
+  // single_dof above). That is the common case -- every revolute/prismatic
+  // joint, and a batch group of N copies of the same joint always shares
+  // its mask -- and there U = I_A S has a single nonzero column and
+  // D = S^T U is 1x1, so the 6x6 products and the masked 6x6 inverse of
+  // the dense path collapse to a 6-vector, a reciprocal and a rank-1
+  // update. Every output equals the dense path's up to float rounding:
+  // U is zero outside column Dof, and D^-1 is exactly the identity outside
+  // (Dof, Dof) (and 1 there too in a no-DOF lane), as the dense path's
+  // masked inverse gives. Returns false, having written nothing, when S
+  // doesn't match; the caller then runs the dense path.
   //
   // Dof is a template argument so every S(i, Dof)/U(i, Dof) index is a
   // constant -- with a runtime slot, S, U and D^-1 all have to be
@@ -236,6 +314,9 @@ struct PropagateAccelerationOp {
   // acceleration) enters the algorithm.
   void Initialize(Acceleration* a_base_out) const;
 
+  // No 1-DOF fast path here, unlike PropagateInertiaOp: this pass's dense
+  // form is three 6x6-by-6 products, and classifying the group (see
+  // single_dof) measured as costing more than it saved.
   static constexpr std::array<ArgData, 7> kInputs = {
       ArgData{FieldEnum::kJointSubspace, true},
       ArgData{FieldEnum::kDInvTerm, true},
@@ -329,13 +410,13 @@ inline void PropagateInertiaOp::Initialize(
 }
 
 inline void PropagateInertiaOp::operator()(
-    const MotionSubspace& S,
+    const engine::Deferred<MotionSubspace>& S,
     const Mat6Mask& mask,
-    const Transform& x_up,
-    const InertiaOperator<false>& I_A,
-    const Acceleration& c,
-    const Force& tau,
-    const Force& p,
+    const engine::Deferred<Transform>& x_up,
+    const engine::Deferred<InertiaOperator<false>>& I_A,
+    const engine::Deferred<Acceleration>& c,
+    const engine::Deferred<Force>& tau,
+    const engine::Deferred<Force>& p,
     InertiaOperator<false>* I_A_parent_out,
     InertiaOperator<false>* U_out,
     InertiaOperator<true>* D_inv_out,
@@ -357,7 +438,7 @@ inline void PropagateInertiaOp::operator()(
       u_out
   };
   bool handled = false;
-  switch (SharedSingleDof(mask)) {
+  switch (single_dof::SharedSlot(mask)) {
     case 0:
       handled = SingleDof<0>(args);
       break;
@@ -383,8 +464,25 @@ inline void PropagateInertiaOp::operator()(
     return;
   }
 
-  // Dense path: any mix of joint types, any number of DOFs.
+  const DenseResult dense = Dense(
+      S.Load(), mask, x_up.Load(), I_A.Load(), c.Load(), tau.Load(), p.Load()
+  );
+  *U_out = dense.U;
+  *D_inv_out = dense.D_inv;
+  *u_out = dense.u;
+  *I_A_parent_out += dense.I_A_to_parent;
+  *p_parent_out += dense.p_to_parent;
+}
 
+inline PropagateInertiaOp::DenseResult PropagateInertiaOp::Dense(
+    MotionSubspace S,
+    Mat6Mask mask,
+    Transform x_up,
+    InertiaOperator<false> I_A,
+    Acceleration c,
+    Force tau,
+    Force p
+) {
   // U = I_A S
   InertiaOperator<false> U(I_A.AsMatrix() * S);
 
@@ -407,80 +505,45 @@ inline void PropagateInertiaOp::operator()(
   // p' = p + I_A' c + U D^-1 u (ditto)
   Force p_contribution = p + I_A_contribution.Apply(c) + U_D_inv * u;
 
-  *U_out = U;
-  *D_inv_out = D_inv;
-  *u_out = u;
-
   // I_A' is symmetric (as I_A is, and D^-1 is), so only its upper
   // triangle needs transforming -- see Transform::ApplySymmetric.
-  *I_A_parent_out +=
-      InertiaOperator<false>(x_up.ApplySymmetric(I_A_contribution.AsMatrix()));
-  *p_parent_out += x_up.Apply(p_contribution);
-}
-
-inline int PropagateInertiaOp::SharedSingleDof(const Mat6Mask& mask) {
-  using MaskBatch = std::remove_cvref_t<decltype(mask.AsStorage())>;
-  using Lane = typename MaskBatch::value_type;
-  alignas(MaskBatch::arch_type::alignment()) std::array<Lane, MaskBatch::size>
-      lanes{};
-  mask.AsStorage().store_aligned(lanes.data());
-  Lane active = 0;
-  for (Lane lane : lanes) {
-    active |= lane;
-  }
-  // Exactly one bit set across the whole group: every lane is either that
-  // one slot or no slot at all.
-  if (active == 0 || (active & (active - 1)) != 0) {
-    return -1;
-  }
-  return std::countr_zero(static_cast<std::make_unsigned_t<Lane>>(active));
+  return {
+      U,
+      D_inv,
+      u,
+      InertiaOperator<false>(x_up.ApplySymmetric(I_A_contribution.AsMatrix())),
+      x_up.Apply(p_contribution)
+  };
 }
 
 template <std::size_t Dof>
 bool PropagateInertiaOp::SingleDof(const Args& args) const {
+  // Each Deferred input is loaded right before its first use, so as few
+  // values as possible are live at once.
   constexpr std::size_t dof = Dof;
-  const MotionSubspace& S = args.S;
   const Mat6Mask& mask = args.mask;
-  const Transform& x_up = args.x_up;
-  const InertiaOperator<false>& I_A = args.I_A;
-  const Acceleration& c = args.c;
-  const Force& tau = args.tau;
-  const Force& p = args.p;
   using T = MathematicalT;
   constexpr std::size_t kN = 6;
   const T zero(0.0F);
   const T one(1.0F);
 
+  // All of S for the pattern check; only column dof is kept past it.
+  std::array<T, kN> s;
+  {
+    const MotionSubspace S = args.S.Load();
+    if (!single_dof::SubspaceMatches<Dof>(S, mask)) {
+      return false;
+    }
+    for (std::size_t i = 0; i < kN; ++i) {
+      s[i] = S(i, dof);
+    }
+  }
+
   // Lanes that have slot dof active; the rest are no-DOF rows.
   const auto live = util::Select(mask[dof], one, zero) != zero;
 
-  // Only column dof of S may be nonzero, and only in a live lane. Checked
-  // on the bit patterns: OR-ing together every entry that has to be zero
-  // leaves no bit set only if all of them are. (A -0.0 entry counts as
-  // nonzero here, which only sends the group down the dense path.)
-  using Bits = xsimd::batch<std::int32_t>;
-  auto bits = [](const T& x) { return xsimd::bitwise_cast<std::int32_t>(x); };
-  Bits off_column(0);
-  Bits on_column(0);
-  for (std::size_t i = 0; i < kN; ++i) {
-    for (std::size_t j = 0; j < kN; ++j) {
-      if (j == dof) {
-        on_column |= bits(S(i, j));
-      } else {
-        off_column |= bits(S(i, j));
-      }
-    }
-  }
-  const Bits stray = off_column | xsimd::select(mask[dof], Bits(0), on_column);
-  if (xsimd::any(stray != Bits(0))) {
-    return false;
-  }
-
+  const InertiaOperator<false> I_A = args.I_A.Load();
   const Matrix6x6& i_a = I_A.AsMatrix();
-  std::array<T, kN> s;
-  for (std::size_t i = 0; i < kN; ++i) {
-    s[i] = S(i, dof);
-  }
 
   // U = I_A S: column dof is I_A s, every other column is zero.
   std::array<T, kN> u_col;
@@ -500,20 +563,6 @@ bool PropagateInertiaOp::SingleDof(const Args& args) const {
   }
   const T d_inv = util::Select(live, one / d, one);
 
-  // u = tau - S^T p: only entry dof of S^T p is nonzero.
-  T s_dot_p = s[0] * p[0];
-  for (std::size_t i = 1; i < kN; ++i) {
-    s_dot_p += s[i] * p[i];
-  }
-  std::array<T, kN> u_vals;
-  for (std::size_t i = 0; i < kN; ++i) {
-    u_vals[i] = tau[i];
-  }
-  u_vals[dof] = u_vals[dof] - s_dot_p;
-  const Force u(math::Vector6<T>(
-      u_vals[0], u_vals[1], u_vals[2], u_vals[3], u_vals[4], u_vals[5]
-  ));
-
   // U D^-1: column dof of U, scaled.
   std::array<T, kN> u_d_inv;
   for (std::size_t i = 0; i < kN; ++i) {
@@ -532,7 +581,24 @@ bool PropagateInertiaOp::SingleDof(const Args& args) const {
   }
   const InertiaOperator<false> I_A_contribution(contribution);
 
+  // u = tau - S^T p: only entry dof of S^T p is nonzero.
+  const Force p = args.p.Load();
+  T s_dot_p = s[0] * p[0];
+  for (std::size_t i = 1; i < kN; ++i) {
+    s_dot_p += s[i] * p[i];
+  }
+  const Force tau = args.tau.Load();
+  std::array<T, kN> u_vals;
+  for (std::size_t i = 0; i < kN; ++i) {
+    u_vals[i] = tau[i];
+  }
+  u_vals[dof] = u_vals[dof] - s_dot_p;
+  const Force u(math::Vector6<T>(
+      u_vals[0], u_vals[1], u_vals[2], u_vals[3], u_vals[4], u_vals[5]
+  ));
+
   // p' = p + I_A' c + U D^-1 u
+  const Acceleration c = args.c.Load();
   const Force p_contribution = p + I_A_contribution.Apply(c) +
                                Force(math::Vector6<T>(
                                    u_d_inv[0] * u_vals[dof],
@@ -554,6 +620,7 @@ bool PropagateInertiaOp::SingleDof(const Args& args) const {
   *args.D_inv_out = InertiaOperator<true>(D_inv);
   *args.u_out = u;
 
+  const Transform x_up = args.x_up.Load();
   *args.I_A_parent_out +=
       InertiaOperator<false>(x_up.ApplySymmetric(contribution));
   *args.p_parent_out += x_up.Apply(p_contribution);

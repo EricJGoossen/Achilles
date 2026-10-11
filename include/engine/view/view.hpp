@@ -12,6 +12,7 @@
 #include <xsimd/xsimd.hpp>
 
 #include "engine/assembler.hpp"
+#include "engine/deferred.hpp"
 #include "engine/field_contract.hpp"
 #include "engine/memory/binding.hpp"
 #include "engine/topology/layout_policy.hpp"
@@ -138,6 +139,15 @@ class View {
       Assembler<F>::template Write<T>(
           ElementAt(index * LaneSize<T>()), Stride(), value
       );
+    }
+
+    // Load<T>(index), not done yet: a handle the caller reads through when
+    // it needs the value (see engine/deferred.hpp).
+    template <util::ArithmeticLike T>
+    Deferred<Value<F, T>> Defer(size_t index) const {
+      return Deferred<Value<
+          F,
+          T>>(ElementAt(index * LaneSize<T>()), Stride(), &Assembler<F>::template Read<T>);
     }
 
    private:
