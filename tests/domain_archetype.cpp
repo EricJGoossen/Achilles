@@ -109,3 +109,9 @@ TEST(ArchetypeFieldAt, DiesOnOutOfRangeIndex) {
 
   EXPECT_DEATH(ArchetypeFieldAt(*field, 5, 5, 5, 2), "out of range");
 }
+
+TEST(Archetype, JointNameFallsBackToIndexWhenUnnamed) {
+  Archetype archetype = MakeTwoJointArchetype();
+  EXPECT_EQ(archetype.JointName(0), "j0");
+  EXPECT_EQ(archetype.JointName(1), "j1");
+}

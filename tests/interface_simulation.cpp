@@ -1,8 +1,11 @@
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <filesystem>
+#include <fstream>
+#include <span>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -110,6 +113,12 @@ Simulation MakeInitializedSim(
   [[maybe_unused]] bool loaded = sim.LoadArowFile(file.string());
   [[maybe_unused]] bool initialized = sim.Init();
   return sim;
+}
+
+// Whether a fresh Simulation accepts `arow` (written to a temp file).
+bool LoadsArow(const TempDir& dir, const std::string& arow) {
+  Simulation sim;
+  return sim.LoadArowFile(dir.Write("load.arow", arow).string());
 }
 
 Transform WorldTransform(Simulation& sim) {
@@ -222,9 +231,175 @@ joints:
 // never actually fires for a missing path; it still returns true, having
 // silently kept the default config. Locks in that real, load-bearing
 // behavior rather than assuming a missing config file is an error.
+// Only fields an archetype defines (domain::kArchetypeFields) may appear
+// in a .arow -- a typo or a derived field like world_transform is
+// rejected at load rather than silently ignored or overwritten.
+TEST(Simulation, LoadArowFileRejectsAFieldTheArchetypeDoesNotDefine) {
+  TempDir dir;
+  std::string arow =
+      MakeRevoluteZArow(0.0F) + "      world_transform: [0,0,0, 1,0,0,0]\n";
+  EXPECT_FALSE(LoadsArow(dir, arow));
+}
+
+TEST(Simulation, LoadArowFileRejectsAFieldWithTheWrongLength) {
+  TempDir dir;
+  std::string arow = MakeRevoluteZArow(0.0F);
+  // joint_torque is a 6-vector; give it 5 values.
+  std::size_t at = arow.find("joint_torque: [");
+  ASSERT_NE(at, std::string::npos);
+  arow.replace(at, arow.find(']', at) - at + 1, "joint_torque: [0,0,0,0,0]");
+  EXPECT_FALSE(LoadsArow(dir, arow));
+}
+
+TEST(Simulation, LoadArowFileAcceptsOnlyArchetypeFields) {
+  TempDir dir;
+  EXPECT_TRUE(LoadsArow(dir, MakeRevoluteZArow(0.0F)));
+}
+
 TEST(Simulation, LoadConfigFileReturnsTrueAndFallsBackForMissingFile) {
   Simulation sim;
   EXPECT_TRUE(sim.LoadConfigFile("/nonexistent/path/does_not_exist.yaml"));
+}
+
+namespace {
+
+std::vector<std::string> ReadLines(const std::filesystem::path& path) {
+  std::ifstream in(path);
+  std::vector<std::string> lines;
+  for (std::string line; std::getline(in, line);) {
+    lines.push_back(line);
+  }
+  return lines;
+}
+
+std::vector<std::string> SplitCsv(const std::string& line) {
+  std::vector<std::string> cells;
+  std::stringstream stream(line);
+  for (std::string cell; std::getline(stream, cell, ',');) {
+    cells.push_back(cell);
+  }
+  return cells;
+}
+
+// Tests that exercise real logging; skipped in an
+// ACHILLES_ENABLE_LOGGING=OFF build, where EnableLog always refuses (see
+// SimulationLog.EnableLogRefusesWhenCompiledOut).
+class SimulationLogEnabled : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    if (!achilles::algorithms::kLoggingEnabled) {
+      GTEST_SKIP() << "logging compiled out";
+    }
+  }
+};
+
+}  // namespace
+
+TEST(SimulationLog, EnableLogRefusesWhenCompiledOut) {
+  if (achilles::algorithms::kLoggingEnabled) {
+    GTEST_SKIP() << "logging compiled in";
+  }
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.3F);
+  EXPECT_FALSE(
+      sim.EnableLog(dir.Write("log.csv", "").string(), {"joint_position"})
+  );
+}
+
+TEST(SimulationLog, EnableLogFailsBeforeInit) {
+  Simulation sim;
+  EXPECT_FALSE(sim.EnableLog("unused.csv", {"joint_position"}));
+}
+
+TEST_F(SimulationLogEnabled, EnableLogFailsForAnUnknownField) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.3F);
+  EXPECT_FALSE(
+      sim.EnableLog(dir.Write("log.csv", "").string(), {"no_such_field"})
+  );
+}
+
+TEST_F(SimulationLogEnabled, EnableLogFailsForAnEmptySelection) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.3F);
+  EXPECT_FALSE(sim.EnableLog(dir.Write("log.csv", "").string(), {}));
+}
+
+TEST_F(SimulationLogEnabled, EnableLogFailsForAnUnwritablePath) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.3F);
+  EXPECT_FALSE(sim.EnableLog("/no/such/directory/log.csv", {"joint_position"}));
+}
+
+// Header is time + one column per scalar, labeled with the archetype and
+// joint name from the .arow; one row for the initial state plus one per
+// Step().
+TEST_F(SimulationLogEnabled, WritesHeaderInitialRowAndOneRowPerStep) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.3F);
+  std::filesystem::path log_path = dir.Write("log.csv", "");
+
+  ASSERT_TRUE(sim.EnableLog(log_path.string(), {"joint_velocity"}));
+  ASSERT_TRUE(sim.Step(0.01F));
+  ASSERT_TRUE(sim.Step(0.01F));
+
+  std::vector<std::string> lines = ReadLines(log_path);
+  ASSERT_EQ(lines.size(), 1U + 3U);
+  std::vector<std::string> header = SplitCsv(lines[0]);
+  ASSERT_EQ(header.size(), 1U + 6U);
+  EXPECT_EQ(header[0], "time");
+  EXPECT_EQ(header[1], "base.joint.joint_velocity.0");
+  EXPECT_EQ(header[6], "base.joint.joint_velocity.5");
+  EXPECT_EQ(std::stod(SplitCsv(lines[1])[0]), 0.0);
+  EXPECT_NEAR(std::stod(SplitCsv(lines[3])[0]), 0.02, 1e-6);
+}
+
+// The logged numbers are exactly what the sim holds after the step.
+TEST_F(SimulationLogEnabled, LoggedValuesMatchTheSimState) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.3F, 0.5F, 1.0F);
+  std::filesystem::path log_path = dir.Write("log.csv", "");
+
+  ASSERT_TRUE(sim.EnableLog(log_path.string(), {"joint_position"}));
+  ASSERT_TRUE(sim.Step(0.01F));
+
+  auto view = sim.ViewFor<ABAAlgorithm>();
+  // The single real joint sits at sorted row 0 (see the helpers above,
+  // which read it at batch index 0).
+  std::size_t row = 0;
+  std::array<double, 7> expected{};
+  view.LoadFlat<ABAField::kJointPosition>(row, std::span<double>(expected));
+
+  std::vector<std::string> cells = SplitCsv(ReadLines(log_path).back());
+  ASSERT_EQ(cells.size(), 1U + 7U);
+  for (std::size_t k = 0; k < 7; ++k) {
+    EXPECT_EQ(static_cast<float>(std::stod(cells[1 + k])), expected[k])
+        << "scalar " << k;
+  }
+}
+
+// ABA-derived fields are refreshed before each row, so they describe the
+// logged state even under an integrator whose last ABA pass ran at a
+// trial state (RK4's final stage).
+TEST_F(SimulationLogEnabled, DerivedFieldsDescribeTheCommittedState) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.3F, 0.5F, 1.0F);
+  sim.SetIntegrator(Simulation::Integrator::kRungeKutta4);
+  std::filesystem::path log_path = dir.Write("log.csv", "");
+
+  ASSERT_TRUE(sim.EnableLog(log_path.string(), {"world_transform"}));
+  ASSERT_TRUE(sim.Step(0.01F));
+
+  std::vector<std::string> logged = SplitCsv(ReadLines(log_path).back());
+  sim.RefreshAccelerationForCurrentState();
+  std::array<double, 7> fresh{};
+  sim.ViewFor<ABAAlgorithm>().LoadFlat<ABAField::kWorldTransform>(
+      0, std::span<double>(fresh)
+  );
+  for (std::size_t k = 0; k < 7; ++k) {
+    EXPECT_EQ(static_cast<float>(std::stod(logged[1 + k])), fresh[k])
+        << "scalar " << k;
+  }
 }
 
 TEST(Simulation, InitReturnsFalseWithoutLoadingAnArowFileFirst) {

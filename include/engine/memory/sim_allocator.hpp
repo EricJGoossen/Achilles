@@ -172,11 +172,10 @@ struct FieldVisitor {
 
   // Copies this field's data out of whichever of `archetypes` declares a
   // field named Traits<F>::kName, into the sorted rows this field's own
-  // Layout (FieldLayoutFor) assigned that archetype's instances -- a field
-  // with no kName (an algorithm-internal scratch or output field, e.g.
-  // ABA's kJointAcceleration) is never user-supplied, so this is a no-op
-  // for it: Carve's own ZeroFill already leaves it deterministically zero,
-  // and Op::Initialize/a real pass own filling it in at runtime.
+  // Layout (FieldLayoutFor) assigned that archetype's instances. A no-op
+  // for a field with no kName, or one no archetype supplies: Carve's own
+  // ZeroFill already leaves it deterministically zero, and
+  // Op::Initialize/a real pass own filling it in at runtime.
   //
   // Writes raw scalars directly, one leaf at a time, rather than routing
   // through FieldAssembler::Write: doing so would require materializing a
@@ -322,7 +321,8 @@ struct BuildTopologyTuple<util::TypeList<Policies...>> {
   ) {
     return std::tuple<pass::TopologySlot<Policies>...>{
         pass::TopologySlot<Policies>{
-            layouts.at(SlotId<Policies>()).AllocateTopology(arena)
+            layouts.at(SlotId<Policies>()).AllocateTopology(arena),
+            layouts.at(SlotId<Policies>())
         }...
     };
   }

@@ -1,17 +1,24 @@
 #include "util/csv_logger.hpp"
 
 #include <cassert>
+#include <cstddef>
+#include <fstream>
+#include <optional>
+#include <span>
+#include <string>
 #include <utility>
+#include <vector>
 
 namespace achilles::util {
 
 std::optional<CsvLogger> CsvLogger::Open(
-    const std::string& path, std::vector<std::string> columns
+    const std::string& path, std::vector<std::string> columns, int precision
 ) {
   std::ofstream file(path);
   if (!file.is_open()) {
     return std::nullopt;
   }
+  file.precision(precision);
   for (std::size_t i = 0; i < columns.size(); ++i) {
     if (i > 0) {
       file << ',';
@@ -26,7 +33,7 @@ std::optional<CsvLogger> CsvLogger::Open(
 CsvLogger::CsvLogger(std::ofstream file, std::size_t num_columns)
     : file_(std::move(file)), num_columns_(num_columns) {}
 
-void CsvLogger::LogRow(std::span<const float> values) {
+void CsvLogger::LogRow(std::span<const double> values) {
   assert(
       values.size() == num_columns_ &&
       "CsvLogger::LogRow given a different number of values than Open() was "

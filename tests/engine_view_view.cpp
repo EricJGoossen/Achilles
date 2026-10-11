@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstddef>
+#include <span>
 #include <xsimd/xsimd.hpp>
 
 #include "domain/math/vector3.hpp"
@@ -124,4 +126,19 @@ TEST(ViewFieldCursor, LoadStoreMatchDirectViewAccess) {
 
   view.Store<ToyField::kPosition, float>(1, Vector3<float>(0.5F, 0.5F, 0.5F));
   EXPECT_TRUE(cursor.Load<float>(1).IsApprox(Vector3<float>(0.5F, 0.5F, 0.5F)));
+}
+
+// LoadFlat copies a field's raw scalars in Assembler leaf order (x, y, z
+// for a Vector3) without assembling the domain type -- what field logging
+// reads through.
+TEST(ViewLoadFlat, CopiesLeavesInAssemblerOrder) {
+  SimAllocator<ToyAlgorithm> sim = MakeToySim(4);
+  ToyView view = sim.ViewFor<ToyAlgorithm>();
+  view.Store<ToyField::kPosition, float>(2, Vector3<float>(1.0F, 2.0F, 3.0F));
+
+  static_assert(ToyView::NumScalars<ToyField::kPosition>() == 3);
+  std::array<double, 3> flat{};
+  view.LoadFlat<ToyField::kPosition>(2, std::span<double>(flat));
+
+  EXPECT_EQ(flat, (std::array<double, 3>{1.0, 2.0, 3.0}));
 }

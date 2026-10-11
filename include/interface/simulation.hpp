@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 #include "algorithms/aba/aba_implicit_midpoint_step.hpp"
 #include "algorithms/aba/aba_implicit_velocity_step.hpp"
@@ -16,10 +19,12 @@
 #include "domain/archetype.hpp"
 #include "domain/joint_topology.hpp"
 #include "engine/memory/sim_allocator.hpp"
+#include "engine/named_fields.hpp"
 #include "engine/topology/layout_policy.hpp"
 #include "engine/topology/ordering_policy.hpp"
 #include "interface/archetype_loader.hpp"
 #include "interface/sim_config_loader.hpp"
+#include "interface/sim_log.hpp"
 #include "render/scene_renderer.hpp"
 #include "util/io.hpp"
 
@@ -144,12 +149,21 @@ class Simulation {
     return true;
   }
 
+  // Parses `path` (see interface/archetype_loader.hpp), then accepts the
+  // result only if every field it supplies is one an archetype defines
+  // (domain::kArchetypeFields) with the right number of values per joint
+  // -- see CheckArchetypeFields.
   bool LoadArowFile(const std::string& path) {
+    std::vector<domain::Archetype> archetypes;
     try {
-      archetypes_ = LoadArchetypes(path);
+      archetypes = LoadArchetypes(path);
     } catch (const std::exception& e) {
       return util::Warning("Failed to load world from file", e.what());
     }
+    if (std::optional<std::string> problem = CheckArchetypeFields(archetypes)) {
+      return util::Warning("Failed to load world from file", problem->c_str());
+    }
+    archetypes_ = std::move(archetypes);
     return true;
   }
 
@@ -166,6 +180,30 @@ class Simulation {
       return util::Warning("Simulation allocation failed", e.what());
     }
     return true;
+  }
+
+  // Starts logging `fields` to a CSV at `path`: a "time" column, then one
+  // column per selected field x real joint x scalar, named
+  // "<archetype>[<copy>].<joint>.<field>.<k>" (the "[<copy>]" is omitted
+  // for single-copy archetypes). Fields are global log names (e.g.
+  // "joint_position", "world_transform") or "*" for all -- see engine::pass::
+  // FieldLog. Must be called after Init(). Writes the current state as the
+  // first row (time 0), then one row after every Step().
+  //
+  // Returns false (with a warning naming the problem) for an unknown field
+  // name, an empty selection, an unwritable path, or a build with
+  // ACHILLES_ENABLE_LOGGING=OFF, where logging is compiled out entirely.
+  bool EnableLog(
+      const std::string& path, const std::vector<std::string>& fields
+  ) {
+    if (!state_.has_value()) {
+      return util::Warning(
+          "Simulation::EnableLog() called before Simulation::Init()"
+      );
+    }
+    return log_.Enable(state_->context, archetypes_, path, fields, [this] {
+      RefreshAccelerationForCurrentState();
+    });
   }
 
   // Steps the physics, then -- unless SetHeadless(true) (the default) --
@@ -189,6 +227,10 @@ class Simulation {
     } catch (const std::exception& e) {
       return util::Warning("Simulation step failed", e.what());
     }
+
+    log_.AfterStep(state_->context, dt, [this] {
+      RefreshAccelerationForCurrentState();
+    });
 
     if (!headless_) {
       if (!renderer_.has_value()) {
@@ -279,6 +321,55 @@ class Simulation {
   }
 
  private:
+  // Every field of every registered Algorithm (name, scalars per row,
+  // SharedAs slot) -- what an archetype field's name and length are
+  // checked against.
+  static constexpr auto kFields =
+      engine::AllFieldsIn<algorithms::RegisteredAlgorithms>::kValue;
+  static_assert(
+      [] {
+        for (std::string_view name : domain::kArchetypeFields) {
+          if (!engine::FindField(kFields, name).has_value()) {
+            return false;
+          }
+        }
+        return true;
+      }(),
+      "domain::kArchetypeFields names a field no registered Algorithm "
+      "declares (as Traits<F>::kName)."
+  );
+
+  // Why `archetypes` can't be handed to the sim, or nullopt if it can:
+  // a field the archetype doesn't define (domain::kArchetypeFields), or
+  // one whose per-joint value count doesn't match the field's Assembler.
+  static std::optional<std::string> CheckArchetypeFields(
+      const std::vector<domain::Archetype>& archetypes
+  ) {
+    for (const domain::Archetype& archetype : archetypes) {
+      for (const domain::ArchetypeField& field : archetype.Fields()) {
+        std::string where =
+            "archetype '" + archetype.Name() + "', field '" + field.name + "'";
+        if (!domain::IsArchetypeField(field.name)) {
+          std::string expected;
+          for (std::string_view name : domain::kArchetypeFields) {
+            expected += (expected.empty() ? "" : ", ") + std::string(name);
+          }
+          return where +
+                 ": not an archetype field (expected one of: " + expected + ")";
+        }
+        std::optional<engine::NamedField> described =
+            engine::FindField(kFields, field.name);
+        if (described.has_value() &&
+            described->scalars != field.scalars_per_leaf) {
+          return where + ": needs " + std::to_string(described->scalars) +
+                 " values per joint, got " +
+                 std::to_string(field.scalars_per_leaf);
+        }
+      }
+    }
+    return std::nullopt;
+  }
+
   // One evaluation of `integrator_` at the given dt -- see Integrator's own
   // comment for what each case does. Called once per substep by Step(),
   // never directly by a caller (substeps_ == 1 makes it identical to
@@ -328,6 +419,8 @@ class Simulation {
   std::optional<render::SceneRenderer> renderer_;
   int substeps_ = 1;
   Integrator integrator_ = Integrator::kSemiImplicitEuler;
+  // An empty no-op when ACHILLES_ENABLE_LOGGING=OFF (see SimLog).
+  SimLog<decltype(Allocator::State::context)> log_;
 };
 
 }  // namespace achilles::interface

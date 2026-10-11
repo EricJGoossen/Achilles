@@ -9,6 +9,7 @@
 #include "domain/joint_topology.hpp"
 #include "engine/algorithm_contract.hpp"
 #include "engine/memory/binding.hpp"
+#include "engine/topology/layout.hpp"
 #include "engine/topology/layout_policy.hpp"
 #include "engine/view/view_contract.hpp"
 #include "util/tmp.hpp"
@@ -83,9 +84,14 @@ using UsedOrderingsFor = util::UniqueT<
 // needed a wrapper like this: ViewFactory<EnumT, Traits> already produces a
 // distinct type per Algorithm, so std::tuple<Algorithms::View...> has no
 // such collision to begin with.
+//
+// Also carries a copy of the policy's own Layout (row <-> (instance,
+// joint) mapping, padding rows) for consumers that need to label or skip
+// rows after construction -- e.g. field logging (field_log.hpp).
 template <typename Policy>
 struct TopologySlot {
   domain::JointTopology topology;
+  topology::Layout layout;
 };
 
 // The concrete tuple type SimContext<Algorithms...> stores its topologies
@@ -130,6 +136,13 @@ class SimContext {
   template <topology::LayoutPolicyLike Policy>
   const domain::JointTopology& TopologyFor() const {
     return std::get<TopologySlot<Policy>>(topologies_).topology;
+  }
+
+  // The Layout the same ordering policy's rows were placed by -- see
+  // TopologySlot.
+  template <topology::LayoutPolicyLike Policy>
+  const topology::Layout& LayoutFor() const {
+    return std::get<TopologySlot<Policy>>(topologies_).layout;
   }
 
   // The original, Algorithm-keyed overload -- kept for existing external

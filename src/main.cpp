@@ -6,12 +6,15 @@
 // is not the standard for the rest of the codebase -- it's specific to
 // this file.
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include "algorithms/aba/aba_data.hpp"
 #include "algorithms/aba/aba_ops.hpp"
@@ -66,6 +69,10 @@ struct CliArgs {
   bool headless = false;
   std::string arow_path;
   std::string config_path;
+  // --log <path> turns on Simulation::EnableLog; --log-field (repeatable)
+  // picks what goes in it, defaulting to joint state when none is given.
+  std::string log_path;
+  std::vector<std::string> log_fields;
   // Substepping is off: it exists to shrink kSemiImplicitEuler's own
   // per-step error, and kRungeKutta4 below gets that accuracy from its
   // own order instead (see Simulation::SetSubsteps / Integrator).
@@ -119,36 +126,56 @@ std::optional<Integrator> ParseIntegrator(std::string_view name) {
   return std::nullopt;
 }
 
+// Every flag that takes a value, with what to say when the value is
+// missing.
+constexpr std::array<std::pair<std::string_view, std::string_view>, 5>
+    kValueFlags = {{
+        {"--log", "a path argument"},
+        {"--log-field", "a field name, e.g. joint_position, or * for all"},
+        {"--substeps", "an integer argument"},
+        {"--dt", "a floating-point seconds argument"},
+        {"--integrator",
+         "one of euler, verlet, midpoint, implicit, implicitfast, rk4"},
+    }};
+
+// Applies one kValueFlags entry's value; false (having already printed
+// why) on a value it can't accept.
+bool ApplyValueFlag(CliArgs& args, std::string_view flag, const char* value) {
+  if (flag == "--log") {
+    args.log_path = value;
+  } else if (flag == "--log-field") {
+    args.log_fields.emplace_back(value);
+  } else if (flag == "--substeps") {
+    args.substeps = std::atoi(value);
+  } else if (flag == "--dt") {
+    args.dt = static_cast<ScalarOperationT>(std::strtod(value, nullptr));
+  } else {
+    std::optional<Integrator> integrator = ParseIntegrator(value);
+    if (!integrator.has_value()) {
+      return false;
+    }
+    args.integrator = *integrator;
+  }
+  return true;
+}
+
 std::optional<CliArgs> ParseArgs(int argc, char** argv) {
   CliArgs args;
   for (int i = 1; i < argc; ++i) {
     std::string_view arg = argv[i];
+    const auto* value_flag = std::ranges::find(
+        kValueFlags, arg, &std::pair<std::string_view, std::string_view>::first
+    );
     if (arg == "--headless") {
       args.headless = true;
-    } else if (arg == "--substeps") {
+    } else if (value_flag != kValueFlags.end()) {
       if (++i >= argc) {
-        std::cerr << "--substeps requires an integer argument\n";
+        std::cerr << arg << " requires " << value_flag->second << '\n';
         return std::nullopt;
       }
-      args.substeps = std::atoi(argv[i]);
-    } else if (arg == "--dt") {
-      if (++i >= argc) {
-        std::cerr << "--dt requires a floating-point seconds argument\n";
+      if (!ApplyValueFlag(args, arg, argv[i])) {
         return std::nullopt;
       }
-      args.dt = static_cast<ScalarOperationT>(std::strtod(argv[i], nullptr));
-    } else if (arg == "--integrator") {
-      if (++i >= argc) {
-        std::cerr << R"(--integrator requires one of euler, verlet, midpoint, )"
-                     R"(implicit, implicitfast, rk4)"
-                  << '\n';
-        return std::nullopt;
-      }
-      std::optional<Integrator> integrator = ParseIntegrator(argv[i]);
-      if (!integrator.has_value()) {
-        return std::nullopt;
-      }
-      args.integrator = *integrator;
     } else if (args.arow_path.empty()) {
       args.arow_path = arg;
     } else {
@@ -163,6 +190,7 @@ std::optional<CliArgs> ParseArgs(int argc, char** argv) {
 // achilles <scene.arow> [sim_config.yaml] [--headless] [--substeps N]
 //   [--dt seconds] [--integrator
 //   euler|verlet|midpoint|implicit|implicitfast|rk4]
+//   [--log <path> [--log-field <field>]...]
 //
 // Loads and initializes a Simulation from a .arow file (see
 // interface/archetype_loader.hpp for its format, and examples/ for a
@@ -179,13 +207,16 @@ std::optional<CliArgs> ParseArgs(int argc, char** argv) {
 // embedders) still get the original unsubstepped semi-implicit-Euler behavior
 // at whatever dt they pass unless they ask for something else. Pass
 // --integrator euler to see the older, visibly-dissipative behavior for
-// comparison, or raise --dt to trade fidelity back for throughput.
+// comparison, or raise --dt to trade fidelity back for throughput. --log
+// writes a per-tick CSV of the --log-field selections (default:
+// joint_position and joint_velocity) -- see Simulation::EnableLog.
 int main(int argc, char** argv) {
   if (argc < 2) {
     std::cerr
         << "usage: achilles <scene.arow> [sim_config.yaml] "
            "[--headless] [--substeps N] [--dt seconds] "
-           "[--integrator euler|verlet|midpoint|implicit|implicitfast|rk4]\n";
+           "[--integrator euler|verlet|midpoint|implicit|implicitfast|rk4] "
+           "[--log <path> [--log-field <field>]...]\n";
     return 1;
   }
 
@@ -207,6 +238,14 @@ int main(int argc, char** argv) {
   sim.SetIntegrator(args->integrator);
   sim.SetHeadless(args->headless);
   sim.SetSubsteps(args->substeps);
+  if (!args->log_path.empty()) {
+    if (args->log_fields.empty()) {
+      args->log_fields = {"joint_position", "joint_velocity"};
+    }
+    if (!sim.EnableLog(args->log_path, args->log_fields)) {
+      return 1;
+    }
+  }
 
   const ScalarOperationT dt = args->dt;
   constexpr ScalarOperationT kMaxFrameTime = 0.25F;
