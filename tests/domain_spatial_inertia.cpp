@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <array>
+#include <cstddef>
 #include <xsimd/xsimd.hpp>
 
 #include "domain/math/matrix.hpp"
@@ -113,9 +115,7 @@ TEST(InertiaConstruction, RejectsNonSymmetricMatrix3x3) {
   Matrix3x3<float> asymmetric(
       2.0F, 5.0F, 0.0F, 0.0F, 3.0F, 0.0F, 0.0F, 0.0F, 4.0F
   );  // (0,1) = 5 but (1,0) = 0
-  EXPECT_DEATH(
-      Inertia<float>(2.0F, Vector3<float>::Zero(), asymmetric), ""
-  );
+  EXPECT_DEATH(Inertia<float>(2.0F, Vector3<float>::Zero(), asymmetric), "");
 }
 
 TEST(InertiaStaticConstructors, ZeroAndSetZero) {
@@ -334,8 +334,14 @@ TEST(InertiaBatched, ScalarAlgebraAndInverseMatchScalarPerLane) {
   using B = xsimd::batch<float>;
   Inertia<float> scalar_body = ValidInertia();
   Inertia<B> body(
-      B(scalar_body.Mass()), Vector3<B>::Zero(), B(scalar_body.Ixx()),
-      B(scalar_body.Iyy()), B(scalar_body.Izz()), B(0.0F), B(0.0F), B(0.0F)
+      B(scalar_body.Mass()),
+      Vector3<B>::Zero(),
+      B(scalar_body.Ixx()),
+      B(scalar_body.Iyy()),
+      B(scalar_body.Izz()),
+      B(0.0F),
+      B(0.0F),
+      B(0.0F)
   );
 
   Inertia<B> scaled = body * B(2.0F);
@@ -570,4 +576,62 @@ TEST(InertiaOperatorMaskedInverse, AllActiveMatchesOrdinaryInverse) {
   InvertedArticulatedInertiaOperator<float> masked =
       op.MaskedInverse(all_active);
   EXPECT_TRUE(masked.IsApprox(expected, 1e-3F));
+}
+
+// ===== SymmetricInertiaOperatorAssembler =====
+
+namespace {
+
+using achilles::domain::spatial::SymmetricInertiaOperatorAssembler;
+
+// Room for every leaf of one batch group, at a one-batch leaf stride --
+// the shape engine::topology::AoSoALayout gives a field.
+struct SymmetricStorage {
+  static constexpr std::size_t kStride = sizeof(xsimd::batch<float>);
+  alignas(xsimd::batch<float>) std::array<std::byte, 21 * kStride> bytes{};
+};
+
+}  // namespace
+
+TEST(SymmetricInertiaOperatorAssembler, StoresTwentyOneLeaves) {
+  EXPECT_EQ((SymmetricInertiaOperatorAssembler<float, false>::kNumFields), 21U);
+}
+
+// A symmetric operator survives Write then Read exactly, scalar or batched.
+TEST(SymmetricInertiaOperatorAssembler, RoundTripsASymmetricOperator) {
+  using A = SymmetricInertiaOperatorAssembler<float, false>;
+  ArticulatedInertiaOperator<float> op = ShiftedInertia().AsArticulated();
+
+  SymmetricStorage storage;
+  A::Write<float>(storage.bytes.data(), SymmetricStorage::kStride, op);
+  EXPECT_TRUE(
+      A::Read<float>(storage.bytes.data(), SymmetricStorage::kStride) == op
+  );
+
+  using B = xsimd::batch<float>;
+  InertiaOperator<B, false> batched(op.AsMatrix().Cast<B>());
+  A::Write<B>(storage.bytes.data(), SymmetricStorage::kStride, batched);
+  EXPECT_TRUE(achilles::util::AllTrue(
+      A::Read<B>(storage.bytes.data(), SymmetricStorage::kStride) == batched
+  ));
+}
+
+// Only the upper triangle is stored: whatever was in the lower one comes
+// back as the mirror of the upper.
+TEST(SymmetricInertiaOperatorAssembler, ReadsBackTheUpperTriangleMirrored) {
+  using A = SymmetricInertiaOperatorAssembler<float, true>;
+  Matrix6x6<float> m = ShiftedInertia().AsMatrix();
+  Matrix6x6<float> scribbled = m;
+  scribbled(4, 1) = 1000.0F;
+
+  SymmetricStorage storage;
+  A::Write<float>(
+      storage.bytes.data(),
+      SymmetricStorage::kStride,
+      InvertedArticulatedInertiaOperator<float>(scribbled)
+  );
+  EXPECT_TRUE(
+      A::Read<float>(storage.bytes.data(), SymmetricStorage::kStride)
+          .AsMatrix() == m
+  );
 }

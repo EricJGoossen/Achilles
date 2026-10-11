@@ -1,5 +1,9 @@
 #include <gtest/gtest.h>
 
+#include <array>
+#include <cstddef>
+#include <type_traits>
+
 #include "algorithms/aba/aba_ops.hpp"
 #include "algorithms/conventions.hpp"
 #include "util/simd_ops.hpp"
@@ -317,6 +321,146 @@ TEST(
 
   EXPECT_TRUE(BatchTrue(i_a_parent_b.IsApprox(preexisting + i_a_parent_a, 1e-3F)
   ));
+}
+
+// ----- 1-DOF fast path vs. the dense formula -----
+//
+// PropagateInertiaOp handles a batch group whose lanes all drive the same
+// single DOF slot (or none) with a reduced computation (see its SingleDof);
+// everything else takes the dense 6x6 path. Whichever runs, every output
+// must match the dense formula, written out here independently, for
+// arbitrary inputs: a non-identity x_up, nonzero c/tau/p, a preexisting
+// parent accumulator, and a no-DOF lane (padding) mixed in.
+namespace {
+
+// `value` in every lane but lane 1, which gets `lane1`.
+template <typename T>
+T AllButLane1(typename T::value_type value, typename T::value_type lane1) {
+  alignas(T::arch_type::alignment()) std::array<typename T::value_type, T::size>
+      lanes{};
+  lanes.fill(value);
+  lanes[1] = lane1;
+  return T::load_aligned(lanes.data());
+}
+
+using MaskBatch = std::remove_cvref_t<decltype(Mat6Mask().AsStorage())>;
+
+Transform ArbitraryXUp() {
+  return {
+      Vector3(B(0.3F), B(-0.7F), B(0.2F)),
+      Quaternion::Exp(Vector3(B(0.4F), B(-0.1F), B(0.25F)))
+  };
+}
+
+// A symmetric, positive-definite articulated inertia with every entry
+// nonzero: a rigid body expressed away from its center of mass, plus an
+// extra symmetric term.
+InertiaOperator<false> ArbitraryArticulatedInertia() {
+  Matrix6x6 m = SimpleInertia().AsMatrix();
+  for (std::size_t i = 0; i < 6; ++i) {
+    for (std::size_t j = 0; j < 6; ++j) {
+      m(i, j) += B(0.05F * static_cast<float>(1 + i + j));
+    }
+  }
+  return InertiaOperator<false>(m);
+}
+
+void ExpectInertiaOpMatchesDenseFormula(
+    const Matrix6x6& s, const Mat6Mask& mask
+) {
+  const Transform x_up = ArbitraryXUp();
+  const InertiaOperator<false> i_a = ArbitraryArticulatedInertia();
+  const Acceleration c(
+      Vector3(B(0.1F), B(-0.2F), B(0.3F)), Vector3(B(1.0F), B(0.5F), B(-2.0F))
+  );
+  const Force tau(
+      Vector3(B(0.7F), B(0.0F), B(-0.4F)), Vector3(B(0.2F), B(0.1F), B(0.3F))
+  );
+  const Force p(
+      Vector3(B(-0.3F), B(0.6F), B(0.9F)), Vector3(B(0.4F), B(-1.1F), B(0.8F))
+  );
+  const InertiaOperator<false> i_a_parent_before =
+      SimpleInertia().AsArticulated() * B(0.25F);
+  const Force p_parent_before(
+      Vector3(B(1.0F), B(2.0F), B(3.0F)), Vector3(B(-1.0F), B(0.0F), B(1.0F))
+  );
+
+  PropagateInertiaOp op;
+  InertiaOperator<false> i_a_parent = i_a_parent_before;
+  Force p_parent = p_parent_before;
+  InertiaOperator<false> u_out;
+  InertiaOperator<true> d_inv_out;
+  Force u_force_out;
+  op(s,
+     mask,
+     x_up,
+     i_a,
+     c,
+     tau,
+     p,
+     &i_a_parent,
+     &u_out,
+     &d_inv_out,
+     &p_parent,
+     &u_force_out);
+
+  const InertiaOperator<false> u(i_a.AsMatrix() * s);
+  const InertiaOperator<false> d(s.Transpose() * u.AsMatrix());
+  const InertiaOperator<true> d_inv = d.MaskedInverse(mask);
+  const Matrix6x6 u_d_inv = u.AsMatrix() * d_inv.AsMatrix();
+  const Force u_force = tau - s.Transpose() * p;
+  const InertiaOperator<false> contribution =
+      i_a - InertiaOperator<false>(u_d_inv * u.Transpose().AsMatrix());
+  const Force p_contribution = p + contribution.Apply(c) + u_d_inv * u_force;
+
+  EXPECT_TRUE(BatchTrue(u_out.IsApprox(u, 1e-4F)));
+  EXPECT_TRUE(BatchTrue(d_inv_out.IsApprox(d_inv, 1e-4F)));
+  EXPECT_TRUE(BatchTrue(u_force_out.IsApprox(u_force, 1e-4F)));
+  EXPECT_TRUE(BatchTrue(
+      i_a_parent.IsApprox(i_a_parent_before + x_up.Apply(contribution), 1e-3F)
+  ));
+  EXPECT_TRUE(BatchTrue(
+      p_parent.IsApprox(p_parent_before + x_up.Apply(p_contribution), 1e-3F)
+  ));
+}
+
+}  // namespace
+
+// Slot 0 active in every lane but lane 1, a no-DOF (padding-like) row
+// whose S is all zero: the fast path.
+TEST(PropagateInertiaOpTest, SingleDofFastPathMatchesDenseFormula) {
+  Matrix6x6 s = Matrix6x6::Zero();
+  s(2, 0) = AllButLane1<B>(1.0F, 0.0F);
+  s(4, 0) = AllButLane1<B>(0.5F, 0.0F);
+  ExpectInertiaOpMatchesDenseFormula(s, Mat6Mask(AllButLane1<MaskBatch>(1, 0)));
+}
+
+// Same, driven through a slot other than 0.
+TEST(PropagateInertiaOpTest, SingleDofFastPathMatchesDenseFormulaInSlot3) {
+  Matrix6x6 s = Matrix6x6::Zero();
+  s(3, 3) = AllButLane1<B>(1.0F, 0.0F);
+  ExpectInertiaOpMatchesDenseFormula(
+      s, Mat6Mask(AllButLane1<MaskBatch>(1 << 3, 0))
+  );
+}
+
+// An entry of S outside the active column (here in one lane only) rules
+// the fast path out; the dense path must still produce the formula.
+TEST(PropagateInertiaOpTest, StraySubspaceEntryFallsBackToDensePath) {
+  Matrix6x6 s = Matrix6x6::Zero();
+  s(2, 0) = B(1.0F);
+  s(0, 1) = AllButLane1<B>(0.0F, 0.3F);
+  ExpectInertiaOpMatchesDenseFormula(s, DOF0ActiveMask());
+}
+
+// Two active slots: always the dense path.
+TEST(PropagateInertiaOpTest, TwoDofJointMatchesDenseFormula) {
+  Matrix6x6 s = Matrix6x6::Zero();
+  s(2, 0) = B(1.0F);
+  s(0, 1) = B(1.0F);
+  ExpectInertiaOpMatchesDenseFormula(
+      s, Mat6Mask(true, true, false, false, false, false)
+  );
 }
 
 // Initialize seeds exactly the caller-configured base acceleration --

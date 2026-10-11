@@ -156,6 +156,68 @@ TEST(TransformApplyMatrix, IdentityIsNoOp) {
   EXPECT_TRUE(Transform<float>::Identity().Apply(m).IsApprox(m));
 }
 
+namespace {
+
+// A general (not symmetric) 6x6, so no block of Apply's block-wise form
+// can lean on a structure the input doesn't actually have.
+Matrix6x6<float> ArbitraryMatrix6x6() {
+  Matrix6x6<float> m;
+  for (std::size_t i = 0; i < 6; ++i) {
+    for (std::size_t j = 0; j < 6; ++j) {
+      m(i, j) =
+          0.1F * static_cast<float>(i * 6 + j) - 1.3F + (i == j ? 2.0F : 0.0F);
+    }
+  }
+  return m;
+}
+
+// X m X^T with X built out in full, X = [[R, t~R], [0, R]] -- the form
+// Apply(Matrix6x6) computes block-wise.
+Matrix6x6<float> DenseCongruence(
+    const Transform<float>& t, const Matrix6x6<float>& m
+) {
+  achilles::domain::math::Matrix3x3<float> r = t.Rotation().ToRotationMatrix();
+  Matrix6x6<float> x;
+  x.SetSubmatrix(0, 0, r);
+  x.SetSubmatrix(0, 3, t.Translation().Skew() * r);
+  x.SetSubmatrix(3, 3, r);
+  return x * m * x.Transpose();
+}
+
+}  // namespace
+
+TEST(TransformApplyMatrix, MatchesDenseCongruenceForGeneralMatrix) {
+  Transform<float> t = ArbitraryTransform();
+  Matrix6x6<float> m = ArbitraryMatrix6x6();
+  EXPECT_TRUE(t.Apply(m).IsApprox(DenseCongruence(t, m), 1e-4F));
+}
+
+// ApplySymmetric reads only m's upper triangle and builds only the
+// result's -- for a symmetric m it must agree with Apply, and its result
+// must come out exactly symmetric.
+TEST(TransformApplySymmetric, MatchesApplyForSymmetricMatrix) {
+  Transform<float> t = ArbitraryTransform();
+  Matrix6x6<float> a = ArbitraryMatrix6x6();
+  Matrix6x6<float> m = a + a.Transpose();
+
+  Matrix6x6<float> result = t.ApplySymmetric(m);
+  EXPECT_TRUE(result.IsApprox(t.Apply(m), 1e-4F));
+  EXPECT_TRUE(result == result.Transpose());
+}
+
+TEST(TransformApplySymmetric, IgnoresLowerTriangle) {
+  Transform<float> t = ArbitraryTransform();
+  Matrix6x6<float> a = ArbitraryMatrix6x6();
+  Matrix6x6<float> m = a + a.Transpose();
+  Matrix6x6<float> scribbled = m;
+  for (std::size_t i = 0; i < 6; ++i) {
+    for (std::size_t j = 0; j < i; ++j) {
+      scribbled(i, j) = 1000.0F;
+    }
+  }
+  EXPECT_TRUE(t.ApplySymmetric(scribbled) == t.ApplySymmetric(m));
+}
+
 // Apply(SpatialVelocity/Acceleration/Force): Identity is a no-op, and --
 // the property that actually exercises the math -- applying a composed
 // transform matches applying each transform in turn. This holds

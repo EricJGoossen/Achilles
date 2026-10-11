@@ -10,6 +10,7 @@
 
 using achilles::domain::math::ActivationMaskAssembler;
 using achilles::domain::math::Vector3Assembler;
+using achilles::engine::topology::AoSoALayout;
 using achilles::engine::topology::LayoutPolicyLike;
 using achilles::engine::topology::PlanarLayout;
 
@@ -117,4 +118,81 @@ TEST(PlanarLayoutIsLaneMultiple, TrueForExactMultipleFalseOtherwise) {
   EXPECT_TRUE(PlanarLayout::IsLaneMultiple<Vector3Assembler<float>>(2 * lane));
   EXPECT_TRUE(PlanarLayout::IsLaneMultiple<Vector3Assembler<float>>(0));
   EXPECT_FALSE(PlanarLayout::IsLaneMultiple<Vector3Assembler<float>>(lane + 1));
+}
+
+// RowOffsetBytes is the same linear step ElementStrideBytes describes, and
+// the stride depends on the instance count, so it isn't fixed.
+TEST(PlanarLayoutRowOffsetBytes, IsRowTimesElementStride) {
+  EXPECT_EQ(PlanarLayout::RowOffsetBytes<Vector3Assembler<float>>(0), 0U);
+  EXPECT_EQ(
+      PlanarLayout::RowOffsetBytes<Vector3Assembler<float>>(5),
+      5 * PlanarLayout::ElementStrideBytes<Vector3Assembler<float>>()
+  );
+  EXPECT_FALSE(PlanarLayout::kFixedStride);
+}
+
+// ===== AoSoALayout =====
+
+static_assert(LayoutPolicyLike<AoSoALayout>);
+
+TEST(AoSoALayoutLaneCountAndAlignment, MatchPlanarLayout) {
+  EXPECT_EQ(
+      AoSoALayout::LaneCount<Vector3Assembler<float>>(),
+      PlanarLayout::LaneCount<Vector3Assembler<float>>()
+  );
+  EXPECT_EQ(
+      AoSoALayout::Alignment<ActivationMaskAssembler<8>>(),
+      PlanarLayout::Alignment<ActivationMaskAssembler<8>>()
+  );
+}
+
+// The leaf stride is one batch, whatever the instance count -- which is
+// what lets View fold it into each load at compile time.
+TEST(AoSoALayoutStrideBytes, IsOneBatchIndependentOfInstanceCount) {
+  constexpr std::size_t kBatchBytes = sizeof(xsimd::batch<float>);
+  EXPECT_TRUE(AoSoALayout::kFixedStride);
+  EXPECT_EQ(AoSoALayout::StrideBytes<Vector3Assembler<float>>(0), kBatchBytes);
+  EXPECT_EQ(
+      AoSoALayout::StrideBytes<Vector3Assembler<float>>(1000), kBatchBytes
+  );
+}
+
+// A batch group holds every leaf back to back: Vector3's three batches.
+// Blocks round up to whole groups.
+TEST(AoSoALayoutBlockBytes, WholeGroupsOfEveryLeaf) {
+  constexpr std::size_t kBatchBytes = sizeof(xsimd::batch<float>);
+  constexpr std::size_t kLanes = xsimd::batch<float>::size;
+  EXPECT_EQ(
+      AoSoALayout::GroupBytes<Vector3Assembler<float>>(), 3 * kBatchBytes
+  );
+  EXPECT_EQ(
+      AoSoALayout::BlockBytes<Vector3Assembler<float>>(2 * kLanes),
+      2 * 3 * kBatchBytes
+  );
+  EXPECT_EQ(
+      AoSoALayout::BlockBytes<Vector3Assembler<float>>(kLanes + 1),
+      2 * 3 * kBatchBytes
+  );
+}
+
+// Within a group a row is one scalar into each leaf; the next group starts
+// a whole group later -- so every group, and every leaf in it, stays
+// batch-aligned.
+TEST(AoSoALayoutRowOffsetBytes, StepsWithinThenAcrossGroups) {
+  constexpr std::size_t kLanes = xsimd::batch<float>::size;
+  constexpr std::size_t kGroup =
+      AoSoALayout::GroupBytes<Vector3Assembler<float>>();
+  EXPECT_EQ(AoSoALayout::RowOffsetBytes<Vector3Assembler<float>>(0), 0U);
+  EXPECT_EQ(
+      AoSoALayout::RowOffsetBytes<Vector3Assembler<float>>(kLanes - 1),
+      (kLanes - 1) * sizeof(float)
+  );
+  EXPECT_EQ(
+      AoSoALayout::RowOffsetBytes<Vector3Assembler<float>>(kLanes), kGroup
+  );
+  EXPECT_EQ(
+      AoSoALayout::RowOffsetBytes<Vector3Assembler<float>>(2 * kLanes + 1),
+      2 * kGroup + sizeof(float)
+  );
+  EXPECT_EQ(kGroup % AoSoALayout::Alignment<Vector3Assembler<float>>(), 0U);
 }
