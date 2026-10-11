@@ -56,8 +56,7 @@ class Transform {
   // NormalizeInPlace directly on it: a genuinely zero quaternion shows up
   // on this engine's own SIMD-lane padding rows (kJointPosition's
   // "absent data reads as an inert default" convention zero-fills them,
-  // not PaddingSeed's Identity -- see e.g. ComputeSystemEnergy's own
-  // comment on why padding rows need this kind of care), and
+  // not PaddingSeed's Identity), and
   // NormalizeInPlace's own divide-by-norm asserts on exactly that input.
   // A per-lane branchless select (rather than an if, since T may be a
   // batch mixing real and padding lanes together) keeps every real lane's

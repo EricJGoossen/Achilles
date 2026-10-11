@@ -66,7 +66,6 @@ struct CliArgs {
   bool headless = false;
   std::string arow_path;
   std::string config_path;
-  std::string energy_log_path;
   // Substepping is off: it exists to shrink kSemiImplicitEuler's own
   // per-step error, and kRungeKutta4 below gets that accuracy from its
   // own order instead (see Simulation::SetSubsteps / Integrator).
@@ -126,12 +125,6 @@ std::optional<CliArgs> ParseArgs(int argc, char** argv) {
     std::string_view arg = argv[i];
     if (arg == "--headless") {
       args.headless = true;
-    } else if (arg == "--energy-log") {
-      if (++i >= argc) {
-        std::cerr << "--energy-log requires a path argument\n";
-        return std::nullopt;
-      }
-      args.energy_log_path = argv[i];
     } else if (arg == "--substeps") {
       if (++i >= argc) {
         std::cerr << "--substeps requires an integer argument\n";
@@ -167,8 +160,8 @@ std::optional<CliArgs> ParseArgs(int argc, char** argv) {
 
 }  // namespace
 
-// achilles <scene.arow> [sim_config.yaml] [--headless] [--energy-log <path>]
-//   [--substeps N] [--dt seconds] [--integrator
+// achilles <scene.arow> [sim_config.yaml] [--headless] [--substeps N]
+//   [--dt seconds] [--integrator
 //   euler|verlet|midpoint|implicit|implicitfast|rk4]
 //
 // Loads and initializes a Simulation from a .arow file (see
@@ -179,21 +172,19 @@ std::optional<CliArgs> ParseArgs(int argc, char** argv) {
 // below is the same shape either way: it just runs until Step() says stop,
 // which happens on error, or (only when visual) once the render window is
 // closed. See scripts/run-example.sh for the common case of running this
-// against examples/two_joint_arm.arow. --energy-log writes a CSV of system
-// energy over time (see Simulation::EnableEnergyLog) -- graph it with
-// scripts/plot.py. --substeps sets Simulation::SetSubsteps, --integrator
-// sets Simulation::Integrator and --dt the fixed timestep (see their own
-// comments); CliArgs's own defaults (kRungeKutta4, dt = 2ms, substeps=1)
-// are the CLI's, not Simulation's -- library callers (tests, embedders)
-// still get the original unsubstepped semi-implicit-Euler behavior at
-// whatever dt they pass unless they ask for something else. Pass
+// against examples/two_joint_arm.arow. --substeps sets Simulation::SetSubsteps,
+// --integrator sets Simulation::Integrator and --dt the fixed timestep (see
+// their own comments); CliArgs's own defaults (kRungeKutta4, dt = 2ms,
+// substeps=1) are the CLI's, not Simulation's -- library callers (tests,
+// embedders) still get the original unsubstepped semi-implicit-Euler behavior
+// at whatever dt they pass unless they ask for something else. Pass
 // --integrator euler to see the older, visibly-dissipative behavior for
 // comparison, or raise --dt to trade fidelity back for throughput.
 int main(int argc, char** argv) {
   if (argc < 2) {
     std::cerr
         << "usage: achilles <scene.arow> [sim_config.yaml] "
-           "[--headless] [--energy-log <path>] [--substeps N] [--dt seconds] "
+           "[--headless] [--substeps N] [--dt seconds] "
            "[--integrator euler|verlet|midpoint|implicit|implicitfast|rk4]\n";
     return 1;
   }
@@ -216,10 +207,6 @@ int main(int argc, char** argv) {
   sim.SetIntegrator(args->integrator);
   sim.SetHeadless(args->headless);
   sim.SetSubsteps(args->substeps);
-  if (!args->energy_log_path.empty() &&
-      !sim.EnableEnergyLog(args->energy_log_path)) {
-    return 1;
-  }
 
   const ScalarOperationT dt = args->dt;
   constexpr ScalarOperationT kMaxFrameTime = 0.25F;

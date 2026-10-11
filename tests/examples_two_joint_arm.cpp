@@ -45,7 +45,6 @@
 #include <vector>
 
 #include "algorithms/aba/aba_data.hpp"
-#include "algorithms/aba/aba_energy.hpp"
 #include "algorithms/conventions.hpp"
 #include "domain/joint_topology.hpp"
 #include "domain/math/vector3.hpp"
@@ -57,7 +56,6 @@ using achilles::algorithms::MathematicalT;
 using achilles::algorithms::ScalarOperationT;
 using achilles::algorithms::aba::ABAAlgorithm;
 using achilles::algorithms::aba::ABAField;
-using achilles::algorithms::aba::ComputeSystemEnergy;
 using achilles::domain::JointTopology;
 using achilles::domain::math::Vector3;
 using achilles::engine::topology::TopologicalOrdering;
@@ -527,95 +525,6 @@ TEST(TwoJointArmReference, SubstepsSubstantiallyReduceEnergyDissipation) {
   EXPECT_LT(max_energy_8, max_energy_1 * 0.5F)
       << "substeps=1 max |energy|: " << max_energy_1
       << ", substeps=8 max |energy|: " << max_energy_8;
-}
-
-// algorithms::aba::ComputeSystemEnergy is a *generic* walk over every row of
-// a topology (see its own comment); this test holds it to the exact same
-// closed-form energy this file already trusts (the test above), rather than
-// just checking ComputeSystemEnergy is self-consistent. If a sign were
-// wrong anywhere in it -- gravity's direction, which frame H()/mass is
-// offset in, kinetic energy's own spatial quadratic form -- this diverges
-// from the closed form almost immediately; matching it at every tick over a
-// real run is a much stronger check than TotalEnergyStaysFiniteAndPhysically
-// BoundedOverALongRun's own boundedness-only assertion above.
-//
-// Compares ComputeSystemEnergy(view) after Step() N against the closed form
-// evaluated at (phi, psi, phi_dot, psi_dot) from *before* that same Step()
-// call, not after: ComputeSystemEnergy reads kWorldTransform/
-// kSpatialVelocity, which ABA only (re)writes from whatever kJointPosition/
-// kJointVelocity held before that Step() call's own VI/PI sub-passes then
-// advance them -- so it always describes the state as of one dt earlier
-// than kJointPosition/kJointVelocity's own post-Step() values (see
-// ComputeSystemEnergy's own comment). Comparing against the same-tick
-// (post-Step()) angles instead looks fine while the arm is barely moving,
-// then visibly diverges once it picks up real speed -- exactly the
-// symptom an off-by-one-tick bug produces, not a physics bug.
-TEST(TwoJointArmReference, GenericSystemEnergyMatchesClosedFormAtEveryTick) {
-  TempDir dir;
-  Simulation sim = MakeTwoJointArmSim(dir);
-
-  JointTopology topology = sim.TopologyFor<TopologicalOrdering>();
-  JointRows rows = FindJointRows(topology);
-  ASSERT_NE(rows.shoulder, topology.Size());
-  ASSERT_NE(rows.elbow, topology.Size());
-
-  const ScalarOperationT m1 = kShoulder.mass;
-  const ScalarOperationT r1 = kShoulder.pivot_to_com;
-  const ScalarOperationT I1 = kShoulder.inertia_about_pivot;
-  const ScalarOperationT m2 = kElbow.mass;
-  const ScalarOperationT r2 = kElbow.pivot_to_com;
-  const ScalarOperationT I2 = kElbow.inertia_about_pivot;
-  const ScalarOperationT l1 = kLinkLength;
-  const ScalarOperationT g = kGravity;
-  const ScalarOperationT P = I1 + m2 * l1 * l1;
-  const ScalarOperationT Q = I2;
-  const ScalarOperationT R = m2 * l1 * r2;
-
-  // Real gravity, not sim_config.yaml's literal (negated) base_acceleration
-  // -- see this file's own kGravity comment.
-  Vector3<ScalarOperationT> gravity(0.0F, 0.0F, kGravity);
-
-  // The archetype's own initial state (both links at rest, identity
-  // rotation) -- what ComputeSystemEnergy reports right after the first
-  // Step() call, since that call's ABA pass computes kWorldTransform/
-  // kSpatialVelocity from exactly this pre-Step() state.
-  ScalarOperationT phi_prev = 0.0F;
-  ScalarOperationT psi_prev = 0.0F;
-  ScalarOperationT phi_dot_prev = 0.0F;
-  ScalarOperationT psi_dot_prev = 0.0F;
-
-  constexpr int kSteps = 120 * 5;  // 5 simulated seconds.
-  for (int i = 0; i < kSteps; ++i) {
-    ASSERT_TRUE(sim.Step(kDt));
-
-    auto view = sim.ViewFor<ABAAlgorithm>();
-
-    ScalarOperationT omega2_prev = phi_dot_prev + psi_dot_prev;
-    ScalarOperationT closed_form_kinetic =
-        0.5F * P * phi_dot_prev * phi_dot_prev +
-        0.5F * Q * omega2_prev * omega2_prev +
-        R * std::cos(psi_prev) * phi_dot_prev * omega2_prev;
-    ScalarOperationT closed_form_potential =
-        -(m1 * r1 + m2 * l1) * g * std::sin(phi_prev) -
-        m2 * r2 * g * std::sin(phi_prev + psi_prev);
-
-    auto energy = ComputeSystemEnergy(view, topology, gravity);
-    EXPECT_NEAR(energy.kinetic, closed_form_kinetic, 1e-3F) << "tick " << i;
-    EXPECT_NEAR(energy.potential, closed_form_potential, 1e-3F) << "tick " << i;
-
-    auto shoulder_q = view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.shoulder);
-    auto elbow_q = view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.elbow);
-    auto shoulder_qd =
-        view.Load<ABAField::kJointVelocity, ScalarOperationT>(rows.shoulder);
-    auto elbow_qd = view.Load<ABAField::kJointVelocity, ScalarOperationT>(rows.elbow);
-    phi_prev = ExtractAngleAboutX(
-        shoulder_q.Rotation().W(), shoulder_q.Rotation().X()
-    );
-    psi_prev =
-        ExtractAngleAboutX(elbow_q.Rotation().W(), elbow_q.Rotation().X());
-    phi_dot_prev = shoulder_qd.Angular().X();
-    psi_dot_prev = elbow_qd.Angular().X();
-  }
 }
 
 // RK4 (Simulation::Integrator::kRungeKutta4) is the integrator MuJoCo

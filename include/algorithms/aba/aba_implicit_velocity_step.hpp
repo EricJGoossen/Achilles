@@ -174,7 +174,7 @@ struct ImplicitVelocityStep {
   ) {
     const auto view = sim_state.template ViewFor<ABAView>();
     // Real joints only -- a padding row's fields aren't meaningful under
-    // scalar Load (see ComputeSystemEnergy/SceneRenderer, same restriction).
+    // scalar Load (see SceneRenderer, same restriction).
     const auto& topology =
         sim_state.template TopologyFor<engine::topology::TopologicalOrdering>();
     const std::size_t rows = topology.Size();
@@ -202,7 +202,7 @@ struct ImplicitVelocityStep {
     // Column j of J: perturb generalized velocity j, re-run ABA, read every
     // DOF's own resulting qdd. The unperturbed run comes *last* (below) so
     // that every field ABA writes -- kWorldTransform/kSpatialVelocity, which
-    // the renderer and ComputeSystemEnergy both read -- is left describing
+    // the renderer reads -- is left describing
     // the real state rather than the last probe.
     std::vector<ScalarOperationT> perturbed(n * n);
     std::vector<ScalarOperationT> epsilons(n);

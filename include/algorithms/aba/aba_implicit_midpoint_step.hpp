@@ -33,10 +33,10 @@ namespace achilles::algorithms::aba {
 // one shot. This never touches ABAField's own storage format or ABAStep's
 // own Ops -- it just Loads/Stores ABA's existing kJointPosition/
 // kJointVelocity/kJointAcceleration fields directly (the same public
-// per-row access render::SceneRenderer and ComputeSystemEnergy already
-// use) around repeated calls to the *existing* ABAStep::Step, the same way
-// interface::Simulation's own kVelocityVerlet case calls ABAStep/VIStep/
-// PIStep directly rather than through SimContext::Step's single pass.
+// per-row access render::SceneRenderer already uses) around repeated calls to
+// the *existing* ABAStep::Step, the same way interface::Simulation's own
+// kVelocityVerlet case calls ABAStep/VIStep/ PIStep directly rather than
+// through SimContext::Step's single pass.
 struct ImplicitMidpointStep {
   template <engine::pass::SimContextLike SimStateT>
   static void Step(

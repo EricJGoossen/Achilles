@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Plots columns from a CSV log written by achilles' util::CsvLogger (e.g.
-the --energy-log file achilles itself writes -- see src/main.cpp).
+"""Plots columns from a CSV log written by achilles' util::CsvLogger.
 
 Generic over any such CSV, not just energy: it just plots whichever named
 columns you ask for against an x-axis column (defaulting to the first

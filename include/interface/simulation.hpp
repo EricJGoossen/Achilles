@@ -1,11 +1,9 @@
 #pragma once
 
 #include <algorithm>
-#include <array>
 #include <optional>
 #include <string>
 
-#include "algorithms/aba/aba_energy.hpp"
 #include "algorithms/aba/aba_implicit_midpoint_step.hpp"
 #include "algorithms/aba/aba_implicit_velocity_step.hpp"
 #include "algorithms/aba/aba_runge_kutta_step.hpp"
@@ -17,14 +15,12 @@
 #include "algorithms/viz/viz_step.hpp"
 #include "domain/archetype.hpp"
 #include "domain/joint_topology.hpp"
-#include "domain/math/vector3.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/layout_policy.hpp"
 #include "engine/topology/ordering_policy.hpp"
 #include "interface/archetype_loader.hpp"
 #include "interface/sim_config_loader.hpp"
 #include "render/scene_renderer.hpp"
-#include "util/csv_logger.hpp"
 #include "util/io.hpp"
 
 namespace achilles::interface {
@@ -134,10 +130,9 @@ class Simulation {
   // (velocity-dependent) break that assumption -- in practice this shows
   // up as real, non-oscillating energy dissipation over tens of seconds,
   // not just the small per-tick error every explicit integrator has (see
-  // ComputeSystemEnergy's own comment, and the demo scene's own
-  // sim_config.yaml for how this gets used). Substepping doesn't fix the
-  // scheme itself, just shrinks its own per-step error the ordinary way:
-  // smaller dt.
+  // the demo scene's own sim_config.yaml for how this gets used). Substepping
+  // doesn't fix the scheme itself, just shrinks its own per-step error the
+  // ordinary way: smaller dt.
   void SetSubsteps(int n) { substeps_ = std::max(1, n); }
 
   bool LoadConfigFile(const std::string& path) {
@@ -155,22 +150,6 @@ class Simulation {
     } catch (const std::exception& e) {
       return util::Warning("Failed to load world from file", e.what());
     }
-    return true;
-  }
-
-  // Opens `path` as a CSV of (time, kinetic, potential, total) system
-  // energy, appended to once per Step() from here on -- see
-  // algorithms::aba::ComputeSystemEnergy for what "system energy" means
-  // generically across any topology this sim loads. Graph the result with
-  // e.g. scripts/plot.py. Returns false (the same shape as Load*) if `path`
-  // couldn't be opened for writing.
-  bool EnableEnergyLog(const std::string& path) {
-    auto logger =
-        util::CsvLogger::Open(path, {"time", "kinetic", "potential", "total"});
-    if (!logger.has_value()) {
-      return util::Warning("Failed to open energy log file", path.c_str());
-    }
-    energy_log_.emplace(std::move(*logger));
     return true;
   }
 
@@ -209,32 +188,6 @@ class Simulation {
       }
     } catch (const std::exception& e) {
       return util::Warning("Simulation step failed", e.what());
-    }
-
-    if (energy_log_.has_value()) {
-      // kWorldTransform/kSpatialVelocity (what ComputeSystemEnergy reads)
-      // are only ever written by ABA's own forward-kinematics pass, from
-      // whichever kJointPosition/kJointVelocity were current *before* this
-      // Step() call's VI/PI sub-passes advanced them -- so right after
-      // context.Step() returns, they describe the state as of sim_time_
-      // *before* it's incremented below, not the just-integrated one dt
-      // later (see algorithms::aba::ComputeSystemEnergy's own comment).
-      // Logging sim_time_ pre-increment here, rather than post-, keeps
-      // this row's own (time, energy) pair internally consistent.
-      algorithms::aba::SystemEnergy energy =
-          algorithms::aba::ComputeSystemEnergy(
-              ViewFor<algorithms::aba::ABAAlgorithm>(),
-              TopologyFor<engine::topology::TopologicalOrdering>(),
-              GravityVector()
-          );
-      std::array<float, 4> row{
-          static_cast<float>(sim_time_),
-          static_cast<float>(energy.kinetic),
-          static_cast<float>(energy.potential),
-          static_cast<float>(energy.Total())
-      };
-      energy_log_->LogRow(row);
-      sim_time_ += dt;
     }
 
     if (!headless_) {
@@ -326,17 +279,6 @@ class Simulation {
   }
 
  private:
-  // ABA treats a fixed base's own configured acceleration as *minus* true
-  // gravity (see SimConfig's own comment on base_acceleration) -- this
-  // undoes that negation to recover the real gravitational acceleration
-  // vector ComputeSystemEnergy wants. Lane 0 only: base_acceleration is a
-  // whole-sim constant, not per-instance data, so every SIMD lane already
-  // holds the same value.
-  domain::math::Vector3<algorithms::ScalarOperationT> GravityVector() const {
-    auto linear = config_.base_acceleration.Linear();
-    return {-linear.X().get(0), -linear.Y().get(0), -linear.Z().get(0)};
-  }
-
   // One evaluation of `integrator_` at the given dt -- see Integrator's own
   // comment for what each case does. Called once per substep by Step(),
   // never directly by a caller (substeps_ == 1 makes it identical to
@@ -384,8 +326,6 @@ class Simulation {
   std::vector<domain::Archetype> archetypes_;
   bool headless_ = true;
   std::optional<render::SceneRenderer> renderer_;
-  std::optional<util::CsvLogger> energy_log_;
-  algorithms::ScalarOperationT sim_time_ = 0;
   int substeps_ = 1;
   Integrator integrator_ = Integrator::kSemiImplicitEuler;
 };
