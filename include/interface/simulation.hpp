@@ -1,9 +1,13 @@
 #pragma once
 
 #include <algorithm>
+#include <cstddef>
+#include <functional>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -11,6 +15,9 @@
 #include "algorithms/aba/aba_implicit_velocity_step.hpp"
 #include "algorithms/aba/aba_runge_kutta_step.hpp"
 #include "algorithms/aba/aba_step.hpp"
+#include "algorithms/instrumentation.hpp"
+#include "algorithms/log/log_data.hpp"
+#include "algorithms/log/log_step.hpp"
 #include "algorithms/pi/pi_step.hpp"
 #include "algorithms/registry.hpp"
 #include "algorithms/sim_config.hpp"
@@ -24,15 +31,22 @@
 #include "engine/topology/ordering_policy.hpp"
 #include "interface/archetype_loader.hpp"
 #include "interface/sim_config_loader.hpp"
-#include "interface/sim_log.hpp"
 #include "render/scene_renderer.hpp"
+#include "util/csv_logger.hpp"
 #include "util/io.hpp"
+#include "util/logger.hpp"
 
 namespace achilles::interface {
 
 class Simulation {
   using Allocator =
       engine::memory::SimAllocatorForT<algorithms::RegisteredAlgorithms>;
+  // What the log is written to: a CSV file, or -- with
+  // ACHILLES_ENABLE_LOGGING=OFF -- nothing at all.
+  using LogSink = std::conditional_t<
+      algorithms::kLoggingEnabled,
+      util::CsvLogger,
+      util::NullLogger>;
 
  public:
   // kSemiImplicitEuler is VI/PI's own scheme as registered (one ABA solve,
@@ -182,28 +196,60 @@ class Simulation {
     return true;
   }
 
-  // Starts logging `fields` to a CSV at `path`: a "time" column, then one
-  // column per selected field x real joint x scalar, named
-  // "<archetype>[<copy>].<joint>.<field>.<k>" (the "[<copy>]" is omitted
-  // for single-copy archetypes). Fields are global log names (e.g.
-  // "joint_position", "world_transform") or "*" for all -- see engine::pass::
-  // FieldLog. Must be called after Init(). Writes the current state as the
-  // first row (time 0), then one row after every Step().
+  // Starts the log at `path`, logging `fields` (log names, e.g.
+  // "joint_position" -- see algorithms::log::LogField). Must be called
+  // after Init(). Writes the schema records first (see
+  // algorithms/log/log_step.hpp), then the selected fields' records once
+  // per Step() -- at the start of each (sub)step, right after ABA, so each
+  // record describes the state that step started from. `fields` may be
+  // empty: SetLogField adds and removes fields at any point during the run.
   //
   // Returns false (with a warning naming the problem) for an unknown field
-  // name, an empty selection, an unwritable path, or a build with
-  // ACHILLES_ENABLE_LOGGING=OFF, where logging is compiled out entirely.
+  // name, an unwritable path, or a build with ACHILLES_ENABLE_LOGGING=OFF,
+  // where logging is compiled out entirely.
   bool EnableLog(
       const std::string& path, const std::vector<std::string>& fields
   ) {
+    if (!algorithms::kLoggingEnabled) {
+      return util::Warning(
+          "Simulation::EnableLog(): logging is compiled out "
+          "(ACHILLES_ENABLE_LOGGING=OFF)"
+      );
+    }
     if (!state_.has_value()) {
       return util::Warning(
           "Simulation::EnableLog() called before Simulation::Init()"
       );
     }
-    return log_.Enable(state_->context, archetypes_, path, fields, [this] {
-      RefreshAccelerationForCurrentState();
-    });
+    algorithms::log::LogSelection selection;
+    for (const std::string& name : fields) {
+      std::optional<algorithms::log::LogField> field =
+          algorithms::log::FindLogField(name);
+      if (!field.has_value()) {
+        return util::Warning("Unknown log field", name.c_str());
+      }
+      selection.set(static_cast<std::size_t>(*field));
+    }
+    std::optional<LogSink> sink = OpenLogSink<LogSink>(path);
+    if (!sink.has_value()) {
+      return util::Warning("Failed to open log file", path.c_str());
+    }
+    logger_.emplace(std::move(*sink));
+    log_fields_ = selection;
+    algorithms::log::WriteLogSchema(state_->context, *logger_, Labeler());
+    return true;
+  }
+
+  // Adds (`enabled`) or removes a field from the log, from the next step
+  // on. Returns false (with a warning) for an unknown field name.
+  bool SetLogField(std::string_view name, bool enabled) {
+    std::optional<algorithms::log::LogField> field =
+        algorithms::log::FindLogField(name);
+    if (!field.has_value()) {
+      return util::Warning("Unknown log field", std::string(name).c_str());
+    }
+    log_fields_.set(static_cast<std::size_t>(*field), enabled);
+    return true;
   }
 
   // Steps the physics, then -- unless SetHeadless(true) (the default) --
@@ -223,14 +269,11 @@ class Simulation {
           dt / static_cast<algorithms::ScalarOperationT>(substeps_);
       for (int i = 0; i < substeps_; ++i) {
         StepOnce(sub_dt);
+        time_ += sub_dt;
       }
     } catch (const std::exception& e) {
       return util::Warning("Simulation step failed", e.what());
     }
-
-    log_.AfterStep(state_->context, dt, [this] {
-      RefreshAccelerationForCurrentState();
-    });
 
     if (!headless_) {
       if (!renderer_.has_value()) {
@@ -316,7 +359,10 @@ class Simulation {
       );
     }
     algorithms::aba::ABAStep::Step(
-        state_->context, config_, algorithms::ScalarOperationT{0}
+        state_->context,
+        config_,
+        algorithms::kNoInstrumentation,
+        algorithms::ScalarOperationT{0}
     );
   }
 
@@ -375,44 +421,96 @@ class Simulation {
     return std::nullopt;
   }
 
+  // Opens the log destination. A template so the CsvLogger branch is only
+  // instantiated when that's the sink in use.
+  template <typename SinkT>
+  static std::optional<SinkT> OpenLogSink(const std::string& path) {
+    if constexpr (std::is_same_v<SinkT, util::CsvLogger>) {
+      return util::CsvLogger::Open(path);
+    } else {
+      (void)path;
+      return std::nullopt;
+    }
+  }
+
+  // Labels a global (instance, joint) handle "<archetype>[<copy>].<joint>"
+  // ("[<copy>]" omitted for a single-copy archetype) by walking archetypes
+  // in load order -- the same order instance indices are assigned in (see
+  // interface/archetype_loader.cpp).
+  std::function<std::string(domain::ArchetypeJointHandle)> Labeler() const {
+    return [this](domain::ArchetypeJointHandle handle) {
+      std::size_t offset = 0;
+      for (const domain::Archetype& archetype : archetypes_) {
+        std::size_t copies = archetype.InstanceCount();
+        if (handle.instance_index < offset + copies) {
+          std::string label = archetype.Name();
+          if (copies > 1) {
+            label += "[" + std::to_string(handle.instance_index - offset) + "]";
+          }
+          return label + "." + archetype.JointName(handle.joint_index);
+        }
+        offset += copies;
+      }
+      return "instance" + std::to_string(handle.instance_index) + ".j" +
+             std::to_string(handle.joint_index);
+    };
+  }
+
   // One evaluation of `integrator_` at the given dt -- see Integrator's own
   // comment for what each case does. Called once per substep by Step(),
   // never directly by a caller (substeps_ == 1 makes it identical to
   // calling this once).
   void StepOnce(algorithms::ScalarOperationT dt) {
+    const algorithms::Instrumentation<LogSink> instrumentation{
+        logger_.has_value() ? &*logger_ : nullptr, log_fields_, time_
+    };
     switch (integrator_) {
       case Integrator::kSemiImplicitEuler:
-        state_->context.Step(dt, config_);
+        state_->context.Step(dt, config_, instrumentation);
         return;
       case Integrator::kVelocityVerlet:
-        algorithms::aba::ABAStep::Step(state_->context, config_, dt);
-        algorithms::vi::VIStep::Step(
-            state_->context, config_, dt * algorithms::ScalarOperationT{0.5}
+        algorithms::aba::ABAStep::Step(
+            state_->context, config_, instrumentation, dt
         );
-        algorithms::pi::PIStep::Step(state_->context, config_, dt);
-        algorithms::aba::ABAStep::Step(state_->context, config_, dt);
         algorithms::vi::VIStep::Step(
-            state_->context, config_, dt * algorithms::ScalarOperationT{0.5}
+            state_->context,
+            config_,
+            instrumentation,
+            dt * algorithms::ScalarOperationT{0.5}
+        );
+        algorithms::pi::PIStep::Step(
+            state_->context, config_, instrumentation, dt
+        );
+        algorithms::aba::ABAStep::Step(
+            state_->context, config_, instrumentation, dt
+        );
+        algorithms::vi::VIStep::Step(
+            state_->context,
+            config_,
+            instrumentation,
+            dt * algorithms::ScalarOperationT{0.5}
         );
         return;
       case Integrator::kImplicitMidpoint:
         algorithms::aba::ImplicitMidpointStep::Step(
-            state_->context, config_, dt
+            state_->context, config_, instrumentation, dt
         );
         return;
       case Integrator::kImplicitVelocity:
         algorithms::aba::ImplicitVelocityStep::Step(
-            state_->context, config_, dt
+            state_->context, config_, instrumentation, dt
         );
         return;
       case Integrator::kRungeKutta4:
-        algorithms::aba::RungeKutta4Step::Step(state_->context, config_, dt);
+        algorithms::aba::RungeKutta4Step::Step(
+            state_->context, config_, instrumentation, dt
+        );
         return;
       case Integrator::kImplicitFast:
         // Identical to kSemiImplicitEuler for this engine's force model --
         // see Integrator's own comment for why that is the correct
         // behavior rather than a missing implementation.
-        state_->context.Step(dt, config_);
+        state_->context.Step(dt, config_, instrumentation);
         return;
     }
   }
@@ -424,8 +522,12 @@ class Simulation {
   std::optional<render::SceneRenderer> renderer_;
   int substeps_ = 1;
   Integrator integrator_ = Integrator::kSemiImplicitEuler;
-  // An empty no-op when ACHILLES_ENABLE_LOGGING=OFF (see SimLog).
-  SimLog<decltype(Allocator::State::context)> log_;
+  // Logging state -- see EnableLog/SetLogField. Handed to every Step as
+  // part of algorithms::Instrumentation.
+  std::optional<LogSink> logger_;
+  algorithms::log::LogSelection log_fields_;
+  // Sim time of the current state: advanced by every (sub)step.
+  double time_ = 0.0;
 };
 
 }  // namespace achilles::interface

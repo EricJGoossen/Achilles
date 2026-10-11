@@ -21,20 +21,26 @@ namespace detail {
 // Steps one Algorithm, unless it declares NoStep (see algorithm_contract.hpp)
 // -- an Algorithm with nothing to step on its own account is silently
 // skipped, rather than requiring every caller to filter it out of the
-// Algorithms... pack by hand. Config is a template parameter, not a
-// concrete type named here, purely so this generic engine layer never has
-// to know what a real config looks like (see algorithms::SimConfig for the
-// one this codebase actually uses) -- it only ever forwards `config` on to
+// Algorithms... pack by hand. Config and Instrumentation are template
+// parameters, not concrete types named here, purely so this generic engine
+// layer never has to know what a real config or instrumentation looks like
+// (see algorithms::SimConfig/algorithms::Instrumentation for the ones this
+// codebase actually uses) -- it only ever forwards them on to
 // AlgorithmT::Step.
-template <typename AlgorithmT, typename SimContextT, typename Config>
+template <
+    typename AlgorithmT,
+    typename SimContextT,
+    typename Config,
+    typename Instrumentation>
 void StepAlgorithm(
     const SimContextT& sim_context,
     const Config& config,
+    const Instrumentation& instrumentation,
     algorithms::ScalarOperationT dt
 ) {
   using StepT = typename AlgorithmT::Step;
   if constexpr (!std::is_same_v<StepT, NoStep>) {
-    StepT::Step(sim_context, config, dt);
+    StepT::Step(sim_context, config, instrumentation, dt);
   }
 }
 
@@ -87,9 +93,8 @@ using UsedOrderingsFor = util::UniqueT<
 //
 // Also carries the policy's JointLayout -- which real (instance, joint)
 // each row holds, and which rows are padding -- for anything that
-// addresses a specific joint after construction (e.g. field logging,
-// field_log.hpp). Both are views into the Arena, so the slot stays
-// trivially copyable.
+// addresses a specific joint after construction (e.g. algorithms::log). Both
+// are views into the Arena, so the slot stays trivially copyable.
 template <typename Policy>
 struct TopologySlot {
   domain::JointTopology topology;
@@ -171,20 +176,27 @@ class SimContext {
     return std::get<ViewT>(views_);
   }
 
-  // Runs every hosted Algorithm's own Step exactly once, passing along this
-  // same context and `config` -- whatever caller-supplied, whole-simulation
-  // config value a real Step actually reads (see algorithms::SimConfig),
-  // left as a template parameter here so engine::pass never has to name a
-  // concrete config type. `dt` is the tick's own timestep. One shared shape
-  // (SimContext, Config, dt) for every Step::Step, regardless of whether it
-  // uses all of it: state only some algorithms would receive is exactly the
-  // kind of ambient global that's easy to wire wrong silently. Each Step
-  // looks up its own View and Topology from sim_context itself
+  // Runs every hosted Algorithm's own Step exactly once, in registration
+  // order, passing along this same context, `config` -- whatever
+  // caller-supplied, whole-simulation config value a real Step actually
+  // reads (see algorithms::SimConfig) -- and `instrumentation`, whatever
+  // observes the run (see algorithms::Instrumentation), both left as
+  // template parameters here so engine::pass never has to name a concrete
+  // type. `dt` is the tick's own timestep. One shared shape (SimContext,
+  // Config, Instrumentation, dt) for every Step::Step, regardless of
+  // whether it uses all of it: state only some algorithms would receive is
+  // exactly the kind of ambient global that's easy to wire wrong silently.
+  // Each Step looks up its own View and Topology from sim_context itself
   // (ViewFor<ViewT>()/TopologyFor<Policy>()), rather than either being
   // resolved and handed to it up front.
-  template <typename Config>
-  void Step(algorithms::ScalarOperationT dt, const Config& config) const {
-    (detail::StepAlgorithm<Algorithms>(*this, config, dt), ...);
+  template <typename Config, typename Instrumentation>
+  void Step(
+      algorithms::ScalarOperationT dt,
+      const Config& config,
+      const Instrumentation& instrumentation
+  ) const {
+    (detail::StepAlgorithm<Algorithms>(*this, config, instrumentation, dt),
+     ...);
   }
 
  private:

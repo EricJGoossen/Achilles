@@ -1,35 +1,24 @@
 #pragma once
 
 #include <fstream>
-#include <limits>
 #include <optional>
-#include <span>
 #include <string>
-#include <vector>
+#include <string_view>
+
+#include "util/logger.hpp"
 
 namespace achilles::util {
 
-// A minimal, generic per-tick scalar logger: construct with the column
-// names a caller intends to log, then call LogRow once per tick with
-// exactly that many values. Writes plain CSV so any offline tool (a
-// spreadsheet, scripts/plot.py, ...) can read it back -- this class knows
-// nothing about what the columns mean (energy, joint angles, whatever else
-// a caller wants graphed later), which is the point: one logger backs any
-// time series, not just system energy.
+// A LoggerLike that writes each record as one comma-separated line. Values
+// are written in their shortest exact form (std::to_chars), so a reader
+// parses back exactly the value that was logged. Knows nothing about what
+// the records mean -- see util/logger.hpp.
 class CsvLogger {
  public:
   // std::nullopt if `path` couldn't be opened for writing -- the same
   // "report failure via return value, let the caller decide whether that's
-  // fatal" shape as interface::Simulation::Load*. `precision` is the
-  // significant digits each value is written with: the default round-trips
-  // any double exactly; a caller whose values are really floats passes
-  // std::numeric_limits<float>::max_digits10 to get the same exactness
-  // without double-width noise.
-  static std::optional<CsvLogger> Open(
-      const std::string& path,
-      std::vector<std::string> columns,
-      int precision = std::numeric_limits<double>::max_digits10
-  );
+  // fatal" shape as interface::Simulation::Load*.
+  static std::optional<CsvLogger> Open(const std::string& path);
 
   CsvLogger(const CsvLogger&) = delete;
   CsvLogger& operator=(const CsvLogger&) = delete;
@@ -37,14 +26,24 @@ class CsvLogger {
   CsvLogger& operator=(CsvLogger&&) = default;
   ~CsvLogger() = default;
 
-  // values.size() must equal the column count Open() was given.
-  void LogRow(std::span<const double> values);
+  void BeginRecord();
+  void Write(std::string_view text);
+  void Write(float value);
+  void Write(double value);
+  // Ends the line and flushes, so a reader watching the file mid-run (or
+  // after a crash) sees every complete record so far.
+  void EndRecord();
 
  private:
-  CsvLogger(std::ofstream file, std::size_t num_columns);
+  explicit CsvLogger(std::ofstream file);
+
+  template <typename T>
+  void WriteNumber(T value);
+  void Separate();
 
   std::ofstream file_;
-  std::size_t num_columns_;
+  bool first_in_record_ = true;
 };
+static_assert(LoggerLike<CsvLogger>);
 
 }  // namespace achilles::util

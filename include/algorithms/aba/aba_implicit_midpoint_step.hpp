@@ -38,10 +38,11 @@ namespace achilles::algorithms::aba {
 // kVelocityVerlet case calls ABAStep/VIStep/ PIStep directly rather than
 // through SimContext::Step's single pass.
 struct ImplicitMidpointStep {
-  template <engine::pass::SimContextLike SimStateT>
+  template <engine::pass::SimContextLike SimStateT, typename InstrumentationT>
   static void Step(
       const SimStateT& sim_state,
       const SimConfig& sim_config,
+      const InstrumentationT& instrumentation,
       ScalarOperationT dt,
       int iterations = 4
   ) {
@@ -89,7 +90,7 @@ struct ImplicitMidpointStep {
       // One full tree evaluation at every joint's own midpoint trial
       // simultaneously -- ABA's recursion needs the whole tree's state at
       // once, not one joint at a time.
-      ABAStep::Step(sim_state, sim_config, dt);
+      ABAStep::Step(sim_state, sim_config, instrumentation, dt);
       for (std::size_t row = 0; row < n; ++row) {
         ScalarAcceleration a_mid =
             view.template Load<ABAField::kJointAcceleration, ScalarOperationT>(

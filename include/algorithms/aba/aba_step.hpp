@@ -78,10 +78,11 @@ struct ABAStep {
       engine::pass::Direction::kBackward,
       util::LaneCountOf<MathematicalT>()>;
 
-  template <engine::pass::SimContextLike SimStateT>
+  template <engine::pass::SimContextLike SimStateT, typename InstrumentationT>
   static void Step(
       const SimStateT& sim_state,
       const SimConfig& sim_config,
+      const InstrumentationT& /*instrumentation*/,
       ScalarOperationT dt
   ) {
     (void)dt;

@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstddef>
 #include <cstdlib>
 #include <iostream>
 #include <optional>
@@ -20,6 +21,7 @@
 #include "algorithms/aba/aba_ops.hpp"
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
+#include "algorithms/log/log_data.hpp"
 #include "algorithms/registry.hpp"
 #include "algorithms/sim_config.hpp"
 #include "domain/archetype.hpp"
@@ -207,8 +209,9 @@ std::optional<CliArgs> ParseArgs(int argc, char** argv) {
 // at whatever dt they pass unless they ask for something else. Pass
 // --integrator euler to see the older, visibly-dissipative behavior for
 // comparison, or raise --dt to trade fidelity back for throughput. --log
-// writes a per-tick CSV of the --log-field selections (default:
-// joint_position and joint_velocity) -- see Simulation::EnableLog.
+// writes a record-based CSV of the --log-field selections each step
+// (default: joint_position and joint_velocity; * for every loggable field)
+// -- see Simulation::EnableLog and algorithms/log/log_step.hpp.
 int main(int argc, char** argv) {
   if (argc < 2) {
     std::cerr
@@ -240,6 +243,16 @@ int main(int argc, char** argv) {
   if (!args->log_path.empty()) {
     if (args->log_fields.empty()) {
       args->log_fields = {"joint_position", "joint_velocity"};
+    }
+    // "*" means every loggable field.
+    if (std::ranges::find(args->log_fields, "*") != args->log_fields.end()) {
+      args->log_fields.clear();
+      for (std::size_t i = 0; i < achilles::algorithms::log::kNumLogFields;
+           ++i) {
+        args->log_fields.emplace_back(achilles::algorithms::log::LogFieldName(
+            static_cast<achilles::algorithms::log::LogField>(i)
+        ));
+      }
     }
     if (!sim.EnableLog(args->log_path, args->log_fields)) {
       return 1;

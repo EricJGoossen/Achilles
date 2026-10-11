@@ -65,10 +65,11 @@ struct RungeKutta4Step {
       domain::spatial::SpatialAcceleration<ScalarOperationT>;
   using Matrix6 = domain::math::Matrix6x6<ScalarOperationT>;
 
-  template <engine::pass::SimContextLike SimStateT>
+  template <engine::pass::SimContextLike SimStateT, typename InstrumentationT>
   static void Step(
       const SimStateT& sim_state,
       const SimConfig& sim_config,
+      const InstrumentationT& instrumentation,
       ScalarOperationT dt
   ) {
     const auto view = sim_state.template ViewFor<ABAView>();
@@ -124,7 +125,7 @@ struct RungeKutta4Step {
           kv[stage][row] = v0[row];
         }
       }
-      ABAStep::Step(sim_state, sim_config, dt);
+      ABAStep::Step(sim_state, sim_config, instrumentation, dt);
       for (std::size_t row = 0; row < n; ++row) {
         ka[stage][row] =
             view.template Load<ABAField::kJointAcceleration, ScalarOperationT>(

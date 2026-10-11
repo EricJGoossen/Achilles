@@ -30,6 +30,7 @@
 #include "algorithms/aba/aba_implicit_velocity_step.hpp"
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
+#include "algorithms/instrumentation.hpp"
 #include "algorithms/pi/pi_step.hpp"
 #include "algorithms/registry.hpp"
 #include "algorithms/sim_config.hpp"
@@ -196,7 +197,9 @@ std::array<ScalarOperationT, 4> EngineJacobian(
       view.Load<ABAField::kJointVelocity, ScalarOperationT>(rows.elbow)
   };
 
-  ABAStep::Step(sim.SimContext(), config, 0.0F);
+  ABAStep::Step(
+      sim.SimContext(), config, achilles::algorithms::kNoInstrumentation, 0.0F
+  );
   std::array<ScalarOperationT, 2> baseline{
       view.Load<ABAField::kJointAcceleration, ScalarOperationT>(rows.shoulder
       )[0],
@@ -211,7 +214,9 @@ std::array<ScalarOperationT, 4> EngineJacobian(
     view.Store<ABAField::kJointVelocity, ScalarOperationT>(
         dof_rows[j], ScalarVelocity(Vector6(base + epsilon, 0, 0, 0, 0, 0))
     );
-    ABAStep::Step(sim.SimContext(), config, 0.0F);
+    ABAStep::Step(
+        sim.SimContext(), config, achilles::algorithms::kNoInstrumentation, 0.0F
+    );
     for (std::size_t i = 0; i < 2; ++i) {
       ScalarOperationT perturbed =
           view.Load<ABAField::kJointAcceleration, ScalarOperationT>(dof_rows[i]
@@ -222,7 +227,9 @@ std::array<ScalarOperationT, 4> EngineJacobian(
         dof_rows[j], original[j]
     );
   }
-  ABAStep::Step(sim.SimContext(), config, 0.0F);
+  ABAStep::Step(
+      sim.SimContext(), config, achilles::algorithms::kNoInstrumentation, 0.0F
+  );
   return jacobian;
 }
 
@@ -285,7 +292,9 @@ TEST(ImplicitVelocityStepJacobian, MatchesClosedFormOnceTheArmHasMoved) {
   auto view = sim.ViewFor<ABAAlgorithm>();
   constexpr ScalarOperationT kDt = 1.0F / 120.0F;
   for (int i = 0; i < 60; ++i) {
-    ABAStep::Step(sim.SimContext(), config, kDt);
+    ABAStep::Step(
+        sim.SimContext(), config, achilles::algorithms::kNoInstrumentation, kDt
+    );
     for (std::size_t row : {rows.shoulder, rows.elbow}) {
       ScalarVelocity qd =
           view.Load<ABAField::kJointVelocity, ScalarOperationT>(row);
@@ -295,7 +304,9 @@ TEST(ImplicitVelocityStepJacobian, MatchesClosedFormOnceTheArmHasMoved) {
           row, ScalarVelocity(Vector6(qd[0] + kDt * qdd[0], 0, 0, 0, 0, 0))
       );
     }
-    achilles::algorithms::pi::PIStep::Step(sim.SimContext(), config, kDt);
+    achilles::algorithms::pi::PIStep::Step(
+        sim.SimContext(), config, achilles::algorithms::kNoInstrumentation, kDt
+    );
   }
 
   // Read the state J should be evaluated at. psi is the elbow's own

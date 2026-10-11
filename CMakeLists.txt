@@ -98,9 +98,9 @@ target_include_directories(achilles_lib ${ACHILLES_LIB_TYPE}
 
 target_link_libraries(achilles_lib ${ACHILLES_LIB_TYPE} Eigen3::Eigen yaml-cpp::yaml-cpp glfw OpenGL::GL)
 
-# Per-tick field logging (interface::Simulation::EnableLog). Turn OFF for
-# eval/benchmark builds: Simulation then holds interface::SimLog's empty
-# no-op specialization, so none of the logging code is compiled.
+# Field logging (interface::Simulation::EnableLog, algorithms/log). Turn
+# OFF for eval/benchmark builds: algorithms::log::LogStep then compiles to
+# nothing and Simulation logs into a util::NullLogger.
 option(ACHILLES_ENABLE_LOGGING "Compile in per-tick field logging" ON)
 target_compile_definitions(achilles_lib ${ACHILLES_LIB_TYPE}
     ACHILLES_ENABLE_LOGGING=$<BOOL:${ACHILLES_ENABLE_LOGGING}>

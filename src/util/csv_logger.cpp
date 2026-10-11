@@ -1,56 +1,59 @@
 #include "util/csv_logger.hpp"
 
-#include <cassert>
-#include <cstddef>
+#include <array>
+#include <charconv>
 #include <fstream>
 #include <optional>
-#include <span>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <utility>
-#include <vector>
 
 namespace achilles::util {
 
-std::optional<CsvLogger> CsvLogger::Open(
-    const std::string& path, std::vector<std::string> columns, int precision
-) {
+std::optional<CsvLogger> CsvLogger::Open(const std::string& path) {
   std::ofstream file(path);
   if (!file.is_open()) {
     return std::nullopt;
   }
-  file.precision(precision);
-  for (std::size_t i = 0; i < columns.size(); ++i) {
-    if (i > 0) {
-      file << ',';
-    }
-    file << columns[i];
-  }
-  file << '\n';
-  file.flush();
-  return CsvLogger(std::move(file), columns.size());
+  return CsvLogger(std::move(file));
 }
 
-CsvLogger::CsvLogger(std::ofstream file, std::size_t num_columns)
-    : file_(std::move(file)), num_columns_(num_columns) {}
+CsvLogger::CsvLogger(std::ofstream file) : file_(std::move(file)) {}
 
-void CsvLogger::LogRow(std::span<const double> values) {
-  assert(
-      values.size() == num_columns_ &&
-      "CsvLogger::LogRow given a different number of values than Open() was "
-      "given columns"
-  );
-  for (std::size_t i = 0; i < values.size(); ++i) {
-    if (i > 0) {
-      file_ << ',';
-    }
-    file_ << values[i];
-  }
+void CsvLogger::BeginRecord() { first_in_record_ = true; }
+
+void CsvLogger::Write(std::string_view text) {
+  Separate();
+  file_ << text;
+}
+
+void CsvLogger::Write(float value) { WriteNumber(value); }
+
+void CsvLogger::Write(double value) { WriteNumber(value); }
+
+void CsvLogger::EndRecord() {
   file_ << '\n';
-  // Flushed every row, not just on close -- a caller reading this file
-  // while the sim is still running (or a crash mid-run) should still see
-  // every row logged so far, not whatever libstdc++'s ofstream buffer
-  // happened to still be holding.
   file_.flush();
+}
+
+template <typename T>
+void CsvLogger::WriteNumber(T value) {
+  Separate();
+  // Shortest representation that parses back to exactly `value`.
+  std::array<char, 32> buffer{};
+  auto [end, error] =
+      std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
+  if (error == std::errc{}) {
+    file_.write(buffer.data(), end - buffer.data());
+  }
+}
+
+void CsvLogger::Separate() {
+  if (!first_in_record_) {
+    file_ << ',';
+  }
+  first_in_record_ = false;
 }
 
 }  // namespace achilles::util

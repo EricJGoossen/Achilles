@@ -1,6 +1,7 @@
 #pragma once
 
 #include "algorithms/aba/aba_step.hpp"
+#include "algorithms/log/log_step.hpp"
 #include "algorithms/pi/pi_step.hpp"
 #include "algorithms/vi/vi_step.hpp"
 #include "algorithms/viz/viz_step.hpp"
@@ -23,6 +24,11 @@ namespace achilles::algorithms {
 // VI/PI before ABA in a given tick would integrate stale acceleration/
 // velocity instead of this tick's own.
 //
+// log::LogAlgorithm sits right after ABA: at that point q/qd are still this
+// tick's starting state and ABA has just derived everything from them, so
+// every field it logs describes the same instant. It owns no storage
+// (every field is SharedAs) and writes nothing back.
+//
 // viz::VizAlgorithm is last, and Step-order-irrelevant: it names
 // engine::NoStep (viz_step.hpp), so SimContext::Step skips it entirely --
 // it only ever supplies memory (its own kWorldTransform aliases ABA's,
@@ -30,6 +36,7 @@ namespace achilles::algorithms {
 // never something this pack itself steps.
 using RegisteredAlgorithms = util::TypeList<
     aba::ABAAlgorithm,
+    log::LogAlgorithm,
     vi::VIAlgorithm,
     pi::PIAlgorithm,
     viz::VizAlgorithm>;

@@ -99,11 +99,10 @@ using FieldLayoutT = typename ResolvedFieldLayout<EnumT, Traits, F>::Type;
 
 // A field's one name -- what user-authored archetype data addresses it by
 // (see domain/archetype.hpp's ArchetypeField and SimAllocator's Populate
-// pass) and what field logging offers it under (engine/pass/
-// field_log.hpp). Optional, like SharedAs/Ordering: an unnamed field can
-// be neither loaded nor logged. Whether a named field is actually loaded
-// is up to the archetype: Populate only fills it when the archetype
-// supplies a field with that name.
+// pass) and what algorithms::log selects it by. Optional, like
+// SharedAs/Ordering: an unnamed field can be neither loaded nor logged. Whether
+// a named field is actually loaded is up to the archetype: Populate only fills
+// it when the archetype supplies a field with that name.
 template <typename EnumT, template <EnumT> class Traits, EnumT F>
 concept FieldHasName = requires {
   { Traits<F>::kName } -> std::convertible_to<std::string_view>;

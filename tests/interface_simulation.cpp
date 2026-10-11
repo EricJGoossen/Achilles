@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 
-#include <array>
 #include <cmath>
 #include <cstddef>
 #include <filesystem>
@@ -8,13 +7,18 @@
 #include <span>
 #include <sstream>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 #include "algorithms/aba/aba_data.hpp"
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
+#include "algorithms/instrumentation.hpp"
+#include "algorithms/log/log_data.hpp"
 #include "algorithms/sim_config.hpp"
 #include "domain/archetype.hpp"
+#include "domain/for_each_scalar.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/ordering_policy.hpp"
 #include "interface/archetype_loader.hpp"
@@ -281,6 +285,31 @@ std::vector<std::string> SplitCsv(const std::string& line) {
   return cells;
 }
 
+// Every record (split into cells) whose tag -- first cell -- is `tag`.
+std::vector<std::vector<std::string>> RecordsTagged(
+    const std::vector<std::string>& lines, std::string_view tag
+) {
+  std::vector<std::vector<std::string>> records;
+  for (const std::string& line : lines) {
+    std::vector<std::string> cells = SplitCsv(line);
+    if (!cells.empty() && cells[0] == tag) {
+      records.push_back(std::move(cells));
+    }
+  }
+  return records;
+}
+
+// A domain value's scalars in Assembler leaf order -- the order a log
+// record writes them in.
+template <typename ValueT>
+std::vector<float> Scalars(const ValueT& value) {
+  std::vector<float> scalars;
+  achilles::domain::ForEachScalar(value, [&](auto scalar) {
+    scalars.push_back(static_cast<float>(scalar));
+  });
+  return scalars;
+}
+
 // Tests that exercise real logging; skipped in an
 // ACHILLES_ENABLE_LOGGING=OFF build, where EnableLog always refuses (see
 // SimulationLog.EnableLogRefusesWhenCompiledOut).
@@ -319,10 +348,17 @@ TEST_F(SimulationLogEnabled, EnableLogFailsForAnUnknownField) {
   );
 }
 
-TEST_F(SimulationLogEnabled, EnableLogFailsForAnEmptySelection) {
+// Fields can be added later (SetLogField), so starting with none is fine:
+// only the schema is written until one is.
+TEST_F(SimulationLogEnabled, EnableLogAcceptsAnEmptySelection) {
   TempDir dir;
   Simulation sim = MakeInitializedSim(dir, 0.3F);
-  EXPECT_FALSE(sim.EnableLog(dir.Write("log.csv", "").string(), {}));
+  std::filesystem::path log_path = dir.Write("log.csv", "");
+
+  ASSERT_TRUE(sim.EnableLog(log_path.string(), {}));
+  ASSERT_TRUE(sim.Step(0.01F));
+
+  EXPECT_TRUE(RecordsTagged(ReadLines(log_path), "t").empty());
 }
 
 TEST_F(SimulationLogEnabled, EnableLogFailsForAnUnwritablePath) {
@@ -331,10 +367,9 @@ TEST_F(SimulationLogEnabled, EnableLogFailsForAnUnwritablePath) {
   EXPECT_FALSE(sim.EnableLog("/no/such/directory/log.csv", {"joint_position"}));
 }
 
-// Header is time + one column per scalar, labeled with the archetype and
-// joint name from the .arow; one row for the initial state plus one per
-// Step().
-TEST_F(SimulationLogEnabled, WritesHeaderInitialRowAndOneRowPerStep) {
+// The schema names the joints and every loggable field once; then each
+// step writes a "t" record and one record per selected field.
+TEST_F(SimulationLogEnabled, WritesTheSchemaThenRecordsEachStep) {
   TempDir dir;
   Simulation sim = MakeInitializedSim(dir, 0.3F);
   std::filesystem::path log_path = dir.Write("log.csv", "");
@@ -344,62 +379,103 @@ TEST_F(SimulationLogEnabled, WritesHeaderInitialRowAndOneRowPerStep) {
   ASSERT_TRUE(sim.Step(0.01F));
 
   std::vector<std::string> lines = ReadLines(log_path);
-  ASSERT_EQ(lines.size(), 1U + 3U);
-  std::vector<std::string> header = SplitCsv(lines[0]);
-  ASSERT_EQ(header.size(), 1U + 6U);
-  EXPECT_EQ(header[0], "time");
-  EXPECT_EQ(header[1], "base.joint.joint_velocity.0");
-  EXPECT_EQ(header[6], "base.joint.joint_velocity.5");
-  EXPECT_EQ(std::stod(SplitCsv(lines[1])[0]), 0.0);
-  EXPECT_NEAR(std::stod(SplitCsv(lines[3])[0]), 0.02, 1e-6);
+  ASSERT_FALSE(lines.empty());
+  EXPECT_EQ(lines[0], "joints,base.joint");
+  std::vector<std::vector<std::string>> fields = RecordsTagged(lines, "field");
+  ASSERT_EQ(fields.size(), achilles::algorithms::log::kNumLogFields);
+  EXPECT_EQ(
+      fields[1], (std::vector<std::string>{"field", "joint_velocity", "6"})
+  );
+
+  std::vector<std::vector<std::string>> times = RecordsTagged(lines, "t");
+  ASSERT_EQ(times.size(), 2U);
+  EXPECT_EQ(std::stod(times[0][1]), 0.0);
+  EXPECT_NEAR(std::stod(times[1][1]), 0.01, 1e-9);
+  std::vector<std::vector<std::string>> velocities =
+      RecordsTagged(lines, "joint_velocity");
+  ASSERT_EQ(velocities.size(), 2U);
+  EXPECT_EQ(velocities[0].size(), 1U + 6U);  // tag + one joint x 6 scalars
+  EXPECT_TRUE(RecordsTagged(lines, "joint_position").empty());
 }
 
-// The logged numbers are exactly what the sim holds after the step.
-TEST_F(SimulationLogEnabled, LoggedValuesMatchTheSimState) {
+// Each step logs the state it started from (LogStep runs right after
+// ABA, before VI/PI advance it), exactly.
+TEST_F(SimulationLogEnabled, LoggedValuesAreTheStateTheStepStartedFrom) {
   TempDir dir;
   Simulation sim = MakeInitializedSim(dir, 0.3F, 0.5F, 1.0F);
   std::filesystem::path log_path = dir.Write("log.csv", "");
+  ASSERT_TRUE(sim.EnableLog(log_path.string(), {"joint_position"}));
 
+  // The single real joint sits at sorted row 0.
+  std::vector<float> expected =
+      Scalars(sim.ViewFor<ABAAlgorithm>()
+                  .Load<
+                      ABAField::kJointPosition,
+                      achilles::algorithms::ScalarOperationT>(0));
+  ASSERT_TRUE(sim.Step(0.01F));
+
+  std::vector<std::vector<std::string>> logged =
+      RecordsTagged(ReadLines(log_path), "joint_position");
+  ASSERT_EQ(logged.size(), 1U);
+  ASSERT_EQ(logged[0].size(), 1U + expected.size());
+  for (std::size_t k = 0; k < expected.size(); ++k) {
+    EXPECT_EQ(std::stof(logged[0][1 + k]), expected[k]) << "scalar " << k;
+  }
+}
+
+// ABA-derived fields in a step's records describe that same starting
+// state: world_transform matches a fresh ABA pass at it.
+TEST_F(SimulationLogEnabled, DerivedFieldsDescribeTheLoggedState) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.3F, 0.5F, 1.0F);
+  std::filesystem::path log_path = dir.Write("log.csv", "");
+  ASSERT_TRUE(sim.EnableLog(log_path.string(), {"world_transform"}));
+
+  sim.RefreshAccelerationForCurrentState();
+  std::vector<float> expected =
+      Scalars(sim.ViewFor<ABAAlgorithm>()
+                  .Load<
+                      ABAField::kWorldTransform,
+                      achilles::algorithms::ScalarOperationT>(0));
+  ASSERT_TRUE(sim.Step(0.01F));
+
+  std::vector<std::vector<std::string>> logged =
+      RecordsTagged(ReadLines(log_path), "world_transform");
+  ASSERT_EQ(logged.size(), 1U);
+  for (std::size_t k = 0; k < expected.size(); ++k) {
+    EXPECT_EQ(std::stof(logged[0][1 + k]), expected[k]) << "scalar " << k;
+  }
+}
+
+// Fields come and go between steps without the log's shape changing.
+TEST_F(SimulationLogEnabled, SetLogFieldAddsAndRemovesFieldsMidRun) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.3F);
+  std::filesystem::path log_path = dir.Write("log.csv", "");
   ASSERT_TRUE(sim.EnableLog(log_path.string(), {"joint_position"}));
   ASSERT_TRUE(sim.Step(0.01F));
 
-  auto view = sim.ViewFor<ABAAlgorithm>();
-  // The single real joint sits at sorted row 0 (see the helpers above,
-  // which read it at batch index 0).
-  std::size_t row = 0;
-  std::array<double, 7> expected{};
-  view.LoadFlat<ABAField::kJointPosition>(row, std::span<double>(expected));
-
-  std::vector<std::string> cells = SplitCsv(ReadLines(log_path).back());
-  ASSERT_EQ(cells.size(), 1U + 7U);
-  for (std::size_t k = 0; k < 7; ++k) {
-    EXPECT_EQ(static_cast<float>(std::stod(cells[1 + k])), expected[k])
-        << "scalar " << k;
-  }
-}
-
-// ABA-derived fields are refreshed before each row, so they describe the
-// logged state even under an integrator whose last ABA pass ran at a
-// trial state (RK4's final stage).
-TEST_F(SimulationLogEnabled, DerivedFieldsDescribeTheCommittedState) {
-  TempDir dir;
-  Simulation sim = MakeInitializedSim(dir, 0.3F, 0.5F, 1.0F);
-  sim.SetIntegrator(Simulation::Integrator::kRungeKutta4);
-  std::filesystem::path log_path = dir.Write("log.csv", "");
-
-  ASSERT_TRUE(sim.EnableLog(log_path.string(), {"world_transform"}));
+  EXPECT_TRUE(sim.SetLogField("joint_velocity", true));
+  EXPECT_TRUE(sim.SetLogField("joint_position", false));
+  EXPECT_FALSE(sim.SetLogField("no_such_field", true));
   ASSERT_TRUE(sim.Step(0.01F));
 
-  std::vector<std::string> logged = SplitCsv(ReadLines(log_path).back());
-  sim.RefreshAccelerationForCurrentState();
-  std::array<double, 7> fresh{};
-  sim.ViewFor<ABAAlgorithm>().LoadFlat<ABAField::kWorldTransform>(
-      0, std::span<double>(fresh)
-  );
-  for (std::size_t k = 0; k < 7; ++k) {
-    EXPECT_EQ(static_cast<float>(std::stod(logged[1 + k])), fresh[k])
-        << "scalar " << k;
+  std::vector<std::string> lines = ReadLines(log_path);
+  EXPECT_EQ(RecordsTagged(lines, "joint_position").size(), 1U);
+  EXPECT_EQ(RecordsTagged(lines, "joint_velocity").size(), 1U);
+  // The velocity record comes after the second step's "t" record.
+  std::size_t second_t = 0;
+  std::size_t velocity = 0;
+  std::size_t t_seen = 0;
+  for (std::size_t i = 0; i < lines.size(); ++i) {
+    if (lines[i].starts_with("t,") && ++t_seen == 2) {
+      second_t = i;
+    }
+    if (lines[i].starts_with("joint_velocity,")) {
+      velocity = i;
+    }
   }
+  EXPECT_GT(velocity, second_t);
 }
 
 TEST(Simulation, InitReturnsFalseWithoutLoadingAnArowFileFirst) {
@@ -826,7 +902,12 @@ TEST(
   ASSERT_NE(root_group, child_group);
 
   SimConfig sim_config;
-  ABAStep::Step(sim.SimContext(), sim_config, 0.0F);
+  ABAStep::Step(
+      sim.SimContext(),
+      sim_config,
+      achilles::algorithms::kNoInstrumentation,
+      0.0F
+  );
 
   // Same reference as PropagatesThroughTwoJointChain
   // (algorithms_aba_aba_step.cpp): joint 0's own nonzero qd, joint 1's

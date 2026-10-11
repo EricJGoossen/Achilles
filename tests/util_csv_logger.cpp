@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 
-#include <array>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -25,48 +24,59 @@ std::string ReadFile(const std::filesystem::path& path) {
 }  // namespace
 
 TEST(CsvLogger, OpenFailsOnAnUnwritableDirectory) {
-  auto logger = CsvLogger::Open(
-      "/no/such/directory/exists/energy.csv", {"time", "value"}
+  EXPECT_FALSE(CsvLogger::Open("/no/such/directory/exists/log.csv").has_value()
   );
-  EXPECT_FALSE(logger.has_value());
 }
 
-TEST(CsvLogger, WritesAHeaderThenOneCommaSeparatedRowPerLogRowCall) {
+// One line per record, cells comma-separated in Write order.
+TEST(CsvLogger, WritesOneLinePerRecord) {
   TempDir dir;
-  std::filesystem::path path = dir.Write("energy.csv", "");
-
-  auto logger = CsvLogger::Open(path.string(), {"time", "kinetic", "total"});
+  std::filesystem::path path = dir.Write("log.csv", "");
+  auto logger = CsvLogger::Open(path.string());
   if (!logger.has_value()) {
     FAIL() << "CsvLogger::Open failed";
   }
 
-  logger->LogRow(std::array<double, 3>{0.0, 1.5, 3.0});
-  logger->LogRow(std::array<double, 3>{1.0, 2.5, 5.0});
+  logger->BeginRecord();
+  logger->Write("t");
+  logger->Write(0.5);
+  logger->EndRecord();
+  logger->BeginRecord();
+  logger->Write("q");
+  logger->Write(1.5F);
+  logger->Write(-2.0F);
+  logger->EndRecord();
 
-  std::string contents = ReadFile(path);
-  EXPECT_EQ(contents, "time,kinetic,total\n0,1.5,3\n1,2.5,5\n");
+  EXPECT_EQ(ReadFile(path), "t,0.5\nq,1.5,-2\n");
 }
 
-// A float value written at float's own max_digits10 reads back as exactly
-// the same float -- what Simulation's field log relies on.
-TEST(CsvLogger, FloatPrecisionRoundTripsFloatValuesExactly) {
+// Values are written in their shortest exact form: they parse back to
+// exactly what was logged, without padding digits.
+TEST(CsvLogger, NumbersRoundTripExactly) {
   TempDir dir;
-  std::filesystem::path path = dir.Write("values.csv", "");
-
-  auto logger = CsvLogger::Open(
-      path.string(), {"value"}, std::numeric_limits<float>::max_digits10
-  );
+  std::filesystem::path path = dir.Write("log.csv", "");
+  auto logger = CsvLogger::Open(path.string());
   if (!logger.has_value()) {
     FAIL() << "CsvLogger::Open failed";
   }
-  constexpr float kValue = 0.1F;
-  logger->LogRow(std::array<double, 1>{kValue});
+
+  constexpr float kFloat = 0.1F;
+  constexpr double kDouble = 0.1;
+  logger->BeginRecord();
+  logger->Write(kFloat);
+  logger->Write(kDouble);
+  logger->Write(std::numeric_limits<float>::min());
+  logger->EndRecord();
 
   std::istringstream in(ReadFile(path));
-  std::string header;
-  std::string value;
-  std::getline(in, header);
-  std::getline(in, value);
-  EXPECT_EQ(std::stof(value), kValue);
-  EXPECT_EQ(value, "0.100000001");
+  std::string first;
+  std::string second;
+  std::string third;
+  std::getline(in, first, ',');
+  std::getline(in, second, ',');
+  std::getline(in, third);
+  EXPECT_EQ(first, "0.1");
+  EXPECT_EQ(std::stof(first), kFloat);
+  EXPECT_EQ(std::stod(second), kDouble);
+  EXPECT_EQ(std::stof(third), std::numeric_limits<float>::min());
 }

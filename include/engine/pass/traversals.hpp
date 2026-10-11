@@ -195,4 +195,32 @@ static_assert(
     "BackwardLinearTraversal must satisfy TraversalLike concept"
 );
 
+// Visits every real (non-padding) row of a row map -- anything with
+// PaddedSize()/IsPadding(row), i.e. a domain::JointLayout -- once, in
+// sorted row order, one row at a time (Stride 1). For a pass that must
+// only ever see real joints, e.g. writing them out (algorithms::log).
+// Never calls Initialize: there is no base row to seed.
+struct RealRowTraversal {
+  static constexpr Direction kDirection = Direction::kForward;
+
+  template <typename Callable, typename RowsT, typename... Rest>
+  static constexpr void Apply(
+      const Callable& callable, const RowsT& rows, const Rest&... /*rest*/
+  ) {
+    for (size_t row = 0; row < rows.PaddedSize(); ++row) {
+      if (!rows.IsPadding(row)) {
+        callable(row, row);
+      }
+    }
+  }
+
+  template <typename Callable, typename RowsT, typename... Rest>
+  static constexpr void InitOp(
+      const Callable& /*callable*/,
+      const RowsT& /*rows*/,
+      const Rest&... /*rest*/
+  ) {}
+};
+static_assert(TraversalLike<RealRowTraversal>);
+
 }  // namespace achilles::engine::pass

@@ -8,6 +8,7 @@
 #include "algorithms/aba/aba_data.hpp"
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
+#include "algorithms/instrumentation.hpp"
 #include "algorithms/sim_config.hpp"
 #include "algorithms/viz/viz_data.hpp"
 #include "algorithms/viz/viz_step.hpp"
@@ -125,7 +126,12 @@ TEST(VizData, WorldTransformAliasesAbaOwnWorldTransform) {
   PopulateRevoluteZJoint(aba_view, group);
 
   SimConfig sim_config;
-  aba::ABAStep::Step(sim.SimContext(), sim_config, 0.0F);
+  aba::ABAStep::Step(
+      sim.SimContext(),
+      sim_config,
+      achilles::algorithms::kNoInstrumentation,
+      0.0F
+  );
 
   Transform expected = aba_view.Load<aba::ABAField::kWorldTransform, B>(group);
   ASSERT_FALSE(achilles::util::AllTrue(expected.Rotation().IsIdentity()))

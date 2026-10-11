@@ -119,28 +119,6 @@ class View {
   // How many scalars one instance of field F flattens to -- the leaf count
   // of its Assembler tree (e.g. 7 for a Transform: translation xyz +
   // quaternion wxyz).
-  template <EnumT F>
-  static constexpr size_t NumScalars() {
-    return Assembler<F>::kNumFields;
-  }
-
-  // Copies field F's raw scalars for one instance into `out`, in Assembler
-  // leaf order, without assembling the domain type -- every leaf of a field
-  // lives FieldStrideBytes<F>() after the previous one (the same addressing
-  // Assembler::Read uses), so this is a plain strided copy. Used by field
-  // logging (engine/pass/field_log.hpp), which only ever needs the numbers.
-  template <EnumT F, typename OutT>
-  void LoadFlat(size_t instance, std::span<OutT> out) const {
-    assert(out.size() == NumScalars<F>() && "LoadFlat: wrong output size.");
-    const std::byte* leaf0 = FieldZero<F>(instance);
-    size_t stride = FieldStrideBytes<F>();
-    for (size_t k = 0; k < NumScalars<F>(); ++k) {
-      out[k] =
-          static_cast<OutT>(*std::bit_cast<const Scalar<F>*>(leaf0 + k * stride)
-          );
-    }
-  }
-
   // Caches one field's resolved base pointer + stride for a hot loop.
   // Unaffected by which Layout policy field F uses -- that policy is
   // already baked into field0_/stride_ by the time Field<F>() hands this

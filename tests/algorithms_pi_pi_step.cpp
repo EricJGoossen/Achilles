@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "algorithms/conventions.hpp"
+#include "algorithms/instrumentation.hpp"
 #include "algorithms/pi/pi_data.hpp"
 #include "algorithms/pi/pi_step.hpp"
 #include "algorithms/sim_config.hpp"
@@ -112,7 +113,12 @@ TEST(PIStep, SingleJointIntegratesConstantVelocity) {
   PopulateJoint(view, group, s, qd);
 
   SimConfig sim_config;
-  PIStep::Step(sim.SimContext(), sim_config, 0.5F);
+  PIStep::Step(
+      sim.SimContext(),
+      sim_config,
+      achilles::algorithms::kNoInstrumentation,
+      0.5F
+  );
 
   Velocity qd_spatial(s * qd_coords);
   Transform expected =
@@ -138,7 +144,12 @@ TEST(PIStep, ZeroVelocityLeavesPositionAtInitialValue) {
   PopulateJoint(view, group, RevoluteZSubspace(), Velocity::Zero(), x_initial);
 
   SimConfig sim_config;
-  PIStep::Step(sim.SimContext(), sim_config, 1.0F);
+  PIStep::Step(
+      sim.SimContext(),
+      sim_config,
+      achilles::algorithms::kNoInstrumentation,
+      1.0F
+  );
 
   Transform actual = view.Load<PIField::kJointPosition, B>(group);
   EXPECT_TRUE(BatchTrue(actual.Translation().IsApprox(x_initial.Translation()))
@@ -165,7 +176,12 @@ TEST(PIStep, RepeatedStepsComposeOntoPreviousPosition) {
   constexpr int kSteps = 3;
   constexpr float kDt = 0.1F;
   for (int i = 0; i < kSteps; ++i) {
-    PIStep::Step(sim.SimContext(), sim_config, kDt);
+    PIStep::Step(
+        sim.SimContext(),
+        sim_config,
+        achilles::algorithms::kNoInstrumentation,
+        kDt
+    );
   }
 
   Velocity qd_spatial(s * qd_coords);
@@ -192,7 +208,12 @@ TEST(PIStep, PrismaticJointIntegratesTranslationThroughRealView) {
   PopulateJoint(view, group, s, Velocity(qd_coords));
 
   SimConfig sim_config;
-  PIStep::Step(sim.SimContext(), sim_config, 0.5F);
+  PIStep::Step(
+      sim.SimContext(),
+      sim_config,
+      achilles::algorithms::kNoInstrumentation,
+      0.5F
+  );
 
   Transform actual = view.Load<PIField::kJointPosition, B>(group);
   EXPECT_TRUE(BatchTrue(
@@ -230,7 +251,12 @@ TEST(PIStep, MultipleJointsAcrossLaneGroupsIntegrateIndependently) {
   }
 
   SimConfig sim_config;
-  PIStep::Step(sim.SimContext(), sim_config, 1.0F);
+  PIStep::Step(
+      sim.SimContext(),
+      sim_config,
+      achilles::algorithms::kNoInstrumentation,
+      1.0F
+  );
 
   for (std::size_t group : groups) {
     auto scale = static_cast<float>(group + 1);

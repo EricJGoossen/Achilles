@@ -166,10 +166,11 @@ struct ImplicitVelocityStep {
     return true;
   }
 
-  template <engine::pass::SimContextLike SimStateT>
+  template <engine::pass::SimContextLike SimStateT, typename InstrumentationT>
   static void Step(
       const SimStateT& sim_state,
       const SimConfig& sim_config,
+      const InstrumentationT& instrumentation,
       ScalarOperationT dt
   ) {
     const auto view = sim_state.template ViewFor<ABAView>();
@@ -194,8 +195,8 @@ struct ImplicitVelocityStep {
     }
     const std::size_t n = dofs.size();
     if (n == 0) {
-      ABAStep::Step(sim_state, sim_config, dt);
-      pi::PIStep::Step(sim_state, sim_config, dt);
+      ABAStep::Step(sim_state, sim_config, instrumentation, dt);
+      pi::PIStep::Step(sim_state, sim_config, instrumentation, dt);
       return;
     }
 
@@ -215,7 +216,7 @@ struct ImplicitVelocityStep {
       view.template Store<ABAField::kJointVelocity, ScalarOperationT>(
           dof.row, WithSlot(original[dof.row], dof.slot, base + epsilon)
       );
-      ABAStep::Step(sim_state, sim_config, dt);
+      ABAStep::Step(sim_state, sim_config, instrumentation, dt);
       for (std::size_t i = 0; i < n; ++i) {
         ScalarAcceleration qdd =
             view.template Load<ABAField::kJointAcceleration, ScalarOperationT>(
@@ -228,7 +229,7 @@ struct ImplicitVelocityStep {
       );
     }
 
-    ABAStep::Step(sim_state, sim_config, dt);
+    ABAStep::Step(sim_state, sim_config, instrumentation, dt);
     std::vector<ScalarOperationT> acceleration(n);
     for (std::size_t i = 0; i < n; ++i) {
       ScalarAcceleration qdd =
@@ -269,7 +270,7 @@ struct ImplicitVelocityStep {
       );
     }
 
-    pi::PIStep::Step(sim_state, sim_config, dt);
+    pi::PIStep::Step(sim_state, sim_config, instrumentation, dt);
   }
 };
 

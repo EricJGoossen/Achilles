@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "algorithms/conventions.hpp"
+#include "algorithms/instrumentation.hpp"
 #include "algorithms/sim_config.hpp"
 #include "algorithms/vi/vi_data.hpp"
 #include "algorithms/vi/vi_step.hpp"
@@ -120,7 +121,12 @@ TEST(VIStep, SingleJointIntegratesConstantAcceleration) {
   PopulateJoint(view, group, qdd);
 
   SimConfig sim_config;
-  VIStep::Step(sim.SimContext(), sim_config, 0.5F);
+  VIStep::Step(
+      sim.SimContext(),
+      sim_config,
+      achilles::algorithms::kNoInstrumentation,
+      0.5F
+  );
 
   Velocity expected(qdd.AsVector6() * B(0.5F));
   EXPECT_TRUE(
@@ -143,7 +149,12 @@ TEST(VIStep, ZeroAccelerationLeavesVelocityAtInitialValue) {
   PopulateJoint(view, group, Acceleration::Zero(), qd_initial);
 
   SimConfig sim_config;
-  VIStep::Step(sim.SimContext(), sim_config, 1.0F);
+  VIStep::Step(
+      sim.SimContext(),
+      sim_config,
+      achilles::algorithms::kNoInstrumentation,
+      1.0F
+  );
 
   EXPECT_TRUE(
       BatchApprox(view.Load<VIField::kJointVelocity, B>(group), qd_initial)
@@ -168,7 +179,12 @@ TEST(VIStep, RepeatedStepsAccumulateVelocity) {
   constexpr int kSteps = 3;
   constexpr float kDt = 0.1F;
   for (int i = 0; i < kSteps; ++i) {
-    VIStep::Step(sim.SimContext(), sim_config, kDt);
+    VIStep::Step(
+        sim.SimContext(),
+        sim_config,
+        achilles::algorithms::kNoInstrumentation,
+        kDt
+    );
   }
 
   Velocity expected(qdd.AsVector6() * B(kDt * static_cast<float>(kSteps)));
@@ -209,7 +225,12 @@ TEST(VIStep, MultipleJointsAcrossLaneGroupsIntegrateIndependently) {
   }
 
   SimConfig sim_config;
-  VIStep::Step(sim.SimContext(), sim_config, 1.0F);
+  VIStep::Step(
+      sim.SimContext(),
+      sim_config,
+      achilles::algorithms::kNoInstrumentation,
+      1.0F
+  );
 
   for (std::size_t group : groups) {
     auto scale = static_cast<float>(group + 1);

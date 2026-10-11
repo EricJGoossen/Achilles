@@ -30,5 +30,10 @@ struct JointAccelerationSlot;
 // can see the exact world pose ABA already computes every tick, instead of
 // re-deriving it from kJointPosition/kFixedJointTransform itself.
 struct WorldTransformSlot;
+// ABA's own kJointTorque/kSpatialVelocity/kSpatialAcceleration -- shared
+// so algorithms::log (log/log_data.hpp) can read them.
+struct JointTorqueSlot;
+struct SpatialVelocitySlot;
+struct SpatialAccelerationSlot;
 
 }  // namespace achilles::algorithms
