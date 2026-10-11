@@ -11,6 +11,7 @@
 #include "domain/archetype.hpp"
 #include "domain/math/vector3.hpp"
 #include "engine/algorithm_contract.hpp"
+#include "engine/field_blocks.hpp"
 #include "engine/field_contract.hpp"
 #include "engine/memory/binding.hpp"
 #include "engine/memory/sim_allocator.hpp"
@@ -214,8 +215,7 @@ TEST(SimAllocatorTopology, ChildResolvesToParentsRowWithinSameInstance) {
   std::size_t instance0_joint0 = layout.ToSorted(0, 0);
   std::size_t instance0_joint1 = layout.ToSorted(0, 1);
   EXPECT_EQ(
-      sim.TopologyFor<TopologicalOrdering>()[instance0_joint1],
-      instance0_joint0
+      sim.TopologyFor<TopologicalOrdering>()[instance0_joint1], instance0_joint0
   );
 }
 
@@ -233,10 +233,8 @@ TEST(SimAllocatorSharedAs, CrossAlgorithmFieldsAliasTheSameBlock) {
       Algorithm<SecondField, SecondFieldTraits>>;
   Sim sim(archetypes);
 
-  auto shared_view =
-      sim.ViewFor<Algorithm<SharedField, SharedFieldTraits>>();
-  auto second_view =
-      sim.ViewFor<Algorithm<SecondField, SecondFieldTraits>>();
+  auto shared_view = sim.ViewFor<Algorithm<SharedField, SharedFieldTraits>>();
+  auto second_view = sim.ViewFor<Algorithm<SecondField, SecondFieldTraits>>();
 
   std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted(
       0, (1 * 2) + 1
@@ -280,10 +278,8 @@ TEST(SimAllocatorForRegisteredList, BehavesIdenticallyToDirectSimAllocator) {
   using Sim = SimAllocatorForT<Registered>;
   Sim sim(archetypes);
 
-  auto shared_view =
-      sim.ViewFor<Algorithm<SharedField, SharedFieldTraits>>();
-  auto second_view =
-      sim.ViewFor<Algorithm<SecondField, SecondFieldTraits>>();
+  auto shared_view = sim.ViewFor<Algorithm<SharedField, SharedFieldTraits>>();
+  auto second_view = sim.ViewFor<Algorithm<SecondField, SecondFieldTraits>>();
 
   std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted(
       0, (1 * 2) + 1
@@ -376,43 +372,4 @@ TEST(SimAllocatorPopulate, DiesOnArchetypeFieldScalarCountMismatch) {
 
   using Sim = SimAllocator<Algorithm<SharedField, SharedFieldTraits>>;
   EXPECT_DEATH(Sim sim(archetypes), "scalar count doesn't match");
-}
-
-namespace {
-
-// Names the same SharedInputSlot tag SharedField::kSharedInput/
-// SecondField::kSharedAgain already share, but with LinearOrdering (the
-// default -- no Ordering declared) instead of their TopologicalOrdering --
-// same Assembler, so bytes/alignment/lane count all still match; only
-// ordering_id disagrees. Enough to trip Carve's own shape-mismatch assert
-// without also tripping the (unrelated) byte-size mismatch case above.
-enum class MismatchedOrderingField : std::uint8_t { kSharedAgain, kCount };
-template <MismatchedOrderingField F>
-struct MismatchedOrderingFieldTraits;
-template <>
-struct MismatchedOrderingFieldTraits<MismatchedOrderingField::kSharedAgain> {
-  using Assembler = Vector3Assembler<float>;
-  using SharedAs = SharedInputSlot;
-  using Layout = PlanarLayout;
-};
-static_assert(achilles::engine::FieldTraitsLike<
-              MismatchedOrderingField,
-              MismatchedOrderingFieldTraits>);
-
-}  // namespace
-
-// Two algorithms name the same SharedAs tag but disagree on the shared
-// field's own Ordering (TopologicalOrdering vs the default LinearOrdering)
-// -- Carve's reused-slot check (engine/memory/sim_allocator.hpp) compares
-// ordering_id along with bytes/alignment/lane_count precisely so this kind
-// of disagreement is caught loudly instead of two algorithms silently
-// aliasing memory whose row order they disagree about.
-TEST(SimAllocatorSharedAs, DiesOnIncompatibleOrderingForSameSharedTag) {
-  Archetype arm = MakeArmArchetype();
-  std::array<Archetype, 1> archetypes = {std::move(arm)};
-
-  using Sim = SimAllocator<
-      Algorithm<SharedField, SharedFieldTraits>,
-      Algorithm<MismatchedOrderingField, MismatchedOrderingFieldTraits>>;
-  EXPECT_DEATH(Sim sim(archetypes), "unsound");
 }

@@ -172,7 +172,7 @@ TEST(VizData, VisualExtentsAndColorPopulateFromArchetypeByName) {
 // A joint whose archetype gives no visual_extents at all must read back
 // exactly Vector3::Zero() -- SimAllocator::Carve's own ZeroFill, left
 // untouched since Populate only ever overwrites a row for a field an
-// archetype actually names (see FieldVisitor::Populate's own comment,
+// archetype actually names (see BlockOps::Populate's own comment,
 // sim_allocator.hpp). This is the "draw nothing" default a renderer relies
 // on (see viz_data.hpp's own header comment).
 TEST(VizData, MissingVisualExtentsDefaultsToZero) {

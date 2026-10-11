@@ -18,8 +18,8 @@
 #include "algorithms/viz/viz_step.hpp"
 #include "domain/archetype.hpp"
 #include "domain/joint_topology.hpp"
+#include "engine/field_blocks.hpp"
 #include "engine/memory/sim_allocator.hpp"
-#include "engine/named_fields.hpp"
 #include "engine/topology/layout_policy.hpp"
 #include "engine/topology/ordering_policy.hpp"
 #include "interface/archetype_loader.hpp"
@@ -321,20 +321,18 @@ class Simulation {
   }
 
  private:
-  // Every field of every registered Algorithm (name, scalars per row,
-  // SharedAs slot) -- what an archetype field's name and length are
-  // checked against.
-  static constexpr auto kFields =
-      engine::AllFieldsIn<algorithms::RegisteredAlgorithms>::kValue;
+  // Every distinct field (storage block) across the registered
+  // Algorithms, with its name and scalars per row -- what an archetype
+  // field's name and length are checked against.
+  static constexpr auto kFields = engine::BlockInfos<
+      engine::FieldBlocksIn<algorithms::RegisteredAlgorithms>::Type>::kValue;
   static_assert(
-      [] {
-        for (std::string_view name : domain::kArchetypeFields) {
-          if (!engine::FindField(kFields, name).has_value()) {
-            return false;
+      std::ranges::all_of(
+          domain::kArchetypeFields,
+          [](std::string_view name) {
+            return engine::FindBlock(kFields, name).has_value();
           }
-        }
-        return true;
-      }(),
+      ),
       "domain::kArchetypeFields names a field no registered Algorithm "
       "declares (as Traits<F>::kName)."
   );
@@ -352,18 +350,25 @@ class Simulation {
         if (!domain::IsArchetypeField(field.name)) {
           std::string expected;
           for (std::string_view name : domain::kArchetypeFields) {
-            expected += (expected.empty() ? "" : ", ") + std::string(name);
+            if (!expected.empty()) {
+              expected += ", ";
+            }
+            expected += name;
           }
-          return where +
-                 ": not an archetype field (expected one of: " + expected + ")";
+          where += ": not an archetype field (expected one of: ";
+          where += expected;
+          where += ")";
+          return where;
         }
-        std::optional<engine::NamedField> described =
-            engine::FindField(kFields, field.name);
+        std::optional<engine::BlockInfo> described =
+            engine::FindBlock(kFields, field.name);
         if (described.has_value() &&
             described->scalars != field.scalars_per_leaf) {
-          return where + ": needs " + std::to_string(described->scalars) +
-                 " values per joint, got " +
-                 std::to_string(field.scalars_per_leaf);
+          where += ": needs ";
+          where += std::to_string(described->scalars);
+          where += " values per joint, got ";
+          where += std::to_string(field.scalars_per_leaf);
+          return where;
         }
       }
     }

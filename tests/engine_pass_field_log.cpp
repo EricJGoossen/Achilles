@@ -73,24 +73,6 @@ struct ShareFieldTraits {
 };
 using ShareAlgorithm = Algorithm<ShareField, ShareFieldTraits>;
 
-// Names a field "position" with its own private storage -- a different
-// block than LogAlgorithm's "position", so the two can't share a name.
-enum class ClashField : std::uint8_t { kPosition, kCount };
-template <ClashField F>
-struct ClashFieldTraits {
-  using Assembler = Vector3Assembler<float>;
-  using Layout = PlanarLayout;
-  static constexpr std::string_view kName = "position";
-};
-using ClashAlgorithm = Algorithm<ClashField, ClashFieldTraits>;
-
-using achilles::engine::AllFields;
-using achilles::engine::SameNameMeansSameSlot;
-static_assert(SameNameMeansSameSlot(AllFields<LogAlgorithm, ToyAlgorithm>()));
-static_assert(SameNameMeansSameSlot(AllFields<LogAlgorithm, ShareAlgorithm>()));
-static_assert(!SameNameMeansSameSlot(AllFields<LogAlgorithm, ClashAlgorithm>())
-);
-
 // Hosts the loggable algorithm next to a non-loggable one, so selection
 // has to skip the latter.
 using Sim = SimAllocator<LogAlgorithm, ToyAlgorithm>;
