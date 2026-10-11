@@ -91,7 +91,23 @@ def main():
                     steps = steps_for(n)
                     for mode, fn in (("merged", bench_merged),
                                      ("rollout", bench_rollout)):
-                        best, median, finite = fn(scene, integ, n, steps)
+                        try:
+                            best, median, finite = fn(scene, integ, n, steps)
+                        except ValueError as e:
+                            # e.g. MuJoCo can't compile a merged model this
+                            # large ("Could not allocate memory" at 7 x 4096
+                            # DOFs) -- record it rather than lose the run.
+                            row = {
+                                "engine": "mujoco",
+                                "mode": mode,
+                                "scene": scene_name,
+                                "integrator": ours,
+                                "copies": n,
+                                "error": str(e),
+                            }
+                            print(json.dumps(row), flush=True)
+                            f.write(json.dumps(row) + "\n")
+                            continue
                         row = {
                             "engine": "mujoco",
                             "mujoco_version": mujoco.__version__,

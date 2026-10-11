@@ -46,6 +46,8 @@ def main():
         label = BUILD_LABELS[r["build"]]
         rows[(r["scene"], r["integrator"], r["copies"])][label] = r["robot_steps_per_s"]
     for r in load("mujoco_throughput.jsonl"):
+        if "error" in r:  # see mujoco_throughput.py: e.g. model too large
+            continue
         rows[(r["scene"], r["integrator"], r["copies"])]["mujoco_" + r["mode"]] = r[
             "robot_steps_per_s"
         ]
@@ -74,17 +76,23 @@ def main():
         ]
         ns = sorted(n for s, i, n in rows if (s, i) == (scene, integ))
         series = defaultdict(list)
+
+        def cell(r, k):
+            # n/a: no measurement, e.g. a MuJoCo merged model too large to
+            # compile (see mujoco_throughput.py).
+            return f"{r[k]:,.0f}" if k in r else "n/a"
+
         for n in ns:
             r = rows[(scene, integ, n)]
             mj = max(r.get("mujoco_merged", 0), r.get("mujoco_rollout", 0))
             sp32 = r.get("achilles_f32_avx2", 0) / mj if mj else float("nan")
             sp64 = r.get("achilles_f64_avx2", 0) / mj if mj else float("nan")
             out.append(
-                f"| {n} | {r.get('achilles_f32_avx2', 0):,.0f} "
-                f"| {r.get('achilles_f64_avx2', 0):,.0f} "
-                f"| {r.get('achilles_f32_sse2', 0):,.0f} "
-                f"| {r.get('mujoco_merged', 0):,.0f} "
-                f"| {r.get('mujoco_rollout', 0):,.0f} "
+                f"| {n} | {cell(r, 'achilles_f32_avx2')} "
+                f"| {cell(r, 'achilles_f64_avx2')} "
+                f"| {cell(r, 'achilles_f32_sse2')} "
+                f"| {cell(r, 'mujoco_merged')} "
+                f"| {cell(r, 'mujoco_rollout')} "
                 f"| {sp32:.2f}x | {sp64:.2f}x |"
             )
             for k in SERIES:
