@@ -130,10 +130,8 @@ class Transform {
 
     const Matrix3x3 p21 = r * m.template Submatrix<3, 3>(3, 0);
     const Matrix3x3 p22 = r * m.template Submatrix<3, 3>(3, 3);
-    const Matrix3x3 p11 =
-        r * m.template Submatrix<3, 3>(0, 0) + SkewTimes(p21);
-    const Matrix3x3 p12 =
-        r * m.template Submatrix<3, 3>(0, 3) + SkewTimes(p22);
+    const Matrix3x3 p11 = r * m.template Submatrix<3, 3>(0, 0) + SkewTimes(p21);
+    const Matrix3x3 p12 = r * m.template Submatrix<3, 3>(0, 3) + SkewTimes(p22);
 
     const Matrix3x3 q12 = p12 * r_t;
     const Matrix3x3 q22 = p22 * r_t;

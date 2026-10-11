@@ -336,21 +336,20 @@ inline void PropagateInertiaOp::operator()(
   const int dof = SharedSingleDof(mask);
   const bool handled = [&]<std::size_t... Dofs>(std::index_sequence<Dofs...>) {
     return (
-        (dof == static_cast<int>(Dofs) &&
-         SingleDof<Dofs>(
-             S,
-             mask,
-             x_up,
-             I_A,
-             c,
-             tau,
-             p,
-             I_A_parent_out,
-             U_out,
-             D_inv_out,
-             p_parent_out,
-             u_out
-         )) ||
+        (dof == static_cast<int>(Dofs) && SingleDof<Dofs>(
+                                              S,
+                                              mask,
+                                              x_up,
+                                              I_A,
+                                              c,
+                                              tau,
+                                              p,
+                                              I_A_parent_out,
+                                              U_out,
+                                              D_inv_out,
+                                              p_parent_out,
+                                              u_out
+                                          )) ||
         ...
     );
   }(std::make_index_sequence<6>{});
@@ -393,8 +392,8 @@ inline void PropagateInertiaOp::operator()(
 inline int PropagateInertiaOp::SharedSingleDof(const Mat6Mask& mask) {
   using MaskBatch = std::remove_cvref_t<decltype(mask.AsStorage())>;
   using Lane = typename MaskBatch::value_type;
-  alignas(MaskBatch::arch_type::alignment())
-      std::array<Lane, MaskBatch::size> lanes{};
+  alignas(MaskBatch::arch_type::alignment()) std::array<Lane, MaskBatch::size>
+      lanes{};
   mask.AsStorage().store_aligned(lanes.data());
   Lane active = 0;
   for (Lane lane : lanes) {
@@ -497,16 +496,15 @@ bool PropagateInertiaOp::SingleDof(
   const InertiaOperator<false> I_A_contribution(contribution);
 
   // p' = p + I_A' c + U D^-1 u
-  const Force p_contribution =
-      p + I_A_contribution.Apply(c) +
-      Force(math::Vector6<T>(
-          u_d_inv[0] * u_vals[Dof],
-          u_d_inv[1] * u_vals[Dof],
-          u_d_inv[2] * u_vals[Dof],
-          u_d_inv[3] * u_vals[Dof],
-          u_d_inv[4] * u_vals[Dof],
-          u_d_inv[5] * u_vals[Dof]
-      ));
+  const Force p_contribution = p + I_A_contribution.Apply(c) +
+                               Force(math::Vector6<T>(
+                                   u_d_inv[0] * u_vals[Dof],
+                                   u_d_inv[1] * u_vals[Dof],
+                                   u_d_inv[2] * u_vals[Dof],
+                                   u_d_inv[3] * u_vals[Dof],
+                                   u_d_inv[4] * u_vals[Dof],
+                                   u_d_inv[5] * u_vals[Dof]
+                               ));
 
   Matrix6x6 U = Matrix6x6::Zero();
   Matrix6x6 D_inv = Matrix6x6::Identity();
