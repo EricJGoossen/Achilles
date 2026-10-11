@@ -117,6 +117,15 @@ target_compile_definitions(achilles_lib ${ACHILLES_LIB_TYPE}
     ACHILLES_ENABLE_LOGGING=$<BOOL:${ACHILLES_ENABLE_LOGGING}>
 )
 
+# The engine's scalar type (algorithms::ScalarOperationT): float by
+# default, double with this ON -- half the SIMD lanes per register, for
+# double-precision results (e.g. comparing against MuJoCo, which is double
+# throughout).
+option(ACHILLES_DOUBLE_PRECISION "Simulate in double rather than float" OFF)
+target_compile_definitions(achilles_lib ${ACHILLES_LIB_TYPE}
+    ACHILLES_DOUBLE_PRECISION=$<BOOL:${ACHILLES_DOUBLE_PRECISION}>
+)
+
 add_executable(achilles "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
 target_link_libraries(achilles PRIVATE achilles_lib)
 

@@ -74,9 +74,12 @@ inline int SharedSlot(const Mat6Mask& mask) {
 // -0.0 entry counts as nonzero here, which only means the dense path.)
 template <std::size_t Dof>
 bool SubspaceMatches(const MotionSubspace& S, const Mat6Mask& mask) {
-  using Bits = xsimd::batch<std::int32_t>;
+  // The mask's own storage: the same-width integer batch as
+  // MathematicalT's lanes (util::MaskStorageFor), so this works the same
+  // whether the engine runs in float or double.
+  using Bits = std::remove_cvref_t<decltype(mask.AsStorage())>;
   auto bits = [](const MathematicalT& x) {
-    return xsimd::bitwise_cast<std::int32_t>(x);
+    return xsimd::bitwise_cast<typename Bits::value_type>(x);
   };
   Bits off_column(0);
   Bits on_column(0);

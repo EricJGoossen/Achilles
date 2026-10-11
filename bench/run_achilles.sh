@@ -13,20 +13,29 @@ CONFIG="$ROOT_DIR/examples/sim_config.yaml"
 WHAT="${1:-all}"
 DT=0.002
 
+# Accuracy traces: every scene. Throughput: THROUGHPUT_SCENES.
 SCENES=(
     "$ROOT_DIR/examples/two_joint_arm.arow"
     "$ROOT_DIR/examples/three_joint_arm.arow"
     "$ROOT_DIR/examples/asymmetric_two_joint_arm.arow"
     "$ROOT_DIR/bench/scenes/two_joint_arm_small_swing.arow"
 )
+THROUGHPUT_SCENES=(
+    "$ROOT_DIR/examples/two_joint_arm.arow"
+    "$ROOT_DIR/examples/three_joint_arm.arow"
+    "$ROOT_DIR/bench/scenes/seven_joint_arm.arow"
+)
+# See bench/build.sh: float with the project's own flags (SSE2 on x86-64),
+# float with -march=native, double with -march=native.
+BUILDS=(build-bench build-bench-native build-bench-native-double)
 BATCHES=(1 4 16 64 256 1024 4096)
 
 mkdir -p "$OUT/traces"
 
 if [[ "$WHAT" == throughput || "$WHAT" == all ]]; then
     : > "$OUT/achilles_throughput.jsonl"
-    for build in build-bench build-bench-native; do
-        for scene in "${SCENES[@]:0:2}"; do
+    for build in "${BUILDS[@]}"; do
+        for scene in "${THROUGHPUT_SCENES[@]}"; do
             for integrator in euler rk4; do
                 for n in "${BATCHES[@]}"; do
                     # ~1M robot-steps per trial keeps every point to a

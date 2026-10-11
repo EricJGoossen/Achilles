@@ -185,7 +185,10 @@ int Throughput(int argc, char** argv) {
     std::cerr << "unknown integrator " << argv[4] << '\n';
     return 1;
   }
-  const float dt = std::strtof(argv[5], nullptr);
+  // float32-rounded even in a double build: the MuJoCo scripts round
+  // dt the same way, so both engines take the identical step.
+  const auto dt =
+      static_cast<ScalarOperationT>(std::strtof(argv[5], nullptr));
   const auto copies = static_cast<std::size_t>(std::atol(argv[6]));
   const long steps = std::atol(argv[7]);
   const int trials = argc > 8 ? std::atoi(argv[8]) : 5;
@@ -255,7 +258,10 @@ int Trace(int argc, char** argv) {
     std::cerr << "unknown integrator " << argv[4] << '\n';
     return 1;
   }
-  const float dt = std::strtof(argv[5], nullptr);
+  // float32-rounded even in a double build: the MuJoCo scripts round
+  // dt the same way, so both engines take the identical step.
+  const auto dt =
+      static_cast<ScalarOperationT>(std::strtof(argv[5], nullptr));
   const long steps = std::atol(argv[6]);
 
   // `wrapped` loads the scene the way Throughput does (one copy hung off

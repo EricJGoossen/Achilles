@@ -1,5 +1,6 @@
 #pragma once
 
+#include <type_traits>
 #include <xsimd/xsimd.hpp>
 
 #include "domain/math/activation_mask.hpp"
@@ -16,8 +17,14 @@ namespace achilles::algorithms {
 namespace math = achilles::domain::math;
 namespace spatial = achilles::domain::spatial;
 
-using BatchOperationT = xsimd::batch<float>;
-using ScalarOperationT = float;
+// float unless built with ACHILLES_DOUBLE_PRECISION (the CMake option of
+// the same name): double halves the lanes per SIMD register.
+#ifndef ACHILLES_DOUBLE_PRECISION
+#define ACHILLES_DOUBLE_PRECISION 0
+#endif
+using ScalarOperationT =
+    std::conditional_t<ACHILLES_DOUBLE_PRECISION != 0, double, float>;
+using BatchOperationT = xsimd::batch<ScalarOperationT>;
 using MathematicalT = BatchOperationT;
 
 // Compile-time switch for field logging (see algorithms/log/log_step.hpp

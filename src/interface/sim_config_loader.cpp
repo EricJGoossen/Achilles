@@ -36,7 +36,9 @@ using algorithms::Velocity;
 // field in this file is optional, that would turn "the user only wrote
 // some of it" into a crash instead of a per-field fallback.
 template <std::size_t N>
-bool TryParseFloats(const YAML::Node& node, std::array<float, N>& out) {
+bool TryParseFloats(
+    const YAML::Node& node, std::array<algorithms::ScalarOperationT, N>& out
+) {
   if (!node.IsDefined() || !node.IsSequence() || node.size() != N) {
     return false;
   }
@@ -49,7 +51,7 @@ bool TryParseFloats(const YAML::Node& node, std::array<float, N>& out) {
 }
 
 Vector3 ParseVector3(const YAML::Node& node, const Vector3& fallback) {
-  std::array<float, 3> v{};
+  std::array<algorithms::ScalarOperationT, 3> v{};
   if (!TryParseFloats(node, v)) {
     return fallback;
   }
@@ -57,7 +59,7 @@ Vector3 ParseVector3(const YAML::Node& node, const Vector3& fallback) {
 }
 
 Quaternion ParseQuaternion(const YAML::Node& node, const Quaternion& fallback) {
-  std::array<float, 4> q{};
+  std::array<algorithms::ScalarOperationT, 4> q{};
   if (!TryParseFloats(node, q)) {
     return fallback;
   }

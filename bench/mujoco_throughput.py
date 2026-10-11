@@ -24,7 +24,11 @@ import arow_to_mjcf as a2m
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 CONFIG = os.path.join(ROOT, "examples", "sim_config.yaml")
-SCENES = ["two_joint_arm", "three_joint_arm"]
+SCENES = {
+    "two_joint_arm": os.path.join(ROOT, "examples", "two_joint_arm.arow"),
+    "three_joint_arm": os.path.join(ROOT, "examples", "three_joint_arm.arow"),
+    "seven_joint_arm": os.path.join(HERE, "scenes", "seven_joint_arm.arow"),
+}
 INTEGRATORS = {"euler": "Euler", "rk4": "RK4"}
 BATCHES = [1, 4, 16, 64, 256, 1024, 4096]
 DT = 0.002
@@ -80,10 +84,8 @@ def main():
     out_path = os.path.join(HERE, "results", "mujoco_throughput.jsonl")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, "w") as f:
-        for scene_name in SCENES:
-            scene = a2m.load_scene(
-                os.path.join(ROOT, "examples", scene_name + ".arow"), CONFIG
-            )
+        for scene_name, arow in SCENES.items():
+            scene = a2m.load_scene(arow, CONFIG)
             for ours, integ in INTEGRATORS.items():
                 for n in BATCHES:
                     steps = steps_for(n)
