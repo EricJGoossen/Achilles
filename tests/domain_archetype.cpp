@@ -53,7 +53,7 @@ TEST(ArchetypeAccessors, BasicShape) {
 }
 
 // TreeStructure() must hand back exactly what the archetype was built from
-// -- SimAllocator's PickLayout borrows this straight into Ordering::Build.
+// -- SimAllocator borrows this straight into each ordering policy's Build.
 TEST(ArchetypeAccessors, TreeStructureBorrowsOwnStorage) {
   Archetype archetype = MakeTwoJointArchetype();
   ArchetypeTreeStructure tree = archetype.TreeStructure();

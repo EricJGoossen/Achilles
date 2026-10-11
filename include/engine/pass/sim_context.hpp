@@ -6,10 +6,10 @@
 #include <utility>
 
 #include "algorithms/conventions.hpp"
+#include "domain/joint_layout.hpp"
 #include "domain/joint_topology.hpp"
 #include "engine/algorithm_contract.hpp"
 #include "engine/memory/binding.hpp"
-#include "engine/topology/layout.hpp"
 #include "engine/topology/layout_policy.hpp"
 #include "engine/view/view_contract.hpp"
 #include "util/tmp.hpp"
@@ -85,13 +85,15 @@ using UsedOrderingsFor = util::UniqueT<
 // distinct type per Algorithm, so std::tuple<Algorithms::View...> has no
 // such collision to begin with.
 //
-// Also carries a copy of the policy's own Layout (row <-> (instance,
-// joint) mapping, padding rows) for consumers that need to label or skip
-// rows after construction -- e.g. field logging (field_log.hpp).
+// Also carries the policy's JointLayout -- which real (instance, joint)
+// each row holds, and which rows are padding -- for anything that
+// addresses a specific joint after construction (e.g. field logging,
+// field_log.hpp). Both are views into the Arena, so the slot stays
+// trivially copyable.
 template <typename Policy>
 struct TopologySlot {
   domain::JointTopology topology;
-  topology::Layout layout;
+  domain::JointLayout layout;
 };
 
 // The concrete tuple type SimContext<Algorithms...> stores its topologies
@@ -138,10 +140,9 @@ class SimContext {
     return std::get<TopologySlot<Policy>>(topologies_).topology;
   }
 
-  // The Layout the same ordering policy's rows were placed by -- see
-  // TopologySlot.
+  // Where the same ordering policy placed each joint -- see TopologySlot.
   template <topology::LayoutPolicyLike Policy>
-  const topology::Layout& LayoutFor() const {
+  const domain::JointLayout& LayoutFor() const {
     return std::get<TopologySlot<Policy>>(topologies_).layout;
   }
 

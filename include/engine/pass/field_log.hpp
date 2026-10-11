@@ -12,10 +12,10 @@
 #include <vector>
 
 #include "domain/archetype.hpp"
+#include "domain/joint_layout.hpp"
 #include "engine/algorithm_contract.hpp"
 #include "engine/field_blocks.hpp"
 #include "engine/pass/sim_context.hpp"
-#include "engine/topology/layout.hpp"
 #include "util/tmp.hpp"
 
 namespace achilles::engine::pass {
@@ -100,7 +100,7 @@ class FieldLog {
 
  private:
   // Records, for each selected field, its real (non-padding) rows under
-  // its own ordering's Layout, sorted into (instance, joint) order.
+  // its own ordering's JointLayout, sorted into (instance, joint) order.
   template <typename... BlockTs, std::size_t... Is>
   void ResolveRows(
       const Context& context,
@@ -111,12 +111,12 @@ class FieldLog {
       if (!selected_.test(I)) {
         return;
       }
-      const topology::Layout& layout =
+      const domain::JointLayout& rows =
           context.template LayoutFor<typename BlockT::Ordering>();
       std::vector<std::pair<domain::ArchetypeJointHandle, std::size_t>> real;
-      for (std::size_t row = 0; row < layout.PaddedSize(); ++row) {
-        if (!layout.IsPadding(row)) {
-          real.emplace_back(layout.ToPhysical(row), row);
+      for (std::size_t row = 0; row < rows.PaddedSize(); ++row) {
+        if (!rows.IsPadding(row)) {
+          real.emplace_back(rows.ToPhysical(row), row);
         }
       }
       std::ranges::sort(real, [](const auto& a, const auto& b) {

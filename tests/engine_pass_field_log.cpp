@@ -184,10 +184,10 @@ TEST(FieldLogGather, CopiesStoredValuesInColumnOrder) {
   const auto& layout =
       context.LayoutFor<achilles::engine::topology::LinearOrdering>();
   view.Store<LogField::kPosition, float>(
-      layout.ToSorted(0, 0), Vector3<float>(1.0F, 2.0F, 3.0F)
+      layout.ToSorted({0, 0}), Vector3<float>(1.0F, 2.0F, 3.0F)
   );
   view.Store<LogField::kPosition, float>(
-      layout.ToSorted(0, 1), Vector3<float>(4.0F, 5.0F, 6.0F)
+      layout.ToSorted({1, 0}), Vector3<float>(4.0F, 5.0F, 6.0F)
   );
 
   std::vector<std::string> unknown;

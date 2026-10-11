@@ -43,7 +43,6 @@
 #include "engine/pass/op_invoker.hpp"
 #include "engine/pass/sim_context.hpp"
 #include "engine/pass/traversals.hpp"
-#include "engine/topology/layout.hpp"
 #include "engine/topology/layout_policy.hpp"
 #include "engine/topology/ordering_policy.hpp"
 #include "engine/view/view.hpp"

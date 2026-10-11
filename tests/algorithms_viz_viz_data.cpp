@@ -12,9 +12,9 @@
 #include "algorithms/viz/viz_data.hpp"
 #include "algorithms/viz/viz_step.hpp"
 #include "domain/archetype.hpp"
+#include "domain/joint_layout.hpp"
 #include "domain/math/vector3.hpp"
 #include "engine/memory/sim_allocator.hpp"
-#include "engine/topology/layout.hpp"
 #include "engine/topology/ordering_policy.hpp"
 #include "support/aba_reference.hpp"
 #include "util/simd_ops.hpp"
@@ -64,9 +64,9 @@ std::size_t Lane() { return B::size; }
 }
 
 std::size_t BatchGroup(
-    const achilles::engine::topology::Layout& layout, std::size_t joint
+    const achilles::domain::JointLayout& layout, std::size_t instance
 ) {
-  return layout.ToSorted(0, joint) / Lane();
+  return layout.ToSorted({instance, 0}) / Lane();
 }
 
 // One archetype, one real joint, hosting both ABAAlgorithm and
@@ -158,12 +158,13 @@ TEST(VizData, VisualExtentsAndColorPopulateFromArchetypeByName) {
   SimAllocator<aba::ABAAlgorithm, VizAlgorithm> sim =
       MakeSharedSim(std::move(fields));
   VizView view = sim.ViewFor<VizAlgorithm>();
-  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted(0, 0);
+  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted({0, 0});
 
   using ScalarVector3 = achilles::domain::math::Vector3<ScalarOperationT>;
   ScalarVector3 extents =
       view.Load<VizField::kVisualExtents, ScalarOperationT>(row);
-  ScalarVector3 color = view.Load<VizField::kVisualColor, ScalarOperationT>(row);
+  ScalarVector3 color =
+      view.Load<VizField::kVisualColor, ScalarOperationT>(row);
 
   EXPECT_TRUE(extents.IsApprox(ScalarVector3(0.5F, 0.25F, 0.1F)));
   EXPECT_TRUE(color.IsApprox(ScalarVector3(1.0F, 0.0F, 0.0F)));

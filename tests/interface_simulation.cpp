@@ -780,14 +780,14 @@ TEST(Simulation, ReloadingADifferentArowFileAndReinitializingUsesTheNewData) {
 // mechanism interface_archetype_loader.cpp's own
 // LoadArchetypes.RecursiveIncludeAndBroadcastAttachToSingleParentInstance
 // exercises directly). Simulation itself has no way to say "give me the
-// View index for this specific joint" (Layout is construction-only -- see
-// SimAllocator's own comment -- and Simulation never keeps one past Init()),
-// so this test goes around Simulation and builds the SimAllocator directly
-// from the same real LoadArchetypes(...) output Simulation::LoadArowFile
-// would produce, giving it LayoutFor<TopologicalOrdering>().ToSorted(...)
-// to resolve each joint's own real row exactly -- not a guessed index, and
-// not a scan. LoadArchetypes' own contract (root archetype first) plus
-// ToSorted give an exact, verified row for each of the two real joints.
+// View index for this specific joint" (it keeps the JointLayout inside its
+// SimContext but doesn't expose it), so this test goes around Simulation and
+// builds the SimAllocator directly from the same real LoadArchetypes(...)
+// output Simulation::LoadArowFile would produce, giving it
+// LayoutFor<TopologicalOrdering>().ToSorted(...) to resolve each joint's own
+// real row exactly -- not a guessed index, and not a scan. LoadArchetypes' own
+// contract (root archetype first) plus ToSorted give an exact, verified row for
+// each of the two real joints.
 TEST(
     Simulation,
     MultiArchetypeChainAcrossIncludedArowFilesPropagatesVelocityExactly
@@ -821,8 +821,8 @@ TEST(
   auto view = sim.ViewFor<ABAAlgorithm>();
   const auto& layout = sim.LayoutFor<TopologicalOrdering>();
   std::size_t lane = B::size;
-  std::size_t root_group = layout.ToSorted(0, 0) / lane;
-  std::size_t child_group = layout.ToSorted(1, 0) / lane;
+  std::size_t root_group = layout.ToSorted({0, 0}) / lane;
+  std::size_t child_group = layout.ToSorted({1, 0}) / lane;
   ASSERT_NE(root_group, child_group);
 
   SimConfig sim_config;

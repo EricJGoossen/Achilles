@@ -11,11 +11,9 @@
 #include "domain/archetype.hpp"
 #include "domain/math/vector3.hpp"
 #include "engine/algorithm_contract.hpp"
-#include "engine/field_blocks.hpp"
 #include "engine/field_contract.hpp"
 #include "engine/memory/binding.hpp"
 #include "engine/memory/sim_allocator.hpp"
-#include "engine/topology/layout.hpp"
 #include "engine/topology/layout_policy.hpp"
 #include "engine/topology/ordering_policy.hpp"
 #include "util/tmp.hpp"
@@ -131,8 +129,7 @@ TEST(SimAllocatorPopulate, CopiesArchetypeDataIntoTheRightSortedRow) {
 
   for (std::size_t i = 0; i < 2; ++i) {
     for (std::size_t j = 0; j < 2; ++j) {
-      std::size_t row =
-          sim.LayoutFor<TopologicalOrdering>().ToSorted(0, (i * 2) + j);
+      std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted({i, j});
       auto base = static_cast<float>((100 * i) + (10 * j));
       EXPECT_TRUE((view.Load<SharedField::kSharedInput, float>(row).IsApprox(
           Vector3<float>(base, base + 1.0F, base + 2.0F)
@@ -155,7 +152,7 @@ TEST(SimAllocatorPopulate, LeavesFieldsWithNoKNameZeroed) {
   Sim sim(archetypes);
   auto view = sim.ViewFor<Algorithm<SharedField, SharedFieldTraits>>();
 
-  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted(0, 0);
+  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted({0, 0});
   EXPECT_TRUE((view.Load<SharedField::kOutput, float>(row).IsZero()));
 }
 
@@ -212,8 +209,8 @@ TEST(SimAllocatorTopology, ChildResolvesToParentsRowWithinSameInstance) {
   Sim sim(archetypes);
 
   const auto& layout = sim.LayoutFor<TopologicalOrdering>();
-  std::size_t instance0_joint0 = layout.ToSorted(0, 0);
-  std::size_t instance0_joint1 = layout.ToSorted(0, 1);
+  std::size_t instance0_joint0 = layout.ToSorted({0, 0});
+  std::size_t instance0_joint1 = layout.ToSorted({0, 1});
   EXPECT_EQ(
       sim.TopologyFor<TopologicalOrdering>()[instance0_joint1], instance0_joint0
   );
@@ -236,9 +233,7 @@ TEST(SimAllocatorSharedAs, CrossAlgorithmFieldsAliasTheSameBlock) {
   auto shared_view = sim.ViewFor<Algorithm<SharedField, SharedFieldTraits>>();
   auto second_view = sim.ViewFor<Algorithm<SecondField, SecondFieldTraits>>();
 
-  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted(
-      0, (1 * 2) + 1
-  );  // instance 1, joint 1
+  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted({1, 1});
   Vector3<float> via_shared =
       shared_view.Load<SharedField::kSharedInput, float>(row);
   Vector3<float> via_second =
@@ -281,9 +276,7 @@ TEST(SimAllocatorForRegisteredList, BehavesIdenticallyToDirectSimAllocator) {
   auto shared_view = sim.ViewFor<Algorithm<SharedField, SharedFieldTraits>>();
   auto second_view = sim.ViewFor<Algorithm<SecondField, SecondFieldTraits>>();
 
-  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted(
-      0, (1 * 2) + 1
-  );  // instance 1, joint 1
+  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted({1, 1});
   Vector3<float> via_shared =
       shared_view.Load<SharedField::kSharedInput, float>(row);
   Vector3<float> via_second =
@@ -346,8 +339,8 @@ TEST(
   using Sim = SimAllocator<Algorithm<MixedField, MixedFieldTraits>>;
   Sim sim(archetypes);
 
-  std::size_t topo_row = sim.LayoutFor<TopologicalOrdering>().ToSorted(0, 0);
-  std::size_t linear_row = sim.LayoutFor<LinearOrdering>().ToSorted(0, 0);
+  std::size_t topo_row = sim.LayoutFor<TopologicalOrdering>().ToSorted({0, 0});
+  std::size_t linear_row = sim.LayoutFor<LinearOrdering>().ToSorted({0, 0});
   EXPECT_NE(topo_row, linear_row);
 }
 

@@ -10,7 +10,9 @@
 using achilles::domain::JointTopology;
 
 TEST(JointTopologyConstruction, SizeMatchesTheSpanItWasBuiltFrom) {
-  std::vector<std::size_t> parents = {4, 4, 4, 4};  // out of range (== size): no parent
+  std::vector<std::size_t> parents = {
+      4, 4, 4, 4
+  };  // out of range (== size): no parent
 
   JointTopology topology{
       std::span<std::size_t>(parents), xsimd::batch<float>::size
@@ -87,4 +89,15 @@ TEST(JointTopologyAccessPrecondition, DiesOnOutOfRangeIndex) {
   };
 
   EXPECT_DEATH({ (void)topology[1]; }, "");
+}
+
+// Row 1's parent is row 0 (earlier) and row 2's is out of range (the base
+// row) -- forward-safe. Swapping row 1 to point at row 2 (later) isn't.
+TEST(JointTopologyIsForwardSafe, RequiresEveryParentEarlierOrOutOfRange) {
+  std::vector<std::size_t> safe = {3, 0, 3};
+  std::vector<std::size_t> unsafe = {3, 2, 3};
+
+  EXPECT_TRUE(JointTopology(std::span<std::size_t>(safe), 1).IsForwardSafe());
+  EXPECT_FALSE(JointTopology(std::span<std::size_t>(unsafe), 1).IsForwardSafe()
+  );
 }
