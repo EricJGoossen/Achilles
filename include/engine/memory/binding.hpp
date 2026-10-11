@@ -97,13 +97,13 @@ struct ResolvedFieldLayout<EnumT, Traits, F> {
 template <typename EnumT, template <EnumT> class Traits, EnumT F>
 using FieldLayoutT = typename ResolvedFieldLayout<EnumT, Traits, F>::Type;
 
-// The name a field is addressed by in user-authored archetype data (see
-// domain/archetype.hpp's ArchetypeField and SimAllocator's
-// Populate pass) -- optional, like SharedAs/Ordering: an algorithm-internal
-// scratch or output field (e.g. ABA's kJointAcceleration) is never
-// user-supplied and simply declares no kName, so SimAllocator's Populate
-// pass skips it entirely rather than looking for archetype data that will
-// never exist.
+// A field's one name -- what user-authored archetype data addresses it by
+// (see domain/archetype.hpp's ArchetypeField and SimAllocator's Populate
+// pass) and what field logging offers it under (engine/pass/
+// field_log.hpp). Optional, like SharedAs/Ordering: an unnamed field can
+// be neither loaded nor logged. Whether a named field is actually loaded
+// is up to the archetype: Populate only fills it when the archetype
+// supplies a field with that name.
 template <typename EnumT, template <EnumT> class Traits, EnumT F>
 concept FieldHasName = requires {
   { Traits<F>::kName } -> std::convertible_to<std::string_view>;

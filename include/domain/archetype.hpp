@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+#include <array>
 #include <cassert>
 #include <cstddef>
 #include <limits>
@@ -48,6 +50,30 @@ struct ArchetypeTreeStructure {
   // archetype -- root_parents.size() is this archetype's instance count.
   std::span<const ArchetypeJointHandle> root_parents;
 };
+
+// The fields an archetype supplies to the sim -- the only fields a .arow
+// may contain. This list is what defines an archetype's contents: fields
+// are matched to an Algorithm's storage by name (Traits<F>::kName), but no
+// field declares itself loadable. How many values each takes per joint
+// comes from the matching field's own Assembler, so it isn't restated
+// here. interface::Simulation rejects any .arow field not on this list (or
+// with the wrong length) when loading, and static_asserts that every name
+// here really is some registered field's kName.
+inline constexpr std::array<std::string_view, 9> kArchetypeFields = {
+    "joint_subspace",
+    "joint_activation_mask",
+    "fixed_joint_transform",
+    "rigid_body_inertia",
+    "joint_position",
+    "joint_velocity",
+    "joint_torque",
+    "visual_extents",
+    "visual_color",
+};
+
+constexpr bool IsArchetypeField(std::string_view name) {
+  return std::ranges::find(kArchetypeFields, name) != kArchetypeFields.end();
+}
 
 // One named field's flattened per-(instance, joint) scalar data for one
 // Archetype, as read from the user (e.g. a .arow file) -- see
@@ -111,13 +137,21 @@ class Archetype {
       std::vector<std::size_t> tree_structure,
       std::vector<ArchetypeJointHandle> root_parents,
       bool is_root_archetype,
-      std::vector<ArchetypeField> fields
+      std::vector<ArchetypeField> fields,
+      std::vector<std::string> joint_names = {}
   )
       : name_(std::move(name)),
         tree_structure_(std::move(tree_structure)),
         root_parents_(std::move(root_parents)),
         is_root_archetype_(is_root_archetype),
-        fields_(std::move(fields)) {}
+        fields_(std::move(fields)),
+        joint_names_(std::move(joint_names)) {
+    assert(
+        (joint_names_.empty() || joint_names_.size() == tree_structure_.size()
+        ) &&
+        "Archetype: joint_names must be empty or name every joint."
+    );
+  }
 
   const std::string& Name() const { return name_; }
   std::size_t JointCount() const { return tree_structure_.size(); }
@@ -137,6 +171,16 @@ class Archetype {
 
   std::span<const ArchetypeField> Fields() const { return fields_; }
 
+  // Human-readable name for local joint `joint`, e.g. for log column
+  // headers. Archetypes built without names (most tests) fall back to
+  // "j<index>".
+  std::string JointName(std::size_t joint) const {
+    if (joint < joint_names_.size()) {
+      return joint_names_[joint];
+    }
+    return "j" + std::to_string(joint);
+  }
+
   const ArchetypeField* FindField(std::string_view field_name) const {
     for (const ArchetypeField& field : fields_) {
       if (field.name == field_name) {
@@ -152,6 +196,7 @@ class Archetype {
   std::vector<ArchetypeJointHandle> root_parents_;
   bool is_root_archetype_;
   std::vector<ArchetypeField> fields_;
+  std::vector<std::string> joint_names_;
 };
 
 }  // namespace achilles::domain

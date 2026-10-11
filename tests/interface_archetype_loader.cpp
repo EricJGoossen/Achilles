@@ -77,6 +77,27 @@ joints:
   EXPECT_EQ(tree.tree_structure[1], 0U);
 }
 
+// Joint names survive loading (in local joint order) so they can label
+// field-log columns -- see Simulation::EnableLog.
+TEST(LoadArchetypes, KeepsJointNamesInLocalJointOrder) {
+  TempDir dir;
+  auto file = dir.Write("root.arow", R"(
+archetype: arm
+joints:
+  - name: shoulder
+    fields: { x: [1] }
+  - name: elbow
+    parent: shoulder
+    fields: { x: [2] }
+)");
+
+  std::vector<Archetype> archetypes = LoadArchetypes(file);
+
+  ASSERT_EQ(archetypes.size(), 1U);
+  EXPECT_EQ(archetypes.front().JointName(0), "shoulder");
+  EXPECT_EQ(archetypes.front().JointName(1), "elbow");
+}
+
 // A field value can be an arbitrarily nested mapping/sequence of scalars
 // (here: a mapping of two sequences) -- every leaf gets appended in
 // encounter order, generically, with no per-field-name knowledge.

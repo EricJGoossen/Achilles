@@ -53,7 +53,7 @@ TEST(ArchetypeAccessors, BasicShape) {
 }
 
 // TreeStructure() must hand back exactly what the archetype was built from
-// -- SimAllocator's PickLayout borrows this straight into Ordering::Build.
+// -- SimAllocator borrows this straight into each ordering policy's Build.
 TEST(ArchetypeAccessors, TreeStructureBorrowsOwnStorage) {
   Archetype archetype = MakeTwoJointArchetype();
   ArchetypeTreeStructure tree = archetype.TreeStructure();
@@ -108,4 +108,10 @@ TEST(ArchetypeFieldAt, DiesOnOutOfRangeIndex) {
   ASSERT_NE(field, nullptr);
 
   EXPECT_DEATH(ArchetypeFieldAt(*field, 5, 5, 5, 2), "out of range");
+}
+
+TEST(Archetype, JointNameFallsBackToIndexWhenUnnamed) {
+  Archetype archetype = MakeTwoJointArchetype();
+  EXPECT_EQ(archetype.JointName(0), "j0");
+  EXPECT_EQ(archetype.JointName(1), "j1");
 }

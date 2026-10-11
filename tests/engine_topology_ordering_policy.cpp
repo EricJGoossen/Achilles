@@ -6,15 +6,19 @@
 #include <xsimd/xsimd.hpp>
 
 #include "domain/archetype.hpp"
+#include "domain/joint_layout.hpp"
+#include "domain/joint_topology.hpp"
 #include "engine/memory/arena.hpp"
-#include "engine/topology/layout.hpp"
+#include "engine/topology/ordering_plan.hpp"
 #include "engine/topology/ordering_policy.hpp"
 
 using achilles::domain::ArchetypeJointHandle;
 using achilles::domain::ArchetypeTreeStructure;
+using achilles::domain::JointLayout;
+using achilles::domain::JointTopology;
 using achilles::engine::memory::Arena;
-using achilles::engine::topology::Layout;
 using achilles::engine::topology::LinearOrdering;
+using achilles::engine::topology::OrderingPlan;
 using achilles::engine::topology::OrderingPolicyLike;
 using achilles::engine::topology::TopologicalOrdering;
 
@@ -36,7 +40,7 @@ ArchetypeTreeStructure MakeArchetype(
 
 // Exactly what OrderingPolicyLike requires. Nothing else.
 struct OrderingPolicyArchetype {
-  static Layout Build(
+  static OrderingPlan Build(
       std::span<ArchetypeTreeStructure> tree, std::size_t lane_size
   );
 };
@@ -63,12 +67,12 @@ TEST(TopologicalOrderingSingleArchetype, RootInstancesResolveToBaseRow) {
       MakeArchetype(true, tree_structure, root_parents)
   };
 
-  Layout layout = TopologicalOrdering::Build(tree, 4);
-  Arena arena(layout.TopologyBytes(), alignof(std::size_t));
-  auto topology = layout.AllocateTopology(arena);
+  OrderingPlan plan = TopologicalOrdering::Build(tree, 4);
+  JointLayout layout = plan.Layout();
+  JointTopology topology = plan.Topology();
 
   for (std::size_t i = 0; i < 3; ++i) {
-    std::size_t row = layout.ToSorted(0, i);
+    std::size_t row = layout.ToSorted({i, 0});
     EXPECT_EQ(topology[row], layout.BaseRowIndex());
   }
   // 3 instances padded to a lane multiple of 4 leaves one padding slot,
@@ -91,12 +95,13 @@ TEST(TopologicalOrderingSingleArchetype, LinearizesAScrambledChain) {
       MakeArchetype(true, tree_structure, root_parents)
   };
 
-  Layout layout = TopologicalOrdering::Build(tree, 1);
+  OrderingPlan plan = TopologicalOrdering::Build(tree, 1);
+  JointLayout layout = plan.Layout();
 
-  EXPECT_EQ(layout.ToSorted(0, 1), 0U);  // joint1: the root, sorted first
-  EXPECT_EQ(layout.ToSorted(0, 2), 1U);  // joint2: joint1's child
-  EXPECT_EQ(layout.ToSorted(0, 0), 2U);  // joint0: joint2's child
-  EXPECT_TRUE(layout.IsForwardSafe());
+  EXPECT_EQ(layout.ToSorted({0, 1}), 0U);  // joint1: the root, sorted first
+  EXPECT_EQ(layout.ToSorted({0, 2}), 1U);  // joint2: joint1's child
+  EXPECT_EQ(layout.ToSorted({0, 0}), 2U);  // joint0: joint2's child
+  EXPECT_TRUE(plan.Topology().IsForwardSafe());
 }
 
 // A branching tree (joint 0's two children are joints 1 and 2) --
@@ -114,12 +119,13 @@ TEST(
       MakeArchetype(true, tree_structure, root_parents)
   };
 
-  Layout layout = TopologicalOrdering::Build(tree, 1);
+  OrderingPlan plan = TopologicalOrdering::Build(tree, 1);
+  JointLayout layout = plan.Layout();
 
-  EXPECT_EQ(layout.ToSorted(0, 0), 0U);
-  EXPECT_EQ(layout.ToSorted(0, 1), 1U);
-  EXPECT_EQ(layout.ToSorted(0, 2), 2U);
-  EXPECT_TRUE(layout.IsForwardSafe());
+  EXPECT_EQ(layout.ToSorted({0, 0}), 0U);
+  EXPECT_EQ(layout.ToSorted({0, 1}), 1U);
+  EXPECT_EQ(layout.ToSorted({0, 2}), 2U);
+  EXPECT_TRUE(plan.Topology().IsForwardSafe());
 }
 
 // 3 instances against lane_size 2: each of the archetype's 2 joint
@@ -137,7 +143,8 @@ TEST(TopologicalOrderingSingleArchetype, PadsEveryJointPositionToLaneMultiple) {
       MakeArchetype(true, tree_structure, root_parents)
   };
 
-  Layout layout = TopologicalOrdering::Build(tree, 2);
+  OrderingPlan plan = TopologicalOrdering::Build(tree, 2);
+  JointLayout layout = plan.Layout();
 
   ASSERT_EQ(layout.PaddedSize(), 8U);
   EXPECT_FALSE(layout.IsPadding(0));
@@ -165,7 +172,8 @@ TEST(TopologicalOrderingSingleArchetype, PadsToLaneMultipleOfThirtyTwo) {
       MakeArchetype(true, tree_structure, root_parents)
   };
 
-  Layout layout = TopologicalOrdering::Build(tree, 32);
+  OrderingPlan plan = TopologicalOrdering::Build(tree, 32);
+  JointLayout layout = plan.Layout();
 
   // 2 joint positions, 5 real instances each padded up to 32 -> 64 rows.
   ASSERT_EQ(layout.PaddedSize(), 64U);
@@ -206,7 +214,7 @@ TEST(TopologicalOrderingMultipleArchetypes, EachInstanceResolvesItsOwnTarget) {
   };
 
   // lane_size must be a real SIMD batch width here, not an arbitrary small
-  // number: AllocateTopology below builds a real JointTopology, whose own
+  // number: plan.Topology() below builds a real JointTopology, whose own
   // constructor checks batch safety against the *actual*
   // xsimd::batch<float>::size, not whatever lane_size this Build call was
   // given. Each archetype's block is only lane_size rows wide (2 instances,
@@ -214,12 +222,13 @@ TEST(TopologicalOrderingMultipleArchetypes, EachInstanceResolvesItsOwnTarget) {
   // the root's block and the dependent's block share one real batch --
   // exactly the cross-archetype case being tested here.
   const std::size_t lane_size = xsimd::batch<float>::size;
-  Layout layout = TopologicalOrdering::Build(tree, lane_size);
-  Arena arena(layout.TopologyBytes(), alignof(std::size_t));
-  auto topology = layout.AllocateTopology(arena);
+  OrderingPlan plan = TopologicalOrdering::Build(tree, lane_size);
+  JointLayout layout = plan.Layout();
+  JointTopology topology = plan.Topology();
 
-  EXPECT_EQ(topology[layout.ToSorted(1, 0)], layout.ToSorted(0, 0));
-  EXPECT_EQ(topology[layout.ToSorted(1, 1)], layout.ToSorted(0, 1));
+  // Global instances: the root's are 0 and 1, the dependent's 2 and 3.
+  EXPECT_EQ(topology[layout.ToSorted({2, 0})], layout.ToSorted({0, 0}));
+  EXPECT_EQ(topology[layout.ToSorted({3, 0})], layout.ToSorted({1, 0}));
 }
 
 // The dependent archetype (index 0 in `tree`) is placed AFTER the root
@@ -245,17 +254,18 @@ TEST(
       MakeArchetype(true, root_tree, root_roots)
   };
 
-  Layout layout = TopologicalOrdering::Build(tree, 1);
+  OrderingPlan plan = TopologicalOrdering::Build(tree, 1);
+  JointLayout layout = plan.Layout();
 
-  EXPECT_LT(layout.ToSorted(1, 0), layout.ToSorted(0, 0));
-  EXPECT_TRUE(layout.IsForwardSafe());
+  EXPECT_LT(layout.ToSorted({1, 0}), layout.ToSorted({0, 0}));
+  EXPECT_TRUE(plan.Topology().IsForwardSafe());
 }
 
 // A 3-archetype chain (root -> mid -> leaf) with non-lane-aligned instance
 // counts (5, 6, 10 against lane_size 8) and scattered, non-parallel
 // cross-archetype attachments -- close to a real hosted-archetype shape,
 // and specifically the case batch-safety (see JointTopology::
-// CheckBatchSafety, asserted inside AllocateTopology below) has to hold
+// CheckBatchSafety, asserted inside plan.Topology() below) has to hold
 // for regardless of how the archetypes' block sizes interact.
 TEST(
     TopologicalOrderingMultipleArchetypes,
@@ -289,30 +299,27 @@ TEST(
       MakeArchetype(false, leaf_tree, leaf_roots)
   };
 
-  Layout layout = TopologicalOrdering::Build(tree, 8);
-  Arena arena(layout.TopologyBytes(), alignof(std::size_t));
+  OrderingPlan plan = TopologicalOrdering::Build(tree, 8);
+  JointLayout layout = plan.Layout();
   // Doesn't die: JointTopology's own constructor asserts CheckBatchSafety
   // over exactly the rows this hands it, so reaching this line at all is
   // the proof that no parent/child pair landed in the same SIMD batch.
-  auto topology = layout.AllocateTopology(arena);
+  JointTopology topology = plan.Topology();
 
-  EXPECT_TRUE(layout.IsForwardSafe());
+  EXPECT_TRUE(plan.Topology().IsForwardSafe());
 
   // Spot-check a couple of resolved cross-archetype rows against the hand-
-  // computed instance mapping above.
+  // computed instance mapping above. Global instances: root 0-4, mid 5-10,
+  // leaf 11-20.
   EXPECT_EQ(
-      topology[layout.ToSorted(1, std::size_t{0} * 3)], layout.ToSorted(0, 0)
+      topology[layout.ToSorted({5, 0})], layout.ToSorted({0, 0})
   );  // mid instance0 -> root instance0
   EXPECT_EQ(
-      topology[layout.ToSorted(1, std::size_t{1} * 3)], layout.ToSorted(0, 1)
+      topology[layout.ToSorted({6, 0})], layout.ToSorted({1, 0})
   );  // mid instance1 -> root instance1
-  // leaf instance0's target global instance is 5 + (0*3)%6 == 5, which is
-  // mid's own *local* instance 0 (mid's instances start at global index 5)
-  // -- not mid's local instance 5.
-  EXPECT_EQ(
-      topology[layout.ToSorted(2, std::size_t{0} * 2)],
-      layout.ToSorted(1, std::size_t{0} * 3 + 0)
-  );
+  // leaf instance0's target global instance is 5 + (0*3)%6 == 5: mid's
+  // first instance.
+  EXPECT_EQ(topology[layout.ToSorted({11, 0})], layout.ToSorted({5, 0}));
 }
 
 // ---------------------------------------------------------------------------
@@ -332,12 +339,13 @@ TEST(LinearOrderingSingleArchetype, LeavesJointOrderUntouched) {
       MakeArchetype(true, tree_structure, root_parents)
   };
 
-  Layout layout = LinearOrdering::Build(tree, 1);
+  OrderingPlan plan = LinearOrdering::Build(tree, 1);
+  JointLayout layout = plan.Layout();
 
-  EXPECT_EQ(layout.ToSorted(0, 0), 0U);
-  EXPECT_EQ(layout.ToSorted(0, 1), 1U);
-  EXPECT_EQ(layout.ToSorted(0, 2), 2U);
-  EXPECT_FALSE(layout.IsForwardSafe());
+  EXPECT_EQ(layout.ToSorted({0, 0}), 0U);
+  EXPECT_EQ(layout.ToSorted({0, 1}), 1U);
+  EXPECT_EQ(layout.ToSorted({0, 2}), 2U);
+  EXPECT_FALSE(plan.Topology().IsForwardSafe());
 }
 
 // Same two-archetype dependency as PlacesShallowerDepthArchetypesFirst, but
@@ -361,10 +369,11 @@ TEST(LinearOrderingMultipleArchetypes, KeepsTreeOrderRegardlessOfDependency) {
       MakeArchetype(true, root_tree, root_roots)
   };
 
-  Layout layout = LinearOrdering::Build(tree, 1);
+  OrderingPlan plan = LinearOrdering::Build(tree, 1);
+  JointLayout layout = plan.Layout();
 
-  EXPECT_LT(layout.ToSorted(0, 0), layout.ToSorted(1, 0));
-  EXPECT_FALSE(layout.IsForwardSafe());
+  EXPECT_LT(layout.ToSorted({0, 0}), layout.ToSorted({1, 0}));
+  EXPECT_FALSE(plan.Topology().IsForwardSafe());
 }
 
 // Padding still applies under LinearOrdering exactly as it does under
@@ -378,7 +387,8 @@ TEST(LinearOrderingSingleArchetype, StillPadsToLaneMultiple) {
       MakeArchetype(true, tree_structure, root_parents)
   };
 
-  Layout layout = LinearOrdering::Build(tree, 4);
+  OrderingPlan plan = LinearOrdering::Build(tree, 4);
+  JointLayout layout = plan.Layout();
 
   EXPECT_EQ(layout.PaddedSize(), 4U);
   EXPECT_TRUE(layout.IsPadding(3));
@@ -396,7 +406,8 @@ TEST(LinearOrderingSingleArchetype, PadsToLaneMultipleOfThirtyTwo) {
       MakeArchetype(true, tree_structure, root_parents)
   };
 
-  Layout layout = LinearOrdering::Build(tree, 32);
+  OrderingPlan plan = LinearOrdering::Build(tree, 32);
+  JointLayout layout = plan.Layout();
 
   ASSERT_EQ(layout.PaddedSize(), 32U);
   for (std::size_t i = 0; i < 5; ++i) {
@@ -404,6 +415,81 @@ TEST(LinearOrderingSingleArchetype, PadsToLaneMultipleOfThirtyTwo) {
   }
   for (std::size_t i = 5; i < 32; ++i) {
     EXPECT_TRUE(layout.IsPadding(i));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OrderingPlan -- sizing and allocation
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// One root archetype, three instances of a 3-joint tree (joints 1 and 2
+// both children of joint 0), lane_size 2. Consolidate lays it out one
+// joint position at a time, each RoundUpToLane(3, 2) == 4 rows wide (3
+// real + 1 padding): PaddedSize() == 12.
+OrderingPlan BuildThreeInstancePlan() {
+  static const std::vector<std::size_t> kTreeStructure = {kNoParent, 0, 0};
+  static const std::vector<ArchetypeJointHandle> kRootParents(
+      3, ArchetypeJointHandle{kNoParent, kNoParent}
+  );
+  std::vector<ArchetypeTreeStructure> tree = {
+      MakeArchetype(true, kTreeStructure, kRootParents)
+  };
+  return TopologicalOrdering::Build(tree, 2);
+}
+
+}  // namespace
+
+TEST(OrderingPlan, ViewInstanceCountRoundsBaseRowUpToLaneMultiple) {
+  OrderingPlan plan = BuildThreeInstancePlan();
+
+  EXPECT_EQ(plan.Layout().PaddedSize(), 12U);
+  EXPECT_EQ(plan.Layout().BaseRowIndex(), 12U);
+  // BaseRowIndex() + 1 == 13, rounded up to lane_size 2 == 14.
+  EXPECT_EQ(plan.ViewInstanceCount(), 14U);
+}
+
+// The topology covers only real + padding rows -- never the base row or
+// the lane-rounding tail -- so a traversal never visits the base row as an
+// ordinary target.
+TEST(OrderingPlan, TopologySizeExcludesBaseRow) {
+  OrderingPlan plan = BuildThreeInstancePlan();
+
+  EXPECT_EQ(plan.Topology().Size(), plan.Layout().PaddedSize());
+}
+
+// Allocate copies the plan into the Arena: the persisted views answer
+// exactly what the plan's own views do, and fit the budget AllocatedBytes
+// promised (Arena asserts on overflow).
+TEST(OrderingPlan, AllocateMatchesThePlansOwnViews) {
+  OrderingPlan plan = BuildThreeInstancePlan();
+  Arena arena(plan.AllocatedBytes(), alignof(std::size_t));
+
+  OrderingPlan::Allocated allocated = plan.Allocate(arena);
+  JointLayout expected = plan.Layout();
+
+  ASSERT_EQ(allocated.topology.Size(), plan.Topology().Size());
+  for (std::size_t row = 0; row < allocated.topology.Size(); ++row) {
+    EXPECT_EQ(allocated.topology[row], plan.Topology()[row]) << "row " << row;
+    EXPECT_EQ(allocated.layout.IsPadding(row), expected.IsPadding(row));
+  }
+  for (std::size_t i = 0; i < 3; ++i) {
+    for (std::size_t j = 0; j < 3; ++j) {
+      EXPECT_EQ(allocated.layout.ToSorted({i, j}), expected.ToSorted({i, j}));
+    }
+  }
+}
+
+// Every real row round-trips through ToPhysical/ToSorted.
+TEST(OrderingPlan, ToSortedInvertsToPhysical) {
+  OrderingPlan plan = BuildThreeInstancePlan();
+  JointLayout layout = plan.Layout();
+
+  for (std::size_t row = 0; row < layout.PaddedSize(); ++row) {
+    if (!layout.IsPadding(row)) {
+      EXPECT_EQ(layout.ToSorted(layout.ToPhysical(row)), row) << "row " << row;
+    }
   }
 }
 
@@ -425,7 +511,9 @@ TEST(TopologicalOrderingBuildPrecondition, DiesOnZeroLaneSize) {
       MakeArchetype(true, tree_structure, root_parents)
   };
 
-  EXPECT_DEATH(TopologicalOrdering::Build(tree, 0), "lane_size must be positive");
+  EXPECT_DEATH(
+      TopologicalOrdering::Build(tree, 0), "lane_size must be positive"
+  );
 }
 
 TEST(LinearOrderingBuildPrecondition, DiesOnZeroLaneSize) {

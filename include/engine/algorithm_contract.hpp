@@ -28,7 +28,7 @@ struct NoStep {};
 // naming a real StepT is opt-in, not mandatory the way Traits is.
 //
 // EnumT and TraitsT are recovered later via partial specialization (see
-// AlgorithmVisitor in sim_allocator.hpp) rather than stored as member
+// FieldRef in field_blocks.hpp) rather than stored as member
 // aliases, since Traits is a template, not a value the type system can hand
 // back out of an alias template.
 template <

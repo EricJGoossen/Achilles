@@ -27,7 +27,7 @@ namespace {
 // pair, so this only ever proves AlgorithmLike's own three-member shape,
 // never anything about a real FieldEnumLike/ViewLike's own contract (those
 // have their own concept archetypes -- see engine_field_contract.cpp and
-// engine_view_contract.cpp).
+// engine_view_view_contract.cpp).
 struct AlgorithmArchetype {
   using Enum = ToyField;
   using View = ToyView;

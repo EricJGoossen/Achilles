@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstddef>
+#include <span>
 #include <xsimd/xsimd.hpp>
 
 #include "domain/math/vector3.hpp"
@@ -16,19 +18,32 @@ using achilles::test_support::ToyAlgorithm;
 using achilles::test_support::ToyField;
 using achilles::test_support::ToyView;
 
+namespace {
+
+// Every padded row plus the reserved base row, rounded up to the lane
+// width -- what OrderingPlan::ViewInstanceCount() sized the View to.
+std::size_t ExpectedViewSize(const SimAllocator<ToyAlgorithm>& sim) {
+  std::size_t lane = SimAllocator<ToyAlgorithm>::RequiredLaneSize();
+  std::size_t needed = sim.LayoutFor<LinearOrdering>().BaseRowIndex() + 1;
+  return (needed + lane - 1) / lane * lane;
+}
+
+}  // namespace
+
 // ToyField never names an Ordering (see toy_field.hpp), so it resolves to
-// the default topology::LinearOrdering -- the real Layout SimAllocator
+// the default topology::LinearOrdering -- the real row placement SimAllocator
 // built is the one source of truth these tests compare View::Size()/
 // NumBatches() against, rather than assuming a requested instance count
 // passes through unchanged: a real View always carries the ordering
 // policy's own lane padding plus one reserved base row on top of whatever
-// instance count was asked for (see topology::Layout::ViewInstanceCount()).
+// instance count was asked for (see
+// topology::OrderingPlan::ViewInstanceCount()).
 
 TEST(ViewSize, SizeAndLaneSize) {
   SimAllocator<ToyAlgorithm> sim = MakeToySim(8);
   ToyView view = sim.ViewFor<ToyAlgorithm>();
 
-  EXPECT_EQ(view.Size(), sim.LayoutFor<LinearOrdering>().ViewInstanceCount());
+  EXPECT_EQ(view.Size(), ExpectedViewSize(sim));
   EXPECT_EQ((view.LaneSize<float>()), 1U);
   EXPECT_EQ((view.LaneSize<xsimd::batch<float>>()), xsimd::batch<float>::size);
 }
@@ -37,7 +52,7 @@ TEST(ViewSize, NumBatchesDividesSizeByLaneSize) {
   std::size_t lane = xsimd::batch<float>::size;
   SimAllocator<ToyAlgorithm> sim = MakeToySim(4 * lane);
   ToyView view = sim.ViewFor<ToyAlgorithm>();
-  std::size_t size = sim.LayoutFor<LinearOrdering>().ViewInstanceCount();
+  std::size_t size = ExpectedViewSize(sim);
 
   EXPECT_EQ((view.NumBatches<ToyField::kPosition, float>()), size);
   EXPECT_EQ(
@@ -124,4 +139,19 @@ TEST(ViewFieldCursor, LoadStoreMatchDirectViewAccess) {
 
   view.Store<ToyField::kPosition, float>(1, Vector3<float>(0.5F, 0.5F, 0.5F));
   EXPECT_TRUE(cursor.Load<float>(1).IsApprox(Vector3<float>(0.5F, 0.5F, 0.5F)));
+}
+
+// LoadFlat copies a field's raw scalars in Assembler leaf order (x, y, z
+// for a Vector3) without assembling the domain type -- what field logging
+// reads through.
+TEST(ViewLoadFlat, CopiesLeavesInAssemblerOrder) {
+  SimAllocator<ToyAlgorithm> sim = MakeToySim(4);
+  ToyView view = sim.ViewFor<ToyAlgorithm>();
+  view.Store<ToyField::kPosition, float>(2, Vector3<float>(1.0F, 2.0F, 3.0F));
+
+  static_assert(ToyView::NumScalars<ToyField::kPosition>() == 3);
+  std::array<double, 3> flat{};
+  view.LoadFlat<ToyField::kPosition>(2, std::span<double>(flat));
+
+  EXPECT_EQ(flat, (std::array<double, 3>{1.0, 2.0, 3.0}));
 }

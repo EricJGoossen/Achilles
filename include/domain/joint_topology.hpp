@@ -3,7 +3,6 @@
 #include <cassert>
 #include <cstddef>
 #include <span>
-#include <xsimd/xsimd.hpp>
 
 namespace achilles::domain {
 
@@ -15,7 +14,16 @@ concept TopologyLike = requires(const T& topology) {
 
 class JointTopology {
  public:
-  explicit JointTopology(std::span<size_t> parents) : parents_(parents) {
+  // `lane_size` is the real SIMD lane width the caller padded `parents` to
+  // -- e.g. engine::topology::OrderingPlan's own lane_size, which follows
+  // whatever MathematicalT the hosted algorithms actually use (see
+  // SimAllocator::RequiredLaneSize()). Taken explicitly rather than
+  // re-derived from a hardcoded batch type, since a batch's own lane count
+  // depends on its element width (a xsimd::batch<double> has half the
+  // lanes of a same-register xsimd::batch<float>) -- hardcoding one here
+  // would silently validate padding built for a different lane count.
+  JointTopology(std::span<const size_t> parents, size_t lane_size)
+      : parents_(parents), lane_size_(lane_size) {
     assert(
         CheckBatchSafety() &&
         "A parent and child joint land in the same SIMD batch -- the "
@@ -31,9 +39,27 @@ class JointTopology {
     return parents_[i];
   }
 
+  // True when every row's parent either comes strictly earlier or is out
+  // of range (the reserved base row) -- what a single forward
+  // TreeTraversal pass (engine/pass/traversals.hpp) needs to see a
+  // joint's parent fully computed before the joint itself.
+  // TopologicalOrdering guarantees this by construction; LinearOrdering
+  // only when its archetypes have no real intra-archetype dependencies
+  // (see LinearOrdering, ordering_policy.hpp).
+  bool IsForwardSafe() const {
+    size_t size = Size();
+    for (size_t row = 0; row < size; ++row) {
+      size_t parent = parents_[row];
+      if (parent >= row && parent < size) {
+        return false;
+      }
+    }
+    return true;
+  }
+
  private:
   bool CheckBatchSafety() const {
-    size_t lane_size = xsimd::batch<float>::size;
+    size_t lane_size = lane_size_;
 
     if (lane_size <= 1) {
       return true;
@@ -51,7 +77,8 @@ class JointTopology {
     return true;
   }
 
-  std::span<size_t> parents_;
+  std::span<const size_t> parents_;
+  size_t lane_size_;
 };
 static_assert(TopologyLike<JointTopology>);
 

@@ -67,7 +67,7 @@ concept TraversalLike =
 // covers -- 1 (the default) for a scalar Op, or a batched Op's own T's lane
 // count (util::LaneCountOf<T>()) otherwise. A JointTopology's own Size()/
 // operator[] are always in raw-row units (one entry per real+padding row --
-// see Layout::PaddedSize()/AllocateTopology), but OpInvoker feeds whatever
+// see JointLayout::PaddedSize()), but OpInvoker feeds whatever
 // index this traversal hands it straight into View::Load/Store<T>, which
 // for a batched T addresses storage in units of Stride-sized *groups*, not
 // one raw row at a time (see View's own comment on Value/Load: "instance
@@ -77,7 +77,7 @@ concept TraversalLike =
 // -- both rows of a Stride-sized batch group always resolve to the same
 // parent GROUP, since SimAllocator always pads every level's own per-
 // instance block out to a multiple of the widest Stride any hosted field
-// needs (see topology::Layout::ViewInstanceCount()), so a group never
+// needs (see topology::OrderingPlan::ViewInstanceCount()), so a group never
 // straddles two different tree positions. Stride=1 (every existing scalar
 // caller) makes every division here a no-op, so this is a strictly
 // backward-compatible extension.

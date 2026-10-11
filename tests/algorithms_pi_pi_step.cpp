@@ -11,8 +11,8 @@
 #include "algorithms/pi/pi_step.hpp"
 #include "algorithms/sim_config.hpp"
 #include "domain/archetype.hpp"
+#include "domain/joint_layout.hpp"
 #include "engine/memory/sim_allocator.hpp"
-#include "engine/topology/layout.hpp"
 #include "engine/topology/ordering_policy.hpp"
 #include "util/simd_ops.hpp"
 
@@ -35,7 +35,7 @@ namespace {
 
 using B = MathematicalT;
 
-std::size_t Lane() { return xsimd::batch<float>::size; }
+std::size_t Lane() { return B::size; }
 
 ::testing::AssertionResult BatchTrue(const auto& mask) {
   if (achilles::util::AllTrue(mask)) {
@@ -75,9 +75,9 @@ SimAllocator<PIAlgorithm> MakeSim(std::size_t instance_count) {
 }
 
 std::size_t BatchGroup(
-    const achilles::engine::topology::Layout& layout, std::size_t joint
+    const achilles::domain::JointLayout& layout, std::size_t instance
 ) {
-  return layout.ToSorted(0, joint) / Lane();
+  return layout.ToSorted({instance, 0}) / Lane();
 }
 
 void PopulateJoint(

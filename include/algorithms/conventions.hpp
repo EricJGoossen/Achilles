@@ -20,6 +20,16 @@ using BatchOperationT = xsimd::batch<float>;
 using ScalarOperationT = float;
 using MathematicalT = BatchOperationT;
 
+// Compile-time switch for per-tick field logging (see
+// engine/pass/field_log.hpp and interface::Simulation::EnableLog). Set by
+// the ACHILLES_ENABLE_LOGGING CMake option; when false, Simulation's log
+// member is interface::SimLog's empty no-op specialization, so none of the
+// logging code is instantiated.
+#ifndef ACHILLES_ENABLE_LOGGING
+#define ACHILLES_ENABLE_LOGGING 1
+#endif
+inline constexpr bool kLoggingEnabled = ACHILLES_ENABLE_LOGGING != 0;
+
 // Math
 using Vector3 = math::Vector3<MathematicalT>;
 using Vector6 = math::Vector6<MathematicalT>;

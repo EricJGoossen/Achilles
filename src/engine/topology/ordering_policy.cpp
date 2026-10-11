@@ -9,7 +9,8 @@
 #include <utility>
 #include <vector>
 
-#include "engine/topology/layout.hpp"
+#include "domain/joint_layout.hpp"
+#include "engine/topology/ordering_plan.hpp"
 
 namespace achilles::engine::topology {
 
@@ -91,7 +92,7 @@ ChildrenCsr BuildChildrenCsr(std::span<const std::size_t> tree_structure) {
 }
 }  // namespace
 
-Layout Ordering::BuildFromLocalOrders(
+OrderingPlan Ordering::BuildFromLocalOrders(
     std::span<ArchetypeTreeStructure> tree,
     std::span<const std::vector<std::size_t>> local_topo_orders,
     std::span<const std::size_t> placement_order,
@@ -113,13 +114,9 @@ Layout Ordering::BuildFromLocalOrders(
   // instances, 0..n-1, never the padded tail), so there's nothing to
   // protect it from. Defaulting it to the base row is just "any valid,
   // already-seeded row" -- one fewer reserved slot than inventing a
-  // separate scratch row for a case nothing ever reads. Layout's
-  // constructor requires parents to hold exactly one more row than
-  // sorted_to_physical (the reserved base row itself, at index
-  // padded_size) -- AllocateTopology never reads that last slot, but the
-  // shape invariant still expects it to be there.
+  // separate scratch row for a case nothing ever reads.
   std::size_t base_row = consolidated.padded_size;
-  std::vector<std::size_t> parents(consolidated.padded_size + 1, base_row);
+  std::vector<std::size_t> parents(consolidated.padded_size, base_row);
 
   for (std::size_t a = 0; a < tree.size(); ++a) {
     std::span<const std::size_t> tree_structure = tree[a].tree_structure;
@@ -142,10 +139,28 @@ Layout Ordering::BuildFromLocalOrders(
     }
   }
 
+  // Flatten physical_to_sorted (archetype, then instance-major joint) into
+  // one array indexed by global instance: archetype a's instances are
+  // global instances instance_offsets[a]..., in archetype order, so
+  // concatenating the per-archetype arrays in that same order lines up.
+  std::vector<std::size_t> instance_offsets = {0};
+  std::vector<std::size_t> sorted_rows;
+  for (std::size_t a = 0; a < tree.size(); ++a) {
+    std::size_t k = tree[a].tree_structure.size();
+    for (std::size_t i = 0; i < tree[a].root_parents.size(); ++i) {
+      instance_offsets.push_back(instance_offsets.back() + k);
+    }
+    sorted_rows.insert(
+        sorted_rows.end(),
+        consolidated.physical_to_sorted[a].begin(),
+        consolidated.physical_to_sorted[a].end()
+    );
+  }
   return {
-      std::move(consolidated.physical_to_sorted),
-      std::move(consolidated.sorted_to_physical),
       std::move(parents),
+      std::move(instance_offsets),
+      std::move(sorted_rows),
+      std::move(consolidated.sorted_to_physical),
       lane_size
   };
 }
@@ -190,7 +205,10 @@ Ordering::ConsolidatedOrder Ordering::Consolidate(
   out.physical_to_sorted.resize(archetypes.size());
   out.root_parent_rows.resize(archetypes.size());
   out.sorted_to_physical.assign(
-      running_total, ArchetypeJointHandle{kNoParent, kNoParent}
+      running_total,
+      ArchetypeJointHandle{
+          domain::JointLayout::kNoInstance, domain::JointLayout::kNoInstance
+      }
   );
 
   for (std::size_t a = 0; a < archetypes.size(); ++a) {
@@ -337,7 +355,7 @@ std::vector<std::size_t> TopologicalOrdering::ArchetypeDepths(
   return depth;
 }
 
-Layout TopologicalOrdering::Build(
+OrderingPlan TopologicalOrdering::Build(
     std::span<ArchetypeTreeStructure> tree, std::size_t lane_size
 ) {
   std::vector<std::size_t> depths = ArchetypeDepths(tree);
@@ -375,7 +393,7 @@ Layout TopologicalOrdering::Build(
   );
 }
 
-Layout LinearOrdering::Build(
+OrderingPlan LinearOrdering::Build(
     std::span<ArchetypeTreeStructure> tree, std::size_t lane_size
 ) {
   // No sort, no archetype reordering -- every instance stands alone, so

@@ -10,9 +10,13 @@
 using achilles::domain::JointTopology;
 
 TEST(JointTopologyConstruction, SizeMatchesTheSpanItWasBuiltFrom) {
-  std::vector<std::size_t> parents = {4, 4, 4, 4};  // out of range (== size): no parent
+  std::vector<std::size_t> parents = {
+      4, 4, 4, 4
+  };  // out of range (== size): no parent
 
-  JointTopology topology{std::span<std::size_t>(parents)};
+  JointTopology topology{
+      std::span<std::size_t>(parents), xsimd::batch<float>::size
+  };
 
   EXPECT_EQ(topology.Size(), 4U);
 }
@@ -24,7 +28,9 @@ TEST(JointTopologyConstruction, SizeMatchesTheSpanItWasBuiltFrom) {
 TEST(JointTopologyAccess, IndexingReturnsStoredParents) {
   std::vector<std::size_t> parents = {10, 11, 12, 13};
 
-  JointTopology topology{std::span<std::size_t>(parents)};
+  JointTopology topology{
+      std::span<std::size_t>(parents), xsimd::batch<float>::size
+  };
 
   EXPECT_EQ(topology[0], 10U);
   EXPECT_EQ(topology[1], 11U);
@@ -51,7 +57,7 @@ TEST(JointTopologyConstruction, AcceptsATwoLevelTreePaddedToTheRealLaneWidth) {
     parents[i] = i - lane;
   }
 
-  JointTopology topology{std::span<std::size_t>(parents)};
+  JointTopology topology{std::span<std::size_t>(parents), lane};
 
   EXPECT_EQ(topology.Size(), n);
   for (std::size_t i = 0; i < lane; ++i) {
@@ -70,14 +76,28 @@ TEST(JointTopologyConstructorPrecondition, DiesOnSelfParentBatchUnsafety) {
   std::vector<std::size_t> parents = {0};
 
   EXPECT_DEATH(
-      JointTopology(std::span<std::size_t>(parents)), "same SIMD batch"
+      JointTopology(std::span<std::size_t>(parents), xsimd::batch<float>::size),
+      "same SIMD batch"
   );
 }
 
 TEST(JointTopologyAccessPrecondition, DiesOnOutOfRangeIndex) {
   std::vector<std::size_t> parents = {1};  // out of range: safe by construction
 
-  JointTopology topology{std::span<std::size_t>(parents)};
+  JointTopology topology{
+      std::span<std::size_t>(parents), xsimd::batch<float>::size
+  };
 
   EXPECT_DEATH({ (void)topology[1]; }, "");
+}
+
+// Row 1's parent is row 0 (earlier) and row 2's is out of range (the base
+// row) -- forward-safe. Swapping row 1 to point at row 2 (later) isn't.
+TEST(JointTopologyIsForwardSafe, RequiresEveryParentEarlierOrOutOfRange) {
+  std::vector<std::size_t> safe = {3, 0, 3};
+  std::vector<std::size_t> unsafe = {3, 2, 3};
+
+  EXPECT_TRUE(JointTopology(std::span<std::size_t>(safe), 1).IsForwardSafe());
+  EXPECT_FALSE(JointTopology(std::span<std::size_t>(unsafe), 1).IsForwardSafe()
+  );
 }

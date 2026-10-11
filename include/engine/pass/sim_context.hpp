@@ -5,6 +5,8 @@
 #include <type_traits>
 #include <utility>
 
+#include "algorithms/conventions.hpp"
+#include "domain/joint_layout.hpp"
 #include "domain/joint_topology.hpp"
 #include "engine/algorithm_contract.hpp"
 #include "engine/memory/binding.hpp"
@@ -26,7 +28,9 @@ namespace detail {
 // AlgorithmT::Step.
 template <typename AlgorithmT, typename SimContextT, typename Config>
 void StepAlgorithm(
-    const SimContextT& sim_context, const Config& config, float dt
+    const SimContextT& sim_context,
+    const Config& config,
+    algorithms::ScalarOperationT dt
 ) {
   using StepT = typename AlgorithmT::Step;
   if constexpr (!std::is_same_v<StepT, NoStep>) {
@@ -80,9 +84,16 @@ using UsedOrderingsFor = util::UniqueT<
 // needed a wrapper like this: ViewFactory<EnumT, Traits> already produces a
 // distinct type per Algorithm, so std::tuple<Algorithms::View...> has no
 // such collision to begin with.
+//
+// Also carries the policy's JointLayout -- which real (instance, joint)
+// each row holds, and which rows are padding -- for anything that
+// addresses a specific joint after construction (e.g. field logging,
+// field_log.hpp). Both are views into the Arena, so the slot stays
+// trivially copyable.
 template <typename Policy>
 struct TopologySlot {
   domain::JointTopology topology;
+  domain::JointLayout layout;
 };
 
 // The concrete tuple type SimContext<Algorithms...> stores its topologies
@@ -129,6 +140,12 @@ class SimContext {
     return std::get<TopologySlot<Policy>>(topologies_).topology;
   }
 
+  // Where the same ordering policy placed each joint -- see TopologySlot.
+  template <topology::LayoutPolicyLike Policy>
+  const domain::JointLayout& LayoutFor() const {
+    return std::get<TopologySlot<Policy>>(topologies_).layout;
+  }
+
   // The original, Algorithm-keyed overload -- kept for existing external
   // callers that only ever have the whole AlgorithmT in hand and shouldn't
   // have to also know its View type by name (SimAllocator::ViewFor,
@@ -166,7 +183,7 @@ class SimContext {
   // (ViewFor<ViewT>()/TopologyFor<Policy>()), rather than either being
   // resolved and handed to it up front.
   template <typename Config>
-  void Step(float dt, const Config& config) const {
+  void Step(algorithms::ScalarOperationT dt, const Config& config) const {
     (detail::StepAlgorithm<Algorithms>(*this, config, dt), ...);
   }
 
