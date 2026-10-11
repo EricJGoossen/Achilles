@@ -113,15 +113,37 @@ class Transform {
     return *this;
   }
 
+  // X m X^T, with X = [[R, t~R], [0, R]] the 6x6 force transform (t~ the
+  // skew matrix of the translation). Computed block-wise on m's own 3x3
+  // blocks [[A, B], [C, D]] instead of as two dense 6x6 products: X's
+  // zero block and the t~ factors (a t~ product is just a cross product
+  // per row/column) are never multiplied out, which cuts the work by
+  // about a third -- this runs once per joint in ABA's inertia pass.
+  //   X m     = [[R A + t~ R C, R B + t~ R D], [R C, R D]]
+  //           = [[P11, P12], [P21, P22]]
+  //   X m X^T = [[P11 R^T + P12 R^T t~^T, P12 R^T],
+  //              [P21 R^T + P22 R^T t~^T, P22 R^T]]
   constexpr math::Matrix6x6<T> Apply(const math::Matrix6x6<T>& m) const {
-    math::Matrix3x3<T> r = rotation_.ToRotationMatrix();
-    math::Matrix3x3<T> t = translation_.Skew();
+    using Matrix3x3 = math::Matrix3x3<T>;
+    const Matrix3x3 r = rotation_.ToRotationMatrix();
+    const Matrix3x3 r_t = r.Transpose();
+
+    const Matrix3x3 p21 = r * m.template Submatrix<3, 3>(3, 0);
+    const Matrix3x3 p22 = r * m.template Submatrix<3, 3>(3, 3);
+    const Matrix3x3 p11 =
+        r * m.template Submatrix<3, 3>(0, 0) + SkewTimes(p21);
+    const Matrix3x3 p12 =
+        r * m.template Submatrix<3, 3>(0, 3) + SkewTimes(p22);
+
+    const Matrix3x3 q12 = p12 * r_t;
+    const Matrix3x3 q22 = p22 * r_t;
+
     math::Matrix6x6<T> x;
-    x.SetSubmatrix(0, 0, r);
-    x.SetSubmatrix(0, 3, t * r);
-    x.SetSubmatrix(3, 0, math::Matrix3x3<T>::Zero());
-    x.SetSubmatrix(3, 3, r);
-    return x * m * x.Transpose();
+    x.SetSubmatrix(0, 0, p11 * r_t + TimesSkewTranspose(q12));
+    x.SetSubmatrix(0, 3, q12);
+    x.SetSubmatrix(3, 0, p21 * r_t + TimesSkewTranspose(q22));
+    x.SetSubmatrix(3, 3, q22);
+    return x;
   }
   constexpr SpatialVelocity<T> Apply(const SpatialVelocity<T>& v) const {
     Vector3 omega_dst = rotation_.Rotate(v.Angular());
@@ -156,6 +178,35 @@ class Transform {
   }
 
  private:
+  // t~ m: the translation crossed into each column of m.
+  constexpr math::Matrix3x3<T> SkewTimes(const math::Matrix3x3<T>& m) const {
+    const T tx = translation_.X();
+    const T ty = translation_.Y();
+    const T tz = translation_.Z();
+    math::Matrix3x3<T> result;
+    for (std::size_t j = 0; j < 3; ++j) {
+      result(0, j) = ty * m(2, j) - tz * m(1, j);
+      result(1, j) = tz * m(0, j) - tx * m(2, j);
+      result(2, j) = tx * m(1, j) - ty * m(0, j);
+    }
+    return result;
+  }
+
+  // m t~^T: the translation crossed into each row of m.
+  constexpr math::Matrix3x3<T> TimesSkewTranspose(const math::Matrix3x3<T>& m
+  ) const {
+    const T tx = translation_.X();
+    const T ty = translation_.Y();
+    const T tz = translation_.Z();
+    math::Matrix3x3<T> result;
+    for (std::size_t i = 0; i < 3; ++i) {
+      result(i, 0) = ty * m(i, 2) - tz * m(i, 1);
+      result(i, 1) = tz * m(i, 0) - tx * m(i, 2);
+      result(i, 2) = tx * m(i, 1) - ty * m(i, 0);
+    }
+    return result;
+  }
+
   Vector3 translation_;
   Quaternion rotation_;
 };

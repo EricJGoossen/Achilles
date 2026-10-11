@@ -48,4 +48,17 @@ static_assert(
     "IntegratePositionOp's operator() must line up with kInputs/kOutputs"
 );
 
+// Inline for the same reason as the ABA Ops (see the end of
+// algorithms/aba/aba_ops.hpp): visible at OpInvoker's call site.
+inline void IntegratePositionOp::operator()(
+    const MotionSubspace& S, const Velocity& qd, Transform* x_joint_out
+) const {
+  Velocity qd_spatial = S * qd;
+  *x_joint_out *= Transform::Exp(qd_spatial * dt_);
+  // See Transform::NormalizeRotationInPlace's own comment -- this is the
+  // one place a joint's own rotation accumulates via repeated composition
+  // across ticks, so it's the one place drift can actually build up.
+  x_joint_out->NormalizeRotationInPlace();
+}
+
 }  // namespace achilles::algorithms::pi

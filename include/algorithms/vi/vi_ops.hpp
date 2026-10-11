@@ -33,4 +33,12 @@ static_assert(
     "IntegrateVelocityOp's operator() must line up with kInputs/kOutputs"
 );
 
+// Inline for the same reason as the ABA Ops (see the end of
+// algorithms/aba/aba_ops.hpp): visible at OpInvoker's call site.
+inline void IntegrateVelocityOp::operator()(
+    const Acceleration& qdd, Velocity* qd_out
+) const {
+  *qd_out += qdd.Integrate(dt_);
+}
+
 }  // namespace achilles::algorithms::vi
