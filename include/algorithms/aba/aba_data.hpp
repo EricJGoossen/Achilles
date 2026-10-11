@@ -162,7 +162,11 @@ struct ABAFieldTraits<ABAField::kBiasAcceleration> {
 };
 template <>
 struct ABAFieldTraits<ABAField::kArticulatedInertia> {
-  using Assembler = spatial::InertiaOperatorAssembler<ScalarOperationT>;
+  // Symmetric, so stored as its 21-entry upper triangle: it's written by
+  // PropagateVelocityOp, then read and accumulated into by
+  // PropagateInertiaOp, for every joint, every pass.
+  using Assembler =
+      spatial::SymmetricInertiaOperatorAssembler<ScalarOperationT, false>;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::AoSoALayout;
 };
@@ -180,7 +184,9 @@ struct ABAFieldTraits<ABAField::kUTerm> {
 };
 template <>
 struct ABAFieldTraits<ABAField::kDInvTerm> {
-  using Assembler = spatial::InvertedInertiaOperatorAssembler<ScalarOperationT>;
+  // The inverse of the symmetric D = S^T I_A S -- symmetric too.
+  using Assembler =
+      spatial::SymmetricInertiaOperatorAssembler<ScalarOperationT, true>;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::AoSoALayout;
 };

@@ -1,12 +1,15 @@
 #pragma once
 
 #include <array>
+#include <bit>
 #include <cassert>
 #include <cmath>
 #include <complex>
 #include <cstddef>
+#include <tuple>
 #include <type_traits>
 #include <utility>
+#include <xsimd/xsimd.hpp>
 
 #include "domain/math/activation_mask.hpp"
 #include "domain/math/matrix.hpp"
@@ -577,5 +580,76 @@ using InvertedInertiaOperatorAssembler = engine::Assembler<
     T,
     math::Matrix6x6Assembler<T>>;
 static_assert(engine::AssemblerLike<InvertedInertiaOperatorAssembler<float>>);
+
+// Stores an InertiaOperator that is symmetric -- an articulated inertia,
+// or the inverse of one -- as just the 21 entries of its upper triangle
+// (row by row: (0,0)..(0,5), (1,1)..(1,5), ..., (5,5)) instead of all 36,
+// mirroring them back out on Read. Write keeps only the upper triangle of
+// whatever it's given, so it's only for values that really are symmetric.
+//
+// Hand-written rather than an engine::Assembler instantiation, since a
+// generic Assembler's leaves map one-to-one onto ToTuple()'s scalars; this
+// one still satisfies engine::AssemblerLike (ToTuple() is the same single
+// Matrix6x6 as InertiaOperatorAssembler's), so a field can switch to it
+// with nothing else changing. It is for unnamed fields: an archetype
+// field or a log column would see 21 scalars, not 36.
+template <typename T, bool Inverted>
+struct SymmetricInertiaOperatorAssembler {
+  using ScalarType = T;
+  static constexpr std::size_t kNumFields = 21;
+
+  template <typename TargetScalar>
+  using ExpectedTupleT = std::tuple<math::Matrix6x6<TargetScalar>>;
+
+  template <typename TargetScalar>
+  static InertiaOperator<TargetScalar, Inverted> Read(
+      const std::byte* field0, std::size_t field_stride_bytes
+  ) {
+    CheckTarget<TargetScalar>();
+    math::Matrix6x6<TargetScalar> m;
+    std::size_t leaf = 0;
+    for (std::size_t i = 0; i < 6; ++i) {
+      for (std::size_t j = i; j < 6; ++j, ++leaf) {
+        const TargetScalar value = util::SimdLoad<TargetScalar>(
+            std::bit_cast<const T*>(field0 + leaf * field_stride_bytes), 0
+        );
+        m(i, j) = value;
+        m(j, i) = value;
+      }
+    }
+    return InertiaOperator<TargetScalar, Inverted>(m);
+  }
+
+  template <typename TargetScalar, typename ValueT>
+  static void Write(
+      std::byte* field0, std::size_t field_stride_bytes, const ValueT& value
+  ) {
+    CheckTarget<TargetScalar>();
+    const math::Matrix6x6<TargetScalar>& m = value.AsMatrix();
+    std::size_t leaf = 0;
+    for (std::size_t i = 0; i < 6; ++i) {
+      for (std::size_t j = i; j < 6; ++j, ++leaf) {
+        util::SimdStore(
+            std::bit_cast<T*>(field0 + leaf * field_stride_bytes), 0, m(i, j)
+        );
+      }
+    }
+  }
+
+ private:
+  template <typename TargetScalar>
+  static constexpr void CheckTarget() {
+    static_assert(
+        std::is_same_v<TargetScalar, T> ||
+            std::is_same_v<TargetScalar, xsimd::batch<T>>,
+        "SymmetricInertiaOperatorAssembler reads/writes T or an xsimd::batch "
+        "of it."
+    );
+  }
+};
+static_assert(engine::AssemblerLike<
+              SymmetricInertiaOperatorAssembler<float, false>>);
+static_assert(engine::AssemblerLike<
+              SymmetricInertiaOperatorAssembler<float, true>>);
 
 }  // namespace achilles::domain::spatial
