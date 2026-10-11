@@ -164,7 +164,7 @@ struct PropagateInertiaOp {
   static int SharedSingleDof(const Mat6Mask& mask);
 
   // operator()'s fast path for a batch group whose every lane is either a
-  // 1-DOF joint driven by slot `Dof` or a no-DOF row (padding, a welded
+  // 1-DOF joint driven by slot `dof` or a no-DOF row (padding, a welded
   // joint), with every other column of S zero. That is the common case --
   // every revolute/prismatic joint, and a batch group of N copies of the
   // same joint always shares its mask -- and there U = I_A S has a single
@@ -174,11 +174,12 @@ struct PropagateInertiaOp {
   // up to float rounding (including D^-1 = 1 on each slot the mask leaves
   // inactive, and in every lane of a no-DOF row). Returns false, having
   // written nothing, when S has a nonzero entry outside that pattern; the
-  // caller then runs the dense path. always_inline: OpInvoker's flatten
-  // (engine/pass/op_invoker.hpp) doesn't reach through operator()'s
-  // dispatch lambda on its own.
-  template <std::size_t Dof>
+  // caller then runs the dense path. always_inline: clang's flatten on
+  // OpInvoker::Invoke only inlines direct callees (operator() here), and
+  // this needs to land in the same function for the invoker's dead output
+  // preloads to go away.
   [[gnu::always_inline]] bool SingleDof(
+      std::size_t dof,
       const MotionSubspace& S,
       const Mat6Mask& mask,
       const Transform& x_up,
@@ -333,29 +334,22 @@ inline void PropagateInertiaOp::operator()(
     Force* p_parent_out,
     Force* u_out
 ) const {
-  // The 1-DOF fast path (see SingleDof), with the slot as a template
-  // argument so every S(i, Dof)/U(i, Dof) index is a constant.
   const int dof = SharedSingleDof(mask);
-  const bool handled = [&]<std::size_t... Dofs>(std::index_sequence<Dofs...>) {
-    return (
-        (dof == static_cast<int>(Dofs) && SingleDof<Dofs>(
-                                              S,
-                                              mask,
-                                              x_up,
-                                              I_A,
-                                              c,
-                                              tau,
-                                              p,
-                                              I_A_parent_out,
-                                              U_out,
-                                              D_inv_out,
-                                              p_parent_out,
-                                              u_out
-                                          )) ||
-        ...
-    );
-  }(std::make_index_sequence<6>{});
-  if (handled) {
+  if (dof >= 0 && SingleDof(
+                      static_cast<std::size_t>(dof),
+                      S,
+                      mask,
+                      x_up,
+                      I_A,
+                      c,
+                      tau,
+                      p,
+                      I_A_parent_out,
+                      U_out,
+                      D_inv_out,
+                      p_parent_out,
+                      u_out
+                  )) {
     return;
   }
 
@@ -387,7 +381,10 @@ inline void PropagateInertiaOp::operator()(
   *D_inv_out = D_inv;
   *u_out = u;
 
-  *I_A_parent_out += x_up.Apply(I_A_contribution);
+  // I_A' is symmetric (as I_A is, and D^-1 is), so only its upper
+  // triangle needs transforming -- see Transform::ApplySymmetric.
+  *I_A_parent_out +=
+      InertiaOperator<false>(x_up.ApplySymmetric(I_A_contribution.AsMatrix()));
   *p_parent_out += x_up.Apply(p_contribution);
 }
 
@@ -409,8 +406,8 @@ inline int PropagateInertiaOp::SharedSingleDof(const Mat6Mask& mask) {
   return std::countr_zero(static_cast<std::make_unsigned_t<Lane>>(active));
 }
 
-template <std::size_t Dof>
-bool PropagateInertiaOp::SingleDof(
+inline bool PropagateInertiaOp::SingleDof(
+    std::size_t dof,
     const MotionSubspace& S,
     const Mat6Mask& mask,
     const Transform& x_up,
@@ -429,28 +426,28 @@ bool PropagateInertiaOp::SingleDof(
   const T zero(0.0F);
   const T one(1.0F);
 
-  // Lanes that have slot Dof active; the rest are no-DOF rows.
-  const auto live = util::Select(mask[Dof], one, zero) != zero;
+  // Lanes that have slot dof active; the rest are no-DOF rows.
+  const auto live = util::Select(mask[dof], one, zero) != zero;
 
-  // Only column Dof of S may be nonzero, and only in a live lane.
+  // Only column dof of S may be nonzero, and only in a live lane.
   auto stray = zero != zero;
   for (std::size_t i = 0; i < kN; ++i) {
     for (std::size_t j = 0; j < kN; ++j) {
       auto nonzero = S(i, j) != zero;
-      stray = stray | (j == Dof ? (nonzero & !live) : nonzero);
+      stray = stray | (j == dof ? (nonzero & !live) : nonzero);
     }
   }
   if (util::AnyTrue(stray)) {
     return false;
   }
 
-  const Matrix6x6 i_a = I_A.AsMatrix();
+  const Matrix6x6& i_a = I_A.AsMatrix();
   std::array<T, kN> s;
   for (std::size_t i = 0; i < kN; ++i) {
-    s[i] = S(i, Dof);
+    s[i] = S(i, dof);
   }
 
-  // U = I_A S: column Dof is I_A s, every other column is zero.
+  // U = I_A S: column dof is I_A s, every other column is zero.
   std::array<T, kN> u_col;
   for (std::size_t i = 0; i < kN; ++i) {
     T sum = i_a(i, 0) * s[0];
@@ -468,7 +465,7 @@ bool PropagateInertiaOp::SingleDof(
   }
   const T d_inv = util::Select(live, one / d, one);
 
-  // u = tau - S^T p: only entry Dof of S^T p is nonzero.
+  // u = tau - S^T p: only entry dof of S^T p is nonzero.
   T s_dot_p = s[0] * p[0];
   for (std::size_t i = 1; i < kN; ++i) {
     s_dot_p += s[i] * p[i];
@@ -477,22 +474,25 @@ bool PropagateInertiaOp::SingleDof(
   for (std::size_t i = 0; i < kN; ++i) {
     u_vals[i] = tau[i];
   }
-  u_vals[Dof] = u_vals[Dof] - s_dot_p;
+  u_vals[dof] = u_vals[dof] - s_dot_p;
   const Force u(math::Vector6<T>(
       u_vals[0], u_vals[1], u_vals[2], u_vals[3], u_vals[4], u_vals[5]
   ));
 
-  // U D^-1: column Dof of U, scaled.
+  // U D^-1: column dof of U, scaled.
   std::array<T, kN> u_d_inv;
   for (std::size_t i = 0; i < kN; ++i) {
     u_d_inv[i] = u_col[i] * d_inv;
   }
 
-  // I_A' = I_A - U D^-1 U^T: a rank-1 update.
+  // I_A' = I_A - U D^-1 U^T: a symmetric rank-1 update, computed on the
+  // upper triangle and mirrored.
   Matrix6x6 contribution;
   for (std::size_t i = 0; i < kN; ++i) {
-    for (std::size_t j = 0; j < kN; ++j) {
-      contribution(i, j) = i_a(i, j) - u_d_inv[i] * u_col[j];
+    for (std::size_t j = i; j < kN; ++j) {
+      const T value = i_a(i, j) - u_d_inv[i] * u_col[j];
+      contribution(i, j) = value;
+      contribution(j, i) = value;
     }
   }
   const InertiaOperator<false> I_A_contribution(contribution);
@@ -500,26 +500,26 @@ bool PropagateInertiaOp::SingleDof(
   // p' = p + I_A' c + U D^-1 u
   const Force p_contribution = p + I_A_contribution.Apply(c) +
                                Force(math::Vector6<T>(
-                                   u_d_inv[0] * u_vals[Dof],
-                                   u_d_inv[1] * u_vals[Dof],
-                                   u_d_inv[2] * u_vals[Dof],
-                                   u_d_inv[3] * u_vals[Dof],
-                                   u_d_inv[4] * u_vals[Dof],
-                                   u_d_inv[5] * u_vals[Dof]
+                                   u_d_inv[0] * u_vals[dof],
+                                   u_d_inv[1] * u_vals[dof],
+                                   u_d_inv[2] * u_vals[dof],
+                                   u_d_inv[3] * u_vals[dof],
+                                   u_d_inv[4] * u_vals[dof],
+                                   u_d_inv[5] * u_vals[dof]
                                ));
 
   Matrix6x6 U = Matrix6x6::Zero();
   Matrix6x6 D_inv = Matrix6x6::Identity();
   for (std::size_t i = 0; i < kN; ++i) {
-    U(i, Dof) = u_col[i];
+    U(i, dof) = u_col[i];
   }
-  D_inv(Dof, Dof) = d_inv;
+  D_inv(dof, dof) = d_inv;
 
   *U_out = InertiaOperator<false>(U);
   *D_inv_out = InertiaOperator<true>(D_inv);
   *u_out = u;
 
-  *I_A_parent_out += x_up.Apply(I_A_contribution);
+  *I_A_parent_out += InertiaOperator<false>(x_up.ApplySymmetric(contribution));
   *p_parent_out += x_up.Apply(p_contribution);
   return true;
 }

@@ -1,6 +1,5 @@
 #pragma once
 
-#include <array>
 #include <cstddef>
 #include <vector>
 
@@ -13,6 +12,7 @@
 #include "domain/spatial/transform.hpp"
 #include "engine/pass/sim_context.hpp"
 #include "engine/topology/ordering_policy.hpp"
+#include "util/simd_ops.hpp"
 
 namespace achilles::algorithms::aba {
 
@@ -58,12 +58,21 @@ namespace achilles::algorithms::aba {
 // exact angle addition (see tests/examples_two_joint_arm.cpp's own note
 // on the same property). A multi-axis joint would want a proper
 // Munthe-Kaas treatment before trusting the fourth-order claim.
+//
+// Every row is processed a whole batch group at a time (MathematicalT),
+// the same groups ABAStep itself walks: a tick is four ABA passes plus a
+// few cheap per-group sweeps over (q, qd), with per-group scratch that
+// persists across ticks rather than being reallocated by every one.
 struct RungeKutta4Step {
-  using ScalarTransform = domain::spatial::Transform<ScalarOperationT>;
-  using ScalarVelocity = domain::spatial::SpatialVelocity<ScalarOperationT>;
-  using ScalarAcceleration =
-      domain::spatial::SpatialAcceleration<ScalarOperationT>;
-  using Matrix6 = domain::math::Matrix6x6<ScalarOperationT>;
+  // What a tick carries from stage to stage for one batch group: the
+  // state it started from, and the weighted sums of each stage's own
+  // velocity (k_q) and acceleration (k_v).
+  struct GroupScratch {
+    Transform q0;
+    Velocity v0;
+    Velocity kv_sum;
+    Acceleration ka_sum;
+  };
 
   template <engine::pass::SimContextLike SimStateT, typename InstrumentationT>
   static void Step(
@@ -72,98 +81,94 @@ struct RungeKutta4Step {
       const InstrumentationT& instrumentation,
       ScalarOperationT dt
   ) {
+    constexpr std::size_t kLanes = util::LaneCountOf<MathematicalT>();
     const auto view = sim_state.template ViewFor<ABAView>();
     const auto& topology =
         sim_state.template TopologyFor<engine::topology::TopologicalOrdering>();
-    const std::size_t n = topology.Size();
+    // ABAStep walks exactly these groups (see its ForwardBatched) -- the
+    // topology is padded out to whole groups.
+    const std::size_t groups = topology.Size() / kLanes;
 
-    std::vector<ScalarTransform> q0(n);
-    std::vector<ScalarVelocity> v0(n);
-    std::vector<Matrix6> subspace(n);
-    for (std::size_t row = 0; row < n; ++row) {
-      q0[row] =
-          view.template Load<ABAField::kJointPosition, ScalarOperationT>(row);
-      v0[row] =
-          view.template Load<ABAField::kJointVelocity, ScalarOperationT>(row);
-      subspace[row] =
-          view.template Load<ABAField::kJointSubspace, ScalarOperationT>(row);
-    }
+    thread_local std::vector<GroupScratch> scratch;
+    scratch.resize(groups);
 
-    // kv[s] is stage s's own velocity derivative of position (i.e. the
-    // velocity that stage was evaluated at); ka[s] its acceleration.
-    std::array<std::vector<ScalarVelocity>, 4> kv;
-    std::array<std::vector<ScalarAcceleration>, 4> ka;
-    for (std::size_t s = 0; s < 4; ++s) {
-      kv[s].resize(n);
-      ka[s].resize(n);
-    }
-
-    // Writes stage state (q0 advanced by `twist` over `position_scale`*dt,
-    // v0 advanced by `accel` over `velocity_scale`*dt) into the view, then
-    // runs one ABA and records that stage's own (kv, ka).
-    auto evaluate_stage = [&](std::size_t stage,
-                              const std::vector<ScalarVelocity>* twist,
-                              const std::vector<ScalarAcceleration>* accel,
-                              ScalarOperationT scale) {
-      if (twist != nullptr) {
-        for (std::size_t row = 0; row < n; ++row) {
-          ScalarVelocity stage_v =
-              v0[row] + (*accel)[row].Integrate(dt * scale);
-          ScalarVelocity lifted = subspace[row] * (*twist)[row];
-          ScalarTransform stage_q =
-              q0[row] * ScalarTransform::Exp(lifted * (dt * scale));
-          view.template Store<ABAField::kJointPosition, ScalarOperationT>(
-              row, stage_q
-          );
-          view.template Store<ABAField::kJointVelocity, ScalarOperationT>(
-              row, stage_v
-          );
-          kv[stage][row] = stage_v;
-        }
-      } else {
-        for (std::size_t row = 0; row < n; ++row) {
-          kv[stage][row] = v0[row];
-        }
-      }
-      ABAStep::Step(sim_state, sim_config, instrumentation, dt);
-      for (std::size_t row = 0; row < n; ++row) {
-        ka[stage][row] =
-            view.template Load<ABAField::kJointAcceleration, ScalarOperationT>(
-                row
-            );
-      }
+    auto load_q = [&](std::size_t g) {
+      return view.template Load<ABAField::kJointPosition, MathematicalT>(g);
+    };
+    auto load_v = [&](std::size_t g) {
+      return view.template Load<ABAField::kJointVelocity, MathematicalT>(g);
+    };
+    auto load_qdd = [&](std::size_t g) {
+      return view.template Load<ABAField::kJointAcceleration, MathematicalT>(g);
+    };
+    auto load_s = [&](std::size_t g) {
+      return view.template Load<ABAField::kJointSubspace, MathematicalT>(g);
     };
 
-    evaluate_stage(0, nullptr, nullptr, 0.0F);
-    evaluate_stage(1, &kv[0], &ka[0], 0.5F);
-    evaluate_stage(2, &kv[1], &ka[1], 0.5F);
-    evaluate_stage(3, &kv[2], &ka[2], 1.0F);
+    // Writes the next stage's trial state, q0 * Exp(S kv h) and v0 + ka h,
+    // with h = dt * scale.
+    auto store_stage = [&](std::size_t g,
+                           const Velocity& kv,
+                           const Acceleration& ka,
+                           ScalarOperationT scale) {
+      const GroupScratch& s = scratch[g];
+      const MathematicalT h(dt * scale);
+      const Velocity lifted = load_s(g) * kv;
+      view.template Store<ABAField::kJointPosition, MathematicalT>(
+          g, s.q0 * Transform::Exp(lifted * h)
+      );
+      view.template Store<ABAField::kJointVelocity, MathematicalT>(
+          g, s.v0 + ka.Integrate(h)
+      );
+    };
 
-    for (std::size_t row = 0; row < n; ++row) {
-      // v_{n+1} = v_n + h/6 (a1 + 2 a2 + 2 a3 + a4).
-      ScalarVelocity velocity = v0[row] + ka[0][row].Integrate(dt / 6.0F) +
-                                ka[1][row].Integrate(dt / 3.0F) +
-                                ka[2][row].Integrate(dt / 3.0F) +
-                                ka[3][row].Integrate(dt / 6.0F);
+    // Stage 1 at (q0, v0): the state the view already holds.
+    ABAStep::Step(sim_state, sim_config, instrumentation, dt);
+    for (std::size_t g = 0; g < groups; ++g) {
+      GroupScratch& s = scratch[g];
+      s.q0 = load_q(g);
+      s.v0 = load_v(g);
+      const Acceleration ka = load_qdd(g);
+      s.kv_sum = s.v0;
+      s.ka_sum = ka;
+      store_stage(g, s.v0, ka, 0.5F);
+    }
 
-      // q_{n+1} = q_n * Exp(S * h/6 (v1 + 2 v2 + 2 v3 + v4)) -- one
-      // exponential of the blended twist, not four composed ones.
-      ScalarVelocity blended =
-          (kv[0][row] + kv[1][row] * 2.0F + kv[2][row] * 2.0F + kv[3][row]) *
-          (1.0F / 6.0F);
-      ScalarVelocity lifted = subspace[row] * blended;
-      ScalarTransform position = q0[row] * ScalarTransform::Exp(lifted * dt);
+    // Stages 2 and 3 (weight 2), each evaluated at the trial state the
+    // previous one stored; stage 3 sets up stage 4 a full step out.
+    const MathematicalT two(2.0F);
+    for (ScalarOperationT next_scale : {0.5F, 1.0F}) {
+      ABAStep::Step(sim_state, sim_config, instrumentation, dt);
+      for (std::size_t g = 0; g < groups; ++g) {
+        GroupScratch& s = scratch[g];
+        const Velocity kv = load_v(g);
+        const Acceleration ka = load_qdd(g);
+        s.kv_sum += kv * two;
+        s.ka_sum += ka * two;
+        store_stage(g, kv, ka, next_scale);
+      }
+    }
+
+    // Stage 4, then the commit:
+    //   v_{n+1} = v_n + h/6 (a1 + 2 a2 + 2 a3 + a4)
+    //   q_{n+1} = q_n * Exp(S * h/6 (v1 + 2 v2 + 2 v3 + v4))
+    // -- one exponential of the blended twist, not four composed ones.
+    ABAStep::Step(sim_state, sim_config, instrumentation, dt);
+    const MathematicalT sixth_dt(dt / 6.0F);
+    for (std::size_t g = 0; g < groups; ++g) {
+      const GroupScratch& s = scratch[g];
+      const Velocity kv_sum = s.kv_sum + load_v(g);
+      const Acceleration ka_sum = s.ka_sum + load_qdd(g);
+      Transform position =
+          s.q0 * Transform::Exp((load_s(g) * kv_sum) * sixth_dt);
       // See Transform::NormalizeRotationInPlace's own comment -- this is
       // the cross-tick-accumulating commit, unlike the four per-stage
       // trial positions above (each of which is discarded within this
       // same tick, before it could ever compound).
       position.NormalizeRotationInPlace();
-
-      view.template Store<ABAField::kJointPosition, ScalarOperationT>(
-          row, position
-      );
-      view.template Store<ABAField::kJointVelocity, ScalarOperationT>(
-          row, velocity
+      view.template Store<ABAField::kJointPosition, MathematicalT>(g, position);
+      view.template Store<ABAField::kJointVelocity, MathematicalT>(
+          g, s.v0 + ka_sum.Integrate(sixth_dt)
       );
     }
   }

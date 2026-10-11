@@ -143,6 +143,48 @@ class Transform {
     x.SetSubmatrix(3, 3, q22);
     return x;
   }
+
+  // Apply(m) for a symmetric m -- an articulated/rigid-body inertia -- at
+  // about two thirds the cost: only m's upper triangle is read (its lower-
+  // left block is taken as the upper-right's transpose), and only the
+  // result's upper triangle is computed, then mirrored. With
+  // m = [[A, B], [B^T, D]], A' = R A R^T, B' = R B R^T, D' = R D R^T:
+  //   X m X^T = [[A' + t~ B'^T + F t~^T, F], [F^T, D']],  F = B' + t~ D'
+  // (exactly what Apply(m) gives for that m, up to float rounding, and
+  // exactly symmetric). always_inline: it sits on ABA's hottest path, and
+  // out of line its 6x6 argument and result each cross the call through
+  // memory.
+  [[gnu::always_inline]] constexpr math::Matrix6x6<T> ApplySymmetric(
+      const math::Matrix6x6<T>& m
+  ) const {
+    using Matrix3x3 = math::Matrix3x3<T>;
+    const Matrix3x3 r = rotation_.ToRotationMatrix();
+    const Matrix3x3 a = RotateSymmetric(r, m, 0);
+    const Matrix3x3 d = RotateSymmetric(r, m, 3);
+    const Matrix3x3 b = r * m.template Submatrix<3, 3>(0, 3) * r.Transpose();
+
+    const Matrix3x3 f = b + SkewTimes(d);
+    const Matrix3x3 b_t_skew = TimesSkewTranspose(b);
+    const Matrix3x3 f_t_skew = TimesSkewTranspose(f);
+
+    math::Matrix6x6<T> x;
+    for (std::size_t i = 0; i < 3; ++i) {
+      for (std::size_t j = i; j < 3; ++j) {
+        // (t~ B'^T)(i, j) = (B' t~^T)(j, i)
+        const T top_left = a(i, j) + b_t_skew(j, i) + f_t_skew(i, j);
+        x(i, j) = top_left;
+        x(j, i) = top_left;
+        x(i + 3, j + 3) = d(i, j);
+        x(j + 3, i + 3) = d(i, j);
+      }
+      for (std::size_t j = 0; j < 3; ++j) {
+        x(i, j + 3) = f(i, j);
+        x(j + 3, i) = f(i, j);
+      }
+    }
+    return x;
+  }
+
   constexpr SpatialVelocity<T> Apply(const SpatialVelocity<T>& v) const {
     Vector3 omega_dst = rotation_.Rotate(v.Angular());
     Vector3 v_dst =
@@ -176,6 +218,36 @@ class Transform {
   }
 
  private:
+  // R S R^T for the symmetric 3x3 diagonal block of `m` starting at
+  // (offset, offset); only that block's upper triangle is read, and only
+  // the result's is computed, then mirrored.
+  static constexpr math::Matrix3x3<T> RotateSymmetric(
+      const math::Matrix3x3<T>& r,
+      const math::Matrix6x6<T>& m,
+      std::size_t offset
+  ) {
+    auto s = [&](std::size_t i, std::size_t j) {
+      return i <= j ? m(offset + i, offset + j) : m(offset + j, offset + i);
+    };
+    // rs = R S
+    math::Matrix3x3<T> rs;
+    for (std::size_t i = 0; i < 3; ++i) {
+      for (std::size_t j = 0; j < 3; ++j) {
+        rs(i, j) = r(i, 0) * s(0, j) + r(i, 1) * s(1, j) + r(i, 2) * s(2, j);
+      }
+    }
+    math::Matrix3x3<T> result;
+    for (std::size_t i = 0; i < 3; ++i) {
+      for (std::size_t j = i; j < 3; ++j) {
+        const T value =
+            rs(i, 0) * r(j, 0) + rs(i, 1) * r(j, 1) + rs(i, 2) * r(j, 2);
+        result(i, j) = value;
+        result(j, i) = value;
+      }
+    }
+    return result;
+  }
+
   // t~ m: the translation crossed into each column of m.
   constexpr math::Matrix3x3<T> SkewTimes(const math::Matrix3x3<T>& m) const {
     const T tx = translation_.X();

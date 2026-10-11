@@ -368,7 +368,11 @@ class InertiaOperator {
   constexpr std::tuple<Matrix6x6> ToTuple() const {
     return std::make_tuple(data_);
   }
-  constexpr Matrix6x6 AsMatrix() const { return data_; }
+  // By reference on an lvalue -- a 6x6 batched matrix is over a kilobyte,
+  // and most callers only read it -- by value on an rvalue, so binding the
+  // result of e.g. `(a * b).AsMatrix()` never dangles.
+  constexpr const Matrix6x6& AsMatrix() const& { return data_; }
+  constexpr Matrix6x6 AsMatrix() && { return data_; }
   constexpr bool IsInverse() const { return Inverted; }
   constexpr Inertia<T> AsSparse() const {
     static_assert(!Inverted, "Cannot convert InverseInertia to Inertia");
