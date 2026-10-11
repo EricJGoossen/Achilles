@@ -1,5 +1,6 @@
-#include "algorithms/conventions.hpp"
 #include "algorithms/pi/pi_ops.hpp"
+
+#include "algorithms/conventions.hpp"
 
 namespace achilles::algorithms::pi {
 
