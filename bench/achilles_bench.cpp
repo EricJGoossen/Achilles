@@ -5,7 +5,10 @@
 //                  <dt> <copies> <steps> [trials]
 //     Loads <scene.arow> with `copies: <copies>` injected, then times
 //     <steps> headless Simulation::Step(dt) calls (best of [trials], default
-//     5). Prints one JSON line.
+//     5). Prints one JSON line. copies == 1 loads the scene as-is: the
+//     bench_world wrapper only exists to make `copies` legal, and would
+//     otherwise cost a lone robot a whole extra batch group (the MuJoCo
+//     model it's compared against has no such joint).
 //
 //   achilles_bench trace <scene.arow> <sim_config.yaml> <integrator> <dt>
 //                  <steps> <out.csv>
@@ -187,10 +190,14 @@ int Throughput(int argc, char** argv) {
   const long steps = std::atol(argv[7]);
   const int trials = argc > 8 ? std::atoi(argv[8]) : 5;
 
-  std::filesystem::path arow = WithCopies(argv[2], copies);
+  const bool wrapped = copies != 1;
+  std::filesystem::path arow =
+      wrapped ? WithCopies(argv[2], copies) : std::filesystem::path(argv[2]);
   Simulation sim;
   bool ok = MakeSim(sim, arow.string(), argv[3], *integrator);
-  std::filesystem::remove_all(arow.parent_path());
+  if (wrapped) {
+    std::filesystem::remove_all(arow.parent_path());
+  }
   if (!ok) {
     return 1;
   }

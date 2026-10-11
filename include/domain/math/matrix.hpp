@@ -77,9 +77,13 @@ class Matrix {
   static constexpr Matrix PaddingSeed() { return Zero(); }
 
   // Access
-  constexpr auto ToTuple() const {
+  // References into this matrix, not copies -- see engine::AssemblableLike
+  // (engine/assembler.hpp) for why. Not callable on a temporary, whose
+  // references would dangle.
+  constexpr auto ToTuple() const& {
     return ToTupleImpl(std::make_index_sequence<M * N>{});
   }
+  void ToTuple() const&& = delete;
   constexpr std::size_t Rows() const { return M; }
   constexpr std::size_t Cols() const { return N; }
   constexpr T& operator()(std::size_t i, std::size_t j) {
@@ -622,7 +626,7 @@ class Matrix {
  private:
   template <std::size_t... Is>
   constexpr auto ToTupleImpl(std::index_sequence<Is...>) const {
-    return std::make_tuple(data_[Is]...);
+    return std::tie(data_[Is]...);
   }
 
   // Shared precondition check for the 6x6 Schur-complement Determinant()/

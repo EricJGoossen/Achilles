@@ -365,9 +365,11 @@ class InertiaOperator {
   static constexpr InertiaOperator PaddingSeed() { return Zero(); }
 
   // Access
-  constexpr std::tuple<Matrix6x6> ToTuple() const {
-    return std::make_tuple(data_);
+  // A reference, not a copy -- see engine::AssemblableLike.
+  constexpr std::tuple<const Matrix6x6&> ToTuple() const& {
+    return std::tie(data_);
   }
+  void ToTuple() const&& = delete;
   // By reference on an lvalue -- a 6x6 batched matrix is over a kilobyte,
   // and most callers only read it -- by value on an rvalue, so binding the
   // result of e.g. `(a * b).AsMatrix()` never dangles.

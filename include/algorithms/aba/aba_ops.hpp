@@ -454,15 +454,25 @@ bool PropagateInertiaOp::SingleDof(const Args& args) const {
   // Lanes that have slot dof active; the rest are no-DOF rows.
   const auto live = util::Select(mask[dof], one, zero) != zero;
 
-  // Only column dof of S may be nonzero, and only in a live lane.
-  auto stray = zero != zero;
+  // Only column dof of S may be nonzero, and only in a live lane. Checked
+  // on the bit patterns: OR-ing together every entry that has to be zero
+  // leaves no bit set only if all of them are. (A -0.0 entry counts as
+  // nonzero here, which only sends the group down the dense path.)
+  using Bits = xsimd::batch<std::int32_t>;
+  auto bits = [](const T& x) { return xsimd::bitwise_cast<std::int32_t>(x); };
+  Bits off_column(0);
+  Bits on_column(0);
   for (std::size_t i = 0; i < kN; ++i) {
     for (std::size_t j = 0; j < kN; ++j) {
-      auto nonzero = S(i, j) != zero;
-      stray = stray | (j == dof ? (nonzero & !live) : nonzero);
+      if (j == dof) {
+        on_column |= bits(S(i, j));
+      } else {
+        off_column |= bits(S(i, j));
+      }
     }
   }
-  if (util::AnyTrue(stray)) {
+  const Bits stray = off_column | xsimd::select(mask[dof], Bits(0), on_column);
+  if (xsimd::any(stray != Bits(0))) {
     return false;
   }
 

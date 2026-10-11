@@ -290,6 +290,27 @@ class Assembler {
 // first time something actually called Write for real, which could be a
 // completely different translation unit. Checking the shape directly here
 // catches that at the type's own static_assert instead.
+//
+// Each element may come back by value or by const reference -- the shape
+// is what's checked, not how ToTuple hands it out. A large type (a 6x6
+// matrix of batches is over a kilobyte) returns references into itself,
+// so that Write stores its leaves straight from it instead of first
+// copying the whole value into a tuple, once per nesting level.
+namespace assembler_detail {
+template <typename Tuple>
+struct DecayTuple;
+template <typename... Ts>
+struct DecayTuple<std::tuple<Ts...>> {
+  using Type = std::tuple<std::remove_cvref_t<Ts>...>;
+};
+template <typename Tuple>
+using DecayTupleT = typename DecayTuple<std::remove_cvref_t<Tuple>>::Type;
+}  // namespace assembler_detail
+
+template <typename Tuple, typename Expected>
+concept TupleShapedAs =
+    std::same_as<assembler_detail::DecayTupleT<Tuple>, Expected>;
+
 template <typename A>
 concept AssemblableLike = requires(
     decltype(A::template Read<typename A::ScalarType>(
@@ -302,10 +323,10 @@ concept AssemblableLike = requires(
   {
     value.ToTuple()
   }
-  -> std::same_as<typename A::template ExpectedTupleT<typename A::ScalarType>>;
+  -> TupleShapedAs<typename A::template ExpectedTupleT<typename A::ScalarType>>;
   {
     batch_value.ToTuple()
-  } -> std::same_as<typename A::template ExpectedTupleT<
+  } -> TupleShapedAs<typename A::template ExpectedTupleT<
         xsimd::batch<typename A::ScalarType>>>;
 };
 
