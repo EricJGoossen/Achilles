@@ -163,8 +163,25 @@ struct PropagateInertiaOp {
   // than one -- see SingleDof.
   static int SharedSingleDof(const Mat6Mask& mask);
 
+  // operator()'s arguments, bundled so SingleDof's per-slot dispatch below
+  // stays one line per slot.
+  struct Args {
+    const MotionSubspace& S;
+    const Mat6Mask& mask;
+    const Transform& x_up;
+    const InertiaOperator<false>& I_A;
+    const Acceleration& c;
+    const Force& tau;
+    const Force& p;
+    InertiaOperator<false>* I_A_parent_out;
+    InertiaOperator<false>* U_out;
+    InertiaOperator<true>* D_inv_out;
+    Force* p_parent_out;
+    Force* u_out;
+  };
+
   // operator()'s fast path for a batch group whose every lane is either a
-  // 1-DOF joint driven by slot `dof` or a no-DOF row (padding, a welded
+  // 1-DOF joint driven by slot Dof or a no-DOF row (padding, a welded
   // joint), with every other column of S zero. That is the common case --
   // every revolute/prismatic joint, and a batch group of N copies of the
   // same joint always shares its mask -- and there U = I_A S has a single
@@ -174,25 +191,16 @@ struct PropagateInertiaOp {
   // up to float rounding (including D^-1 = 1 on each slot the mask leaves
   // inactive, and in every lane of a no-DOF row). Returns false, having
   // written nothing, when S has a nonzero entry outside that pattern; the
-  // caller then runs the dense path. always_inline: clang's flatten on
-  // OpInvoker::Invoke only inlines direct callees (operator() here), and
-  // this needs to land in the same function for the invoker's dead output
-  // preloads to go away.
-  [[gnu::always_inline]] bool SingleDof(
-      std::size_t dof,
-      const MotionSubspace& S,
-      const Mat6Mask& mask,
-      const Transform& x_up,
-      const InertiaOperator<false>& I_A,
-      const Acceleration& c,
-      const Force& tau,
-      const Force& p,
-      InertiaOperator<false>* I_A_parent_out,
-      InertiaOperator<false>* U_out,
-      InertiaOperator<true>* D_inv_out,
-      Force* p_parent_out,
-      Force* u_out
-  ) const;
+  // caller then runs the dense path.
+  //
+  // Dof is a template argument so every S(i, Dof)/U(i, Dof) index is a
+  // constant -- with a runtime slot, S, U and D^-1 all have to be
+  // materialized on the stack to be indexed. always_inline: clang's
+  // flatten on OpInvoker::Invoke only inlines direct callees (operator()
+  // here), and this has to land in the same function for the invoker's
+  // dead output preloads to go away.
+  template <std::size_t Dof>
+  [[gnu::always_inline]] bool SingleDof(const Args& args) const;
 
   static inline const InertiaOperator<false> kIABase =
       InertiaOperator<false>::Zero();
@@ -334,22 +342,44 @@ inline void PropagateInertiaOp::operator()(
     Force* p_parent_out,
     Force* u_out
 ) const {
-  const int dof = SharedSingleDof(mask);
-  if (dof >= 0 && SingleDof(
-                      static_cast<std::size_t>(dof),
-                      S,
-                      mask,
-                      x_up,
-                      I_A,
-                      c,
-                      tau,
-                      p,
-                      I_A_parent_out,
-                      U_out,
-                      D_inv_out,
-                      p_parent_out,
-                      u_out
-                  )) {
+  const Args args{
+      S,
+      mask,
+      x_up,
+      I_A,
+      c,
+      tau,
+      p,
+      I_A_parent_out,
+      U_out,
+      D_inv_out,
+      p_parent_out,
+      u_out
+  };
+  bool handled = false;
+  switch (SharedSingleDof(mask)) {
+    case 0:
+      handled = SingleDof<0>(args);
+      break;
+    case 1:
+      handled = SingleDof<1>(args);
+      break;
+    case 2:
+      handled = SingleDof<2>(args);
+      break;
+    case 3:
+      handled = SingleDof<3>(args);
+      break;
+    case 4:
+      handled = SingleDof<4>(args);
+      break;
+    case 5:
+      handled = SingleDof<5>(args);
+      break;
+    default:
+      break;
+  }
+  if (handled) {
     return;
   }
 
@@ -406,21 +436,16 @@ inline int PropagateInertiaOp::SharedSingleDof(const Mat6Mask& mask) {
   return std::countr_zero(static_cast<std::make_unsigned_t<Lane>>(active));
 }
 
-inline bool PropagateInertiaOp::SingleDof(
-    std::size_t dof,
-    const MotionSubspace& S,
-    const Mat6Mask& mask,
-    const Transform& x_up,
-    const InertiaOperator<false>& I_A,
-    const Acceleration& c,
-    const Force& tau,
-    const Force& p,
-    InertiaOperator<false>* I_A_parent_out,
-    InertiaOperator<false>* U_out,
-    InertiaOperator<true>* D_inv_out,
-    Force* p_parent_out,
-    Force* u_out
-) const {
+template <std::size_t Dof>
+bool PropagateInertiaOp::SingleDof(const Args& args) const {
+  constexpr std::size_t dof = Dof;
+  const MotionSubspace& S = args.S;
+  const Mat6Mask& mask = args.mask;
+  const Transform& x_up = args.x_up;
+  const InertiaOperator<false>& I_A = args.I_A;
+  const Acceleration& c = args.c;
+  const Force& tau = args.tau;
+  const Force& p = args.p;
   using T = MathematicalT;
   constexpr std::size_t kN = 6;
   const T zero(0.0F);
@@ -515,12 +540,13 @@ inline bool PropagateInertiaOp::SingleDof(
   }
   D_inv(dof, dof) = d_inv;
 
-  *U_out = InertiaOperator<false>(U);
-  *D_inv_out = InertiaOperator<true>(D_inv);
-  *u_out = u;
+  *args.U_out = InertiaOperator<false>(U);
+  *args.D_inv_out = InertiaOperator<true>(D_inv);
+  *args.u_out = u;
 
-  *I_A_parent_out += InertiaOperator<false>(x_up.ApplySymmetric(contribution));
-  *p_parent_out += x_up.Apply(p_contribution);
+  *args.I_A_parent_out +=
+      InertiaOperator<false>(x_up.ApplySymmetric(contribution));
+  *args.p_parent_out += x_up.Apply(p_contribution);
   return true;
 }
 

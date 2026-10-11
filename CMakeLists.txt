@@ -91,6 +91,17 @@ target_compile_options(achilles_lib ${ACHILLES_LIB_TYPE}
     $<$<CONFIG:Release>:-O3>
 )
 
+# Let a * b + c become one fused multiply-add wherever the target has one
+# (-march=native on any x86-64 since Haswell). Clang only contracts within
+# a single source expression by default, and the math types' operators
+# (domain/math, over xsimd batches) put every * and + in a separate inlined
+# call, so without this nothing is ever fused -- about 9% of ABA's time.
+# GCC already defaults to this. PUBLIC: the hot code is header templates,
+# compiled in whatever translation unit uses them.
+if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(achilles_lib ${ACHILLES_LIB_TYPE} -ffp-contract=fast)
+endif ()
+
 target_include_directories(achilles_lib ${ACHILLES_LIB_TYPE}
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
