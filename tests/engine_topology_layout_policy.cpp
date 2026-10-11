@@ -15,7 +15,9 @@ using achilles::engine::topology::PlanarLayout;
 
 static_assert(LayoutPolicyLike<PlanarLayout>);
 
-TEST(PlanarLayoutLaneCount, MatchesXsimdBatchSizeForTheAssemblersOwnScalarType) {
+TEST(
+    PlanarLayoutLaneCount, MatchesXsimdBatchSizeForTheAssemblersOwnScalarType
+) {
   EXPECT_EQ(
       PlanarLayout::LaneCount<Vector3Assembler<float>>(),
       xsimd::batch<float>::size
@@ -26,7 +28,9 @@ TEST(PlanarLayoutLaneCount, MatchesXsimdBatchSizeForTheAssemblersOwnScalarType) 
   );
 }
 
-TEST(PlanarLayoutAlignment, MatchesAlignofXsimdBatchForTheAssemblersOwnScalarType) {
+TEST(
+    PlanarLayoutAlignment, MatchesAlignofXsimdBatchForTheAssemblersOwnScalarType
+) {
   EXPECT_EQ(
       PlanarLayout::Alignment<Vector3Assembler<float>>(),
       alignof(xsimd::batch<float>)
@@ -55,14 +59,15 @@ TEST(PlanarLayoutStrideBytes, RoundsUpToAlignment) {
   std::size_t alignment = PlanarLayout::Alignment<Vector3Assembler<float>>();
   std::size_t padded_instances = alignment / sizeof(float) + 1;
   std::size_t raw_bytes = padded_instances * sizeof(float);
-  std::size_t expected =
-      (raw_bytes + alignment - 1) / alignment * alignment;
+  std::size_t expected = (raw_bytes + alignment - 1) / alignment * alignment;
 
   EXPECT_EQ(
       PlanarLayout::StrideBytes<Vector3Assembler<float>>(padded_instances),
       expected
   );
-  EXPECT_GT(expected, raw_bytes);  // otherwise this test isn't exercising rounding
+  EXPECT_GT(
+      expected, raw_bytes
+  );  // otherwise this test isn't exercising rounding
 }
 
 TEST(PlanarLayoutStrideBytes, ExactMultipleOfAlignmentIsUnchanged) {
@@ -80,8 +85,10 @@ TEST(PlanarLayoutStrideBytes, ExactMultipleOfAlignmentIsUnchanged) {
 // flattens to 3 leaves (x, y, z), so its block is 3 independent leaf-arrays
 // back to back, not one array of Vector3-sized elements.
 TEST(PlanarLayoutBlockBytes, MultipliesStrideBytesByNumFields) {
-  std::size_t padded_instances = PlanarLayout::LaneCount<Vector3Assembler<float>>();
-  std::size_t stride = PlanarLayout::StrideBytes<Vector3Assembler<float>>(padded_instances);
+  std::size_t padded_instances =
+      PlanarLayout::LaneCount<Vector3Assembler<float>>();
+  std::size_t stride =
+      PlanarLayout::StrideBytes<Vector3Assembler<float>>(padded_instances);
 
   EXPECT_EQ(
       PlanarLayout::BlockBytes<Vector3Assembler<float>>(padded_instances),
@@ -92,12 +99,14 @@ TEST(PlanarLayoutBlockBytes, MultipliesStrideBytesByNumFields) {
 // ActivationMaskAssembler<8> flattens to a single leaf (RepeatTypes<1>),
 // so its BlockBytes is exactly one leaf's StrideBytes, not multiplied.
 TEST(PlanarLayoutBlockBytes, SingleLeafAssemblerBlockBytesEqualsStrideBytes) {
-  std::size_t padded_instances = PlanarLayout::LaneCount<ActivationMaskAssembler<8>>();
+  std::size_t padded_instances =
+      PlanarLayout::LaneCount<ActivationMaskAssembler<8>>();
   std::size_t stride =
       PlanarLayout::StrideBytes<ActivationMaskAssembler<8>>(padded_instances);
 
   EXPECT_EQ(
-      PlanarLayout::BlockBytes<ActivationMaskAssembler<8>>(padded_instances), stride
+      PlanarLayout::BlockBytes<ActivationMaskAssembler<8>>(padded_instances),
+      stride
   );
 }
 

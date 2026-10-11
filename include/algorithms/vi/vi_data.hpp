@@ -35,7 +35,7 @@ struct VIFieldTraits<VIField::kJointAcceleration> {
       domain::spatial::SpatialAccelerationAssembler<ScalarOperationT>;
   using SharedAs = JointAccelerationSlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "joint_acceleration";
 };
 template <>
@@ -45,7 +45,7 @@ struct VIFieldTraits<VIField::kJointVelocity> {
   using Assembler = domain::spatial::SpatialVelocityAssembler<ScalarOperationT>;
   using SharedAs = JointVelocitySlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "joint_velocity";
 };
 static_assert(engine::FieldTraitsLike<VIField, VIFieldTraits>);

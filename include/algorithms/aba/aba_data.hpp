@@ -76,28 +76,28 @@ struct ABAFieldTraits<ABAField::kJointSubspace> {
   using Assembler = math::Matrix6x6Assembler<ScalarOperationT>;
   using SharedAs = JointSubspaceSlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "joint_subspace";
 };
 template <>
 struct ABAFieldTraits<ABAField::kJointActivationMask> {
   using Assembler = math::ActivationMaskAssembler<6, ScalarOperationT>;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "joint_activation_mask";
 };
 template <>
 struct ABAFieldTraits<ABAField::kFixedJointTransform> {
   using Assembler = spatial::TransformAssembler<ScalarOperationT>;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "fixed_joint_transform";
 };
 template <>
 struct ABAFieldTraits<ABAField::kRigidBodyInertia> {
   using Assembler = spatial::InertiaAssembler<ScalarOperationT>;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "rigid_body_inertia";
 };
 template <>
@@ -108,7 +108,7 @@ struct ABAFieldTraits<ABAField::kJointPosition> {
   using Assembler = spatial::TransformAssembler<ScalarOperationT>;
   using SharedAs = JointPositionSlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "joint_position";
 };
 template <>
@@ -118,7 +118,7 @@ struct ABAFieldTraits<ABAField::kJointVelocity> {
   using Assembler = spatial::SpatialVelocityAssembler<ScalarOperationT>;
   using SharedAs = JointVelocitySlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "joint_velocity";
 };
 template <>
@@ -126,14 +126,14 @@ struct ABAFieldTraits<ABAField::kJointTorque> {
   using Assembler = spatial::SpatialForceAssembler<ScalarOperationT>;
   using SharedAs = JointTorqueSlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "joint_torque";
 };
 template <>
 struct ABAFieldTraits<ABAField::kParentToBodyTransform> {
   using Assembler = spatial::TransformAssembler<ScalarOperationT>;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
 };
 template <>
 struct ABAFieldTraits<ABAField::kWorldTransform> {
@@ -143,7 +143,7 @@ struct ABAFieldTraits<ABAField::kWorldTransform> {
   using Assembler = spatial::TransformAssembler<ScalarOperationT>;
   using SharedAs = WorldTransformSlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "world_transform";
 };
 template <>
@@ -151,44 +151,44 @@ struct ABAFieldTraits<ABAField::kSpatialVelocity> {
   using Assembler = spatial::SpatialVelocityAssembler<ScalarOperationT>;
   using SharedAs = SpatialVelocitySlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "spatial_velocity";
 };
 template <>
 struct ABAFieldTraits<ABAField::kBiasAcceleration> {
   using Assembler = spatial::SpatialAccelerationAssembler<ScalarOperationT>;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
 };
 template <>
 struct ABAFieldTraits<ABAField::kArticulatedInertia> {
   using Assembler = spatial::InertiaOperatorAssembler<ScalarOperationT>;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
 };
 template <>
 struct ABAFieldTraits<ABAField::kArticulatedBiasForce> {
   using Assembler = spatial::SpatialForceAssembler<ScalarOperationT>;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
 };
 template <>
 struct ABAFieldTraits<ABAField::kUTerm> {
   using Assembler = spatial::InertiaOperatorAssembler<ScalarOperationT>;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
 };
 template <>
 struct ABAFieldTraits<ABAField::kDInvTerm> {
   using Assembler = spatial::InvertedInertiaOperatorAssembler<ScalarOperationT>;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
 };
 template <>
 struct ABAFieldTraits<ABAField::kJointBiasForce> {
   using Assembler = spatial::SpatialForceAssembler<ScalarOperationT>;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
 };
 template <>
 struct ABAFieldTraits<ABAField::kJointAcceleration> {
@@ -197,7 +197,7 @@ struct ABAFieldTraits<ABAField::kJointAcceleration> {
   using Assembler = spatial::SpatialAccelerationAssembler<ScalarOperationT>;
   using SharedAs = JointAccelerationSlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "joint_acceleration";
 };
 template <>
@@ -205,7 +205,7 @@ struct ABAFieldTraits<ABAField::kSpatialAcceleration> {
   using Assembler = spatial::SpatialAccelerationAssembler<ScalarOperationT>;
   using SharedAs = SpatialAccelerationSlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "spatial_acceleration";
 };
 static_assert(engine::FieldTraitsLike<ABAField, ABAFieldTraits>);

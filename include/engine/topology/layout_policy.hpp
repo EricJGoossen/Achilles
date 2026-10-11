@@ -66,6 +66,73 @@ struct PlanarLayout {
   static constexpr bool IsLaneMultiple(std::size_t padded_instances) {
     return padded_instances % LaneCount<A>() == 0;
   }
+
+  // Byte offset of `row`'s first leaf within this field's block; its
+  // other leaves follow at StrideBytes intervals.
+  template <AssemblerLike A>
+  static constexpr std::size_t RowOffsetBytes(std::size_t row) {
+    return row * ElementStrideBytes<A>();
+  }
+
+  // StrideBytes depends on the instance count, so View keeps it as a
+  // runtime value.
+  static constexpr bool kFixedStride = false;
+};
+
+// Array-of-structures-of-arrays: rows are taken LaneCount<A>() at a time
+// (one batch group), and each group stores all of its leaves back to back
+// -- leaf 0's LaneCount scalars, then leaf 1's, ... -- before the next
+// group starts. A batched read of one group is then kNumFields aligned
+// loads from one contiguous run, at offsets known at compile time (the
+// leaf stride is one batch wide, whatever the instance count), instead of
+// kNumFields loads from kNumFields separate arrays a whole instance count
+// apart under PlanarLayout -- far fewer live pointers and address
+// computations in a hot loop over a 6x6 field, and one memory stream per
+// field rather than one per leaf. Within a group a leaf is still a plain
+// batch-wide array, so a scalar read of one row is the same per-leaf walk
+// PlanarLayout does, just from a different offset (RowOffsetBytes).
+struct AoSoALayout {
+  template <AssemblerLike A>
+  static constexpr std::size_t LaneCount() {
+    return xsimd::batch<typename A::ScalarType>::size;
+  }
+
+  template <AssemblerLike A>
+  static constexpr std::size_t Alignment() {
+    return alignof(xsimd::batch<typename A::ScalarType>);
+  }
+
+  // Leaf stride: one batch wide, for any instance count.
+  template <AssemblerLike A>
+  static constexpr std::size_t StrideBytes(std::size_t /*padded_instances*/) {
+    return LaneCount<A>() * sizeof(typename A::ScalarType);
+  }
+
+  // One batch group: every leaf, back to back. A multiple of Alignment<A>()
+  // since each leaf is exactly one batch.
+  template <AssemblerLike A>
+  static constexpr std::size_t GroupBytes() {
+    return StrideBytes<A>(0) * A::kNumFields;
+  }
+
+  template <AssemblerLike A>
+  static constexpr std::size_t BlockBytes(std::size_t padded_instances) {
+    return (padded_instances + LaneCount<A>() - 1) / LaneCount<A>() *
+           GroupBytes<A>();
+  }
+
+  template <AssemblerLike A>
+  static constexpr bool IsLaneMultiple(std::size_t padded_instances) {
+    return padded_instances % LaneCount<A>() == 0;
+  }
+
+  template <AssemblerLike A>
+  static constexpr std::size_t RowOffsetBytes(std::size_t row) {
+    return row / LaneCount<A>() * GroupBytes<A>() +
+           row % LaneCount<A>() * sizeof(typename A::ScalarType);
+  }
+
+  static constexpr bool kFixedStride = true;
 };
 
 // Kept intentionally thin: the real per-Assembler checks happen at the use

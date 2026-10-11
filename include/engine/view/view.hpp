@@ -120,23 +120,23 @@ class View {
   // of its Assembler tree (e.g. 7 for a Transform: translation xyz +
   // quaternion wxyz).
   // Caches one field's resolved base pointer + stride for a hot loop.
-  // Unaffected by which Layout policy field F uses -- that policy is
-  // already baked into field0_/stride_ by the time Field<F>() hands this
-  // out.
+  // Field F's Layout policy decides where a row starts (RowOffsetBytes) and
+  // how far apart its leaves sit (stride_, or a compile-time constant when
+  // the policy has one -- see Stride()).
   template <EnumT F>
   class FieldCursor {
    public:
     template <util::ArithmeticLike T>
     Value<F, T> Load(size_t index) const {
       return Assembler<F>::template Read<T>(
-          ElementAt(index * LaneSize<T>()), stride_
+          ElementAt(index * LaneSize<T>()), Stride()
       );
     }
 
     template <util::ArithmeticLike T>
     void Store(size_t index, const Value<F, T>& value) const {
       Assembler<F>::template Write<T>(
-          ElementAt(index * LaneSize<T>()), stride_, value
+          ElementAt(index * LaneSize<T>()), Stride(), value
       );
     }
 
@@ -147,8 +147,17 @@ class View {
 
     std::byte* ElementAt(size_t instance) const {
       return field0_ +
-             instance *
-                 FieldLayout<F>::template ElementStrideBytes<Assembler<F>>();
+             FieldLayout<F>::template RowOffsetBytes<Assembler<F>>(instance);
+    }
+
+    // A compile-time constant under a fixed-stride Layout (see
+    // topology::AoSoALayout), so every leaf offset folds into its load.
+    size_t Stride() const {
+      if constexpr (FieldLayout<F>::kFixedStride) {
+        return FieldLayout<F>::template StrideBytes<Assembler<F>>(0);
+      } else {
+        return stride_;
+      }
     }
 
     std::byte* field0_;
@@ -171,14 +180,13 @@ class View {
   }
 
   // Byte offset of `instance` within field F's block -- likewise entirely
-  // policy-dependent (e.g. topology::PlanarLayout's ElementStrideBytes<A>()
-  // is one scalar wide, sizeof(Scalar<F>), but a different policy answers
-  // this however its own storage shape requires).
+  // policy-dependent (e.g. topology::PlanarLayout's is instance *
+  // sizeof(Scalar<F>), topology::AoSoALayout's steps a whole batch group
+  // every LaneCount instances).
   template <EnumT F>
   std::byte* FieldZero(size_t instance) const {
     return type_bases_[static_cast<size_t>(F)] +
-           instance *
-               FieldLayout<F>::template ElementStrideBytes<Assembler<F>>();
+           FieldLayout<F>::template RowOffsetBytes<Assembler<F>>(instance);
   }
 
   std::array<std::byte*, kNumTypes> type_bases_;

@@ -174,9 +174,11 @@ struct PropagateInertiaOp {
   // up to float rounding (including D^-1 = 1 on each slot the mask leaves
   // inactive, and in every lane of a no-DOF row). Returns false, having
   // written nothing, when S has a nonzero entry outside that pattern; the
-  // caller then runs the dense path.
+  // caller then runs the dense path. always_inline: OpInvoker's flatten
+  // (engine/pass/op_invoker.hpp) doesn't reach through operator()'s
+  // dispatch lambda on its own.
   template <std::size_t Dof>
-  bool SingleDof(
+  [[gnu::always_inline]] bool SingleDof(
       const MotionSubspace& S,
       const Mat6Mask& mask,
       const Transform& x_up,

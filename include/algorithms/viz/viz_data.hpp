@@ -26,7 +26,7 @@ namespace achilles::algorithms::viz {
 // state other algorithms (ABA) or the archetype loader populate.
 //
 // A joint with no "visual_extents" given in its archetype gets
-// PlanarLayout's/Vector3's own zero-fill default (Vector3::Zero()), which a
+// the Arena's/Vector3's own zero-fill default (Vector3::Zero()), which a
 // renderer is expected to treat as "draw nothing for this joint" -- the
 // same "absent data reads as an inert default" convention every other
 // field in this codebase already follows (see e.g. Arena::ZeroFill's own
@@ -61,20 +61,20 @@ struct VizFieldTraits<VizField::kWorldTransform> {
   using Assembler = spatial::TransformAssembler<ScalarOperationT>;
   using SharedAs = WorldTransformSlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
 };
 template <>
 struct VizFieldTraits<VizField::kVisualExtents> {
   using Assembler = math::Vector3Assembler<ScalarOperationT>;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "visual_extents";
 };
 template <>
 struct VizFieldTraits<VizField::kVisualColor> {
   using Assembler = math::Vector3Assembler<ScalarOperationT>;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "visual_color";
 };
 static_assert(engine::FieldTraitsLike<VizField, VizFieldTraits>);

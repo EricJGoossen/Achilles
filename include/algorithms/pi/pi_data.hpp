@@ -39,7 +39,7 @@ struct PIFieldTraits<PIField::kJointSubspace> {
   using Assembler = math::Matrix6x6Assembler<ScalarOperationT>;
   using SharedAs = JointSubspaceSlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "joint_subspace";
 };
 template <>
@@ -49,7 +49,7 @@ struct PIFieldTraits<PIField::kJointVelocity> {
   using Assembler = domain::spatial::SpatialVelocityAssembler<ScalarOperationT>;
   using SharedAs = JointVelocitySlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "joint_velocity";
 };
 template <>
@@ -59,7 +59,7 @@ struct PIFieldTraits<PIField::kJointPosition> {
   using Assembler = domain::spatial::TransformAssembler<ScalarOperationT>;
   using SharedAs = JointPositionSlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "joint_position";
 };
 static_assert(engine::FieldTraitsLike<PIField, PIFieldTraits>);

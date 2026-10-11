@@ -135,11 +135,10 @@ struct BlockOps {
     const AssembledScalar seed = AssembledScalar::PaddingSeed();
     const std::size_t stride =
         FieldLayout::template StrideBytes<FieldAssembler>(padded_instances);
-    const std::size_t element_stride =
-        FieldLayout::template ElementStrideBytes<FieldAssembler>();
 
     auto write_row = [&](std::size_t row) {
-      std::byte* row_ptr = base + row * element_stride;
+      std::byte* row_ptr =
+          base + FieldLayout::template RowOffsetBytes<FieldAssembler>(row);
       FieldAssembler::template Write<ScalarType>(row_ptr, stride, seed);
     };
 
@@ -168,8 +167,8 @@ struct BlockOps {
   // domain type's own constructor shape varies per type. ArchetypeField's
   // own contract (see archetype.hpp) is that its leaves are already given
   // in the bound field's Assembler's own flattening order, which is
-  // exactly what makes writing them straight into the planar block, one
-  // leaf-array at a time, correct.
+  // exactly what makes writing them straight into the block, one leaf at
+  // a time (each at its Layout's own row offset + leaf * stride), correct.
   static void Populate(
       std::byte* base,
       std::size_t padded_instances,
@@ -182,8 +181,6 @@ struct BlockOps {
       using ScalarType = typename FieldAssembler::ScalarType;
       const std::size_t stride =
           FieldLayout::template StrideBytes<FieldAssembler>(padded_instances);
-      const std::size_t element_stride =
-          FieldLayout::template ElementStrideBytes<FieldAssembler>();
 
       // Global index of each archetype's first instance -- archetypes'
       // instances are numbered end to end, in archetype order.
@@ -207,9 +204,12 @@ struct BlockOps {
         for (std::size_t i = 0; i < instance_count; ++i) {
           for (std::size_t j = 0; j < joint_count; ++j) {
             std::size_t sorted_row = rows.ToSorted({first_instance + i, j});
+            std::byte* row_ptr =
+                base +
+                FieldLayout::template RowOffsetBytes<FieldAssembler>(sorted_row
+                );
             for (std::size_t leaf = 0; leaf < kLeafCount; ++leaf) {
-              std::byte* leaf_ptr =
-                  base + (leaf * stride) + (sorted_row * element_stride);
+              std::byte* leaf_ptr = row_ptr + (leaf * stride);
               *std::bit_cast<ScalarType*>(leaf_ptr) = static_cast<ScalarType>(
                   ArchetypeFieldAt(*field, i, j, leaf, joint_count)
               );

@@ -87,8 +87,14 @@ class OpInvokerBase {
       Op::kInputs.size() + I,
       util::ArgsOfT<decltype(&Op::operator())>>>;
 
+  // flatten: inline the Op's own body (and everything it calls) into this
+  // gather/call/scatter, however large it is. Only then can the compiler
+  // see that most outputs are overwritten without being read (dropping
+  // their preload below) and keep the Op's arguments out of a by-reference
+  // call boundary -- for the ABA Ops that measured as much time as the
+  // math itself.
   template <size_t... InIs, size_t... OutIs>
-  void
+  [[gnu::flatten]] void
   Invoke(size_t target_index, size_t parent_index, std::index_sequence<InIs...>, std::index_sequence<OutIs...>)
       const {
     std::tuple<OutputParam<OutIs>...> outputs{
@@ -114,8 +120,9 @@ class OpInvokerBase {
      ...);
   }
 
+  // flatten: see the (target, parent) overload above.
   template <size_t... InIs, size_t... OutIs>
-  void
+  [[gnu::flatten]] void
   Invoke(size_t target_index, std::index_sequence<InIs...>, std::index_sequence<OutIs...>)
       const {
     std::tuple<OutputParam<OutIs>...> outputs{

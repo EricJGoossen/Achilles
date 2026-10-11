@@ -52,7 +52,7 @@ struct LogFieldTraits<LogField::kJointPosition> {
   using Assembler = spatial::TransformAssembler<ScalarOperationT>;
   using SharedAs = JointPositionSlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "joint_position";
 };
 template <>
@@ -60,7 +60,7 @@ struct LogFieldTraits<LogField::kJointVelocity> {
   using Assembler = spatial::SpatialVelocityAssembler<ScalarOperationT>;
   using SharedAs = JointVelocitySlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "joint_velocity";
 };
 template <>
@@ -68,7 +68,7 @@ struct LogFieldTraits<LogField::kJointAcceleration> {
   using Assembler = spatial::SpatialAccelerationAssembler<ScalarOperationT>;
   using SharedAs = JointAccelerationSlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "joint_acceleration";
 };
 template <>
@@ -76,7 +76,7 @@ struct LogFieldTraits<LogField::kJointTorque> {
   using Assembler = spatial::SpatialForceAssembler<ScalarOperationT>;
   using SharedAs = JointTorqueSlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "joint_torque";
 };
 template <>
@@ -84,7 +84,7 @@ struct LogFieldTraits<LogField::kWorldTransform> {
   using Assembler = spatial::TransformAssembler<ScalarOperationT>;
   using SharedAs = WorldTransformSlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "world_transform";
 };
 template <>
@@ -92,7 +92,7 @@ struct LogFieldTraits<LogField::kSpatialVelocity> {
   using Assembler = spatial::SpatialVelocityAssembler<ScalarOperationT>;
   using SharedAs = SpatialVelocitySlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "spatial_velocity";
 };
 template <>
@@ -100,7 +100,7 @@ struct LogFieldTraits<LogField::kSpatialAcceleration> {
   using Assembler = spatial::SpatialAccelerationAssembler<ScalarOperationT>;
   using SharedAs = SpatialAccelerationSlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::AoSoALayout;
   static constexpr std::string_view kName = "spatial_acceleration";
 };
 static_assert(engine::FieldTraitsLike<LogField, LogFieldTraits>);
