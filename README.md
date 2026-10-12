@@ -30,7 +30,6 @@ Fetched automatically by CMake (`FetchContent`):
 
 | Library    | Version | Used for                         |
 |------------|---------|----------------------------------|
-| Eigen      | 3.4.0   | Linear algebra                   |
 | yaml-cpp   | 0.8.0   | `.arow` and config loading       |
 | GLFW       | 3.4     | Window and input for the viewer  |
 | GoogleTest | 1.14.0  | Test suite                       |
