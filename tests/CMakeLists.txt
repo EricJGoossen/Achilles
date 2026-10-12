@@ -1,7 +1,7 @@
 # tests/CMakeLists.txt
 #
 # GoogleTest is fetched from source (mirroring how the root CMakeLists.txt
-# pulls in Eigen) rather than found via find_package(GTest). Ubuntu's
+# pulls in yaml-cpp) rather than found via find_package(GTest). Ubuntu's
 # libgtest-dev package only ships headers/source, not prebuilt libraries,
 # so find_package(GTest) fails on a stock CI runner -- fetching source
 # avoids depending on the distro package at all.
@@ -41,7 +41,6 @@ foreach(_test_src ${ACHILLES_TEST_SOURCES})
             gtest
             gtest_main
             achilles_lib
-            Eigen3::Eigen
     )
 
     gtest_discover_tests(${target})
