@@ -48,8 +48,10 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "tags=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
           else
-            echo "tags=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            # Comma-separated, not newline-separated: a plain key=value line in
+            # $GITHUB_OUTPUT can't span lines, and build-push-action accepts
+            # either form.
+            echo "tags=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build and push
