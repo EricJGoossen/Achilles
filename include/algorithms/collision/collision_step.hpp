@@ -12,21 +12,29 @@
 
 namespace achilles::algorithms::collision {
 
-// Runs the broad phase's per-body pass for a single archetype. `sim_state`
-// supplies this Step's own CollisionView, looked up via
-// ViewFor<CollisionView>() the same way VIStep looks up its own VIView (see
-// vi_step.hpp's header comment). Like VI/PI, ComputeWorldBoundsOp reads/
-// writes each row independently -- a body's world bound depends only on its
-// own already-propagated kWorldTransform, never on its parent's -- so
-// ForwardBatched below is a LinearTraversal driven by view.Size() rather
-// than a TreeTraversal driven by a topology. `sim_config` and `dt` are both
-// unused: the bound is a pure function of this tick's pose.
+// Runs the broad phase for a single archetype: two passes over this Step's
+// own CollisionView, looked up via ViewFor<CollisionView>() the same way
+// VIStep looks up its own VIView (see vi_step.hpp's header comment).
+//
+// ComputeWorldBoundsOp first: like VI/PI, it reads/writes each row
+// independently -- a body's world bound depends only on its own already-
+// propagated kWorldTransform, never on its parent's -- so ForwardBatched is
+// a LinearTraversal driven by view.Size() rather than a TreeTraversal driven
+// by a topology. Then TestBoundsOverlapOp, over PairBatched: every row
+// against every lane group of rows from its own group on (see
+// engine::pass::PairTraversal), reading the bounds the first pass just
+// wrote. Both are driven by the same view.Size(), which includes the
+// reserved base row and lane filler -- those read as Zero() groups, so the
+// filter drops them like any other padding row. `sim_config` and `dt` are
+// both unused: the broad phase is a pure function of this tick's pose.
 struct CollisionStep {
   using FieldEnum = CollisionField;
 
   using ForwardBatched = engine::pass::LinearTraversal<
       engine::pass::Direction::kForward,
       util::LaneCountOf<MathematicalT>()>;
+  using PairBatched = engine::pass::
+      PairTraversal<engine::pass::Direction::kForward, kPairLanes>;
 
   template <engine::pass::SimContextLike SimStateT>
   static void Step(
@@ -39,8 +47,10 @@ struct CollisionStep {
     const auto view = sim_state.template ViewFor<CollisionView>();
 
     engine::pass::Step(
-        engine::pass::Ops<Pass<ComputeWorldBoundsOp, ForwardBatched>>{
-            ComputeWorldBoundsOp{}
+        engine::pass::Ops<
+            Pass<ComputeWorldBoundsOp, ForwardBatched>,
+            Pass<TestBoundsOverlapOp, PairBatched>>{
+            ComputeWorldBoundsOp{}, TestBoundsOverlapOp{}
         },
         view,
         view.Size()

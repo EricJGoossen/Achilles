@@ -47,4 +47,52 @@ static_assert(
     "ComputeWorldBoundsOp's operator() must line up with kInputs/kOutputs"
 );
 
+// Tests one source body's world bound (kSource, the same value in every
+// lane) against a whole lane group of target bodies' (kTarget) at once: two
+// world-axis-aligned boxes overlap when, on every axis, their centers are no
+// further apart than their half-extents summed, |c_t - c_s| <= h_t + h_s.
+// A pair also has to pass the group filter both ways (see collision_data.hpp)
+// -- the target's group in the source's mask, and the source's group in the
+// target's. The per-lane result is packed into one PairLaneMask word, bit t
+// for lane t, the same movemask a GPU port would get from a warp ballot.
+struct TestBoundsOverlapOp {
+  using FieldEnum = CollisionField;
+  using ArgData = engine::ArgData<FieldEnum>;
+  using ArgIndex = engine::ArgIndex;
+
+  static constexpr std::array<ArgData, 8> kInputs = {
+      ArgData{FieldEnum::kWorldBoundCenter, ArgIndex::kTarget},
+      ArgData{FieldEnum::kWorldBoundExtents, ArgIndex::kTarget},
+      ArgData{FieldEnum::kCollisionGroup, ArgIndex::kTarget},
+      ArgData{FieldEnum::kCollisionMask, ArgIndex::kTarget},
+      ArgData{FieldEnum::kWorldBoundCenter, ArgIndex::kSource},
+      ArgData{FieldEnum::kWorldBoundExtents, ArgIndex::kSource},
+      ArgData{FieldEnum::kCollisionGroup, ArgIndex::kSource},
+      ArgData{FieldEnum::kCollisionMask, ArgIndex::kSource},
+  };
+  static constexpr std::array<ArgData, 1> kOutputs = {
+      ArgData{FieldEnum::kBoundsOverlap, ArgIndex::kTarget},
+  };
+
+  void operator()(
+      const Vector3& c_target,
+      const Vector3& h_target,
+      const CollisionGroupMask& group_target,
+      const CollisionGroupMask& mask_target,
+      const Vector3& c_source,
+      const Vector3& h_source,
+      const CollisionGroupMask& group_source,
+      const CollisionGroupMask& mask_source,
+      PairLaneMask* overlap_out
+  ) const;
+};
+static_assert(
+    engine::OpLike<TestBoundsOverlapOp>,
+    "TestBoundsOverlapOp must satisfy OpLike concept"
+);
+static_assert(
+    engine::OpArgsMatchView<TestBoundsOverlapOp, CollisionView>,
+    "TestBoundsOverlapOp's operator() must line up with kInputs/kOutputs"
+);
+
 }  // namespace achilles::algorithms::collision

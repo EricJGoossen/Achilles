@@ -44,6 +44,12 @@ joints:
       # the visual box itself.
       collision_center: [0, 0, 0]
       collision_extents: [0.15, 0.5, 0.15]
+      # Bullet-style filter bits (16 groups): shoulder is group 0 and collides
+      # with every group but 1 (elbow's) -- 65535 with bit 1 cleared --
+      # since the two always overlap at the joint they share. A body with
+      # no collision_group never collides with anything.
+      collision_group: [1]
+      collision_mask: [65533]
       visual_color: [0.85, 0.3, 0.2]
   - name: elbow
     parent: shoulder
@@ -72,4 +78,7 @@ joints:
       visual_extents: [0.12, 0.4, 0.12]
       collision_center: [0, 0, 0]
       collision_extents: [0.12, 0.4, 0.12]
+      # Group 1; collides with every group but 0 (shoulder's).
+      collision_group: [2]
+      collision_mask: [65534]
       visual_color: [0.2, 0.55, 0.9]
