@@ -22,6 +22,9 @@ struct ArgData {
   bool use_target;
 };
 
+// An Op: operator() takes one `const P&` per kInputs entry (read-only),
+// then one `P*` per kOutputs entry (read/write -- loaded before the call
+// and stored after it, see OpInvokerBase in engine/pass/op_invoker.hpp).
 template <typename T>
 concept OpLike = requires(T a) {
   requires std::same_as<util::ReturnTypeOfT<decltype(&T::operator())>, void>;

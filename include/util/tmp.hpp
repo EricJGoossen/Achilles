@@ -142,4 +142,15 @@ struct Transform<F, TypeList<Ts...>> {
 
 template <template <typename> class F, typename List>
 using TransformT = typename Transform<F, List>::Type;
+
+// True when T is one of Ts....
+template <typename T, typename... Ts>
+inline constexpr bool kIsOneOfV = (std::is_same_v<T, Ts> || ...);
+
+// A std::ratio's value as T -- lets a compile-time constant (a stage
+// weight, a fraction of dt) be a template argument where a floating-point
+// non-type template argument isn't available.
+template <typename T, typename Ratio>
+inline constexpr T kRatioValueV =
+    static_cast<T>(Ratio::num) / static_cast<T>(Ratio::den);
 }  // namespace achilles::util

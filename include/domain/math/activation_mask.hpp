@@ -155,10 +155,19 @@ struct ActivationMaskFor {
   using Target = ActivationMask<StorageT, N>;
 };
 
-template <std::size_t N>
+// `PairedT` is the plain scalar (e.g. algorithms::ScalarOperationT, never a
+// batch -- see e.g. spatial::TransformAssembler<ScalarOperationT>'s own
+// pairing convention) this mask field travels alongside in the same
+// Algorithm; its own storage picks a same-width integer (via
+// util::MaskStorageFor) so this field's real batch lane count always
+// matches every other field's, rather than defaulting to a fixed int32
+// that only happens to match a float-paired sim (see util::MaskElementFor's
+// own comment on why a width mismatch here silently splits one batch group
+// into two).
+template <std::size_t N, typename PairedT = std::int32_t>
 using ActivationMaskAssembler = engine::Assembler<
     ActivationMaskFor<N>::template Target,
-    std::int32_t,
+    util::MaskStorageFor<PairedT>,
     engine::RepeatTypes<1>>;
 static_assert(engine::AssemblerLike<ActivationMaskAssembler<8>>);
 

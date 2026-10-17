@@ -21,7 +21,7 @@ namespace achilles::algorithms::viz {
 // (kVisualExtents/kVisualColor, static per-archetype appearance data, set
 // once at load time and never mutated at runtime). Like VIField/PIField,
 // this has nothing to do with *simulating* the system -- see VizAlgorithm
-// in viz_step.hpp, which names no Step at all (engine::NoStep) for exactly
+// in viz_step.hpp, which has no Step at all for exactly
 // that reason: there is no per-tick computation of its own to run, only
 // state other algorithms (ABA) or the archetype loader populate.
 //

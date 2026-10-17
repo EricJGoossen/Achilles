@@ -5,9 +5,8 @@
 
 namespace achilles::algorithms::viz {
 
-// VizAlgorithm has no Step of its own -- engine::NoStep, the same sentinel
-// a field-pool-only Algorithm uses (see its own comment,
-// engine/algorithm_contract.hpp). kWorldTransform is written by ABA (via
+// VizAlgorithm has no Step -- no step list names a viz Step, because there
+// is nothing per-tick for it to compute. kWorldTransform is written by ABA (via
 // the shared WorldTransformSlot); kVisualExtents/kVisualColor are written
 // once, at load time, by SimAllocator's Populate pass from a joint's own
 // archetype data. Nothing about drawing a frame belongs in

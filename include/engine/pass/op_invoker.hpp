@@ -20,14 +20,19 @@ namespace achilles::engine::pass {
 // entry out of the View and keeps those, not the View itself, so the hot
 // loop never repeats the View's pointer/stride lookup. Invoking it with a
 // (target, parent) index pair:
-//   1. Reads each of kInputs through its cursor (from `target_index` or
-//      `parent_index`, per that argument's `use_target`).
-//   2. Calls Op::operator() with those values, followed by a pointer to a
-//      freshly default-constructed local for each of kOutputs.
-//   3. Writes each local back through its cursor, again at `target_index`
+//   1. Reads each of kInputs and kOutputs through its cursor (from
+//      `target_index` or `parent_index`, per that argument's `use_target`).
+//   2. Calls Op::operator() with the inputs by const reference, followed
+//      by a pointer to the loaded value of each of kOutputs.
+//   3. Writes each output back through its cursor, again at `target_index`
 //      or `parent_index` per that output's `use_target`.
-// Arguments are strictly one or the other: an Op contract has no room for
-// a parameter that is both read from and written back to the View.
+// That is the whole Op contract: inputs are read-only, outputs are always
+// read/write. An output's incoming value is whatever the View holds at that
+// index -- an accumulator to add onto (vi's IntegrateVelocityOp, ABA's
+// PropagateInertiaOp into its parent), a previous value an Op means to
+// read, or stale data an Op simply overwrites. Which of those it is, is the
+// Op's own business to document; the invoker treats them all the same.
+// Initialize (OpInitInvoker below) follows the same contract.
 //
 // Op is borrowed, not copied: operator() is const, so the invoker never
 // needs its own copy to call through -- it just binds a reference to
@@ -223,7 +228,12 @@ class OpInitInvoker<Op, View, true> {
   void
   InitializeImpl(size_t base_index, std::index_sequence<InIs...>, std::index_sequence<OutIs...>)
       const {
-    std::tuple<InitOutputParam<OutIs>...> outputs;
+    std::tuple<InitOutputParam<OutIs>...> outputs{
+        std::get<OutIs>(init_output_cursors_)
+            .template Load<typename InitOutputParam<OutIs>::ScalarType>(
+                base_index
+            )...
+    };
 
     init_op_->Initialize(
         std::get<InIs>(init_input_cursors_)

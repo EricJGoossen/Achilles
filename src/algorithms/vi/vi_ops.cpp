@@ -1,5 +1,6 @@
-#include "algorithms/conventions.hpp"
 #include "algorithms/vi/vi_ops.hpp"
+
+#include "algorithms/conventions.hpp"
 
 namespace achilles::algorithms::vi {
 
