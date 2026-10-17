@@ -10,22 +10,26 @@
 
 namespace achilles::algorithms::collision {
 
-void ComputeWorldBoundsOp::operator()(
+void ComputeSweptBoxBoundsOp::operator()(
     const Transform& x_world,
-    const Vector3& c_local,
-    const Vector3& h_local,
+    const Transform& x_shape,
+    const Vector3& h,
+    const Scalar& radius,
     const Scalar& margin,
     Vector3* c_world_out,
     Vector3* h_world_out
 ) const {
-  Matrix3x3 r = x_world.Rotation().ToRotationMatrix();
+  Matrix3x3 r_world = x_world.Rotation().ToRotationMatrix();
 
-  // c_world = x_world c_local
-  *c_world_out = x_world.Translation() + r * c_local;
+  // R = R_world R_shape
+  Matrix3x3 r = r_world * x_shape.Rotation().ToRotationMatrix();
 
-  // h_world = |R| h_local + m
-  MathematicalT m = margin.Value();
-  *h_world_out = r.Abs() * h_local + Vector3(m, m, m);
+  // c_world = x_world t_shape
+  *c_world_out = x_world.Translation() + r_world * x_shape.Translation();
+
+  // h_world = |R| h + (r + m)
+  MathematicalT pad = (radius + margin).Value();
+  *h_world_out = r.Abs() * h + Vector3(pad, pad, pad);
 }
 
 void TestBoundsOverlapOp::operator()(

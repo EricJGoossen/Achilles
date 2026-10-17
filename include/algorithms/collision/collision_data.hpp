@@ -46,35 +46,46 @@ static_assert(
     "or their movemask bits won't AND with the bound test's."
 );
 
-// The broad-phase half of collision: every body carries one box, fixed in
-// its own frame (kCollisionCenter/kCollisionExtents -- static per-archetype
-// data, set once at load time), and each tick that box is re-expressed as
-// a world-axis-aligned bound (kWorldBoundCenter/kWorldBoundExtents) that a
-// pair pass can overlap-test with nothing but per-axis compares.
+// Every body carries one collision shape, and the broad phase derives a
+// world-axis-aligned bound from it each tick that a pair pass can overlap-
+// test with nothing but per-axis compares.
 //
-// Center + half-extents rather than min/max corners, both in the body frame
-// and in the world: the body-frame box maps onto its world bound with a
-// single rotate (center) and a single |R| product (extents) -- see
-// ComputeWorldBoundsOp, collision_ops.hpp -- and the pair test
-// |c_a - c_b| <= h_a + h_b is the same per-axis compare either way, with a
-// margin being nothing more than a += on the extents.
+// The shape is a sphere-swept box -- a box with every point of its surface
+// pushed out by a radius, i.e. the set of points within kCollisionRadius of
+// the inner box kCollisionExtents. That one type covers a sphere (zero
+// extents), a capsule (one nonzero extent), a box (zero radius) and a
+// rounded box, so the fine check has exactly one shape pair to handle and
+// never branches on shape type. kCollisionPose places the shape's own frame
+// in the body's, so a capsule can lie along any axis and a link's geometry
+// needn't be centred on its joint. All four are static per-archetype data,
+// set once at load time.
 //
-// The body-frame box is a *bound*, not the narrow-phase shape: whatever
-// shape the fine check ends up testing (box, sphere, capsule, ...) only has
-// to fit inside it. Until that shape exists the bound is authored directly;
-// once it does, kCollisionCenter/kCollisionExtents become derived from it
-// instead.
+// More shape types later each bring their own shape fields and their own
+// bound Op writing the same kWorldBoundCenter/kWorldBoundExtents (see
+// ComputeSweptBoxBoundsOp, collision_ops.hpp) -- the pair test only ever
+// reads the bound, so nothing downstream of it changes per type.
+//
+// Center + half-extents rather than min/max corners: the shape maps onto its
+// world bound with one rotate (center) and one |R| product (extents), and the
+// pair test |c_a - c_b| <= h_a + h_b is a per-axis compare either way. The
+// radius isn't rotated at all -- the swept sphere looks the same from every
+// direction -- so the bound stays as tight as the inner box's own.
 //
 // kCollisionMargin is MuJoCo's geom margin: it inflates the world bound on
 // every axis, so a pair becomes a candidate once its bounds come within
 // that distance, not only once they touch -- catching a pair a tick early
 // rather than after it's already interpenetrated. (MuJoCo's `gap`, which
 // decides whether such a not-yet-touching contact produces force, belongs
-// to the fine check and has no broad-phase meaning.) A body with no
-// "collision_extents" in its archetype gets PlanarLayout's/Vector3's own
-// zero-fill default (Vector3::Zero()) -- a point at its body origin -- the same
-// "absent data reads as an inert default" convention algorithms::viz's own
-// kVisualExtents follows (viz_data.hpp).
+// to the fine check and has no broad-phase meaning.)
+//
+// A body that gives none of these in its archetype reads the zero-fill
+// default: zero extents, radius and margin -- a point at its body origin --
+// and a zero kCollisionPose, whose rotation part still reads as identity
+// through ToRotationMatrix (every term of it is 1 - 0 or 0), so the shape
+// just sits on the body frame. That's the same "absent data reads as an
+// inert default" convention algorithms::viz's own kVisualExtents follows
+// (viz_data.hpp); such a body also has no kCollisionGroup, so it never
+// collides anyway.
 //
 // Which pairs are even allowed to collide is per-body data too, Bullet-
 // style: kCollisionGroup is the set of groups a body belongs to,
@@ -100,8 +111,9 @@ static_assert(
 enum class CollisionField : uint8_t {
   // --- Model/kinematic inputs ---
   kWorldTransform,    // x_world -- ABA's own kWorldTransform, read-only here
-  kCollisionCenter,   // c_local (bound center, in the body's own frame)
-  kCollisionExtents,  // h_local (bound half-extents, along the body's axes)
+  kCollisionPose,     // x_shape (the shape's frame, in the body's own)
+  kCollisionExtents,  // h (inner box half-extents, along the shape's axes)
+  kCollisionRadius,   // r (sweep radius around the inner box)
   kCollisionMargin,   // m (bound inflation, on every world axis)
   kCollisionGroup,    // groups this body belongs to
   kCollisionMask,     // groups this body collides with
@@ -136,11 +148,11 @@ struct CollisionFieldTraits<CollisionField::kWorldTransform> {
   using Layout = engine::topology::PlanarLayout;
 };
 template <>
-struct CollisionFieldTraits<CollisionField::kCollisionCenter> {
-  using Assembler = math::Vector3Assembler<ScalarOperationT>;
+struct CollisionFieldTraits<CollisionField::kCollisionPose> {
+  using Assembler = spatial::TransformAssembler<ScalarOperationT>;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
-  static constexpr std::string_view kName = "collision_center";
+  static constexpr std::string_view kName = "collision_pose";
 };
 template <>
 struct CollisionFieldTraits<CollisionField::kCollisionExtents> {
@@ -148,6 +160,13 @@ struct CollisionFieldTraits<CollisionField::kCollisionExtents> {
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
   static constexpr std::string_view kName = "collision_extents";
+};
+template <>
+struct CollisionFieldTraits<CollisionField::kCollisionRadius> {
+  using Assembler = math::ScalarAssembler<ScalarOperationT>;
+  using Ordering = engine::topology::TopologicalOrdering;
+  using Layout = engine::topology::PlanarLayout;
+  static constexpr std::string_view kName = "collision_radius";
 };
 template <>
 struct CollisionFieldTraits<CollisionField::kCollisionMargin> {

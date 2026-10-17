@@ -118,7 +118,8 @@ include/
     aba/         Articulated Body Algorithm -> joint accelerations
     vi/          Velocity integration
     pi/          Position integration
-    collision/   Broad phase: per-body world-axis-aligned bounds
+    collision/   Broad phase: sphere-swept-box shapes -> world bounds ->
+                 filtered candidate-pair bitmask
     viz/         Render-only state (world transforms, visuals); never stepped
   interface/   Loaders and the Simulation facade
   render/      The OpenGL/GLFW viewer

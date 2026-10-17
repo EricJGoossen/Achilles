@@ -9,23 +9,28 @@
 
 namespace achilles::algorithms::collision {
 
-// Re-expresses each body's own body-frame box as a world-axis-aligned
-// bound. The center just rides along with the body (x_world applied to
-// c_local); the extents use Arvo's bound -- each world axis's half-extent
-// is the sum of every body axis's half-extent projected onto it,
-// |R| h_local -- which is exact for a box (the tightest world AABB that
-// still contains it under any rotation) and is pure multiply/abs/add, so
-// every lane runs the same instructions whatever its orientation. The
-// body's margin is then added on every axis (see collision_data.hpp).
-struct ComputeWorldBoundsOp {
+// Derives each body's world-axis-aligned bound from its sphere-swept box
+// (see collision_data.hpp) -- the bound Op for this one shape type; another
+// shape type would bring its own, writing the same two outputs. The shape's
+// world orientation is the body's composed with the shape's own, R =
+// R_world R_shape, and its center rides along with the body (x_world
+// applied to the shape's own offset). The inner box's extents use Arvo's
+// bound -- each world axis's half-extent is the sum of every shape axis's
+// half-extent projected onto it, |R| h -- which is exact for a box (the
+// tightest world AABB that still contains it under any rotation). The
+// sweep radius and the margin are then added on every axis unrotated: a
+// sphere's extent is the same along every direction. All multiply/abs/add,
+// so every lane runs the same instructions whatever its orientation.
+struct ComputeSweptBoxBoundsOp {
   using FieldEnum = CollisionField;
   using ArgData = engine::ArgData<FieldEnum>;
   using ArgIndex = engine::ArgIndex;
 
-  static constexpr std::array<ArgData, 4> kInputs = {
+  static constexpr std::array<ArgData, 5> kInputs = {
       ArgData{FieldEnum::kWorldTransform, ArgIndex::kTarget},
-      ArgData{FieldEnum::kCollisionCenter, ArgIndex::kTarget},
+      ArgData{FieldEnum::kCollisionPose, ArgIndex::kTarget},
       ArgData{FieldEnum::kCollisionExtents, ArgIndex::kTarget},
+      ArgData{FieldEnum::kCollisionRadius, ArgIndex::kTarget},
       ArgData{FieldEnum::kCollisionMargin, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData, 2> kOutputs = {
@@ -35,20 +40,21 @@ struct ComputeWorldBoundsOp {
 
   void operator()(
       const Transform& x_world,
-      const Vector3& c_local,
-      const Vector3& h_local,
+      const Transform& x_shape,
+      const Vector3& h,
+      const Scalar& radius,
       const Scalar& margin,
       Vector3* c_world_out,
       Vector3* h_world_out
   ) const;
 };
 static_assert(
-    engine::OpLike<ComputeWorldBoundsOp>,
-    "ComputeWorldBoundsOp must satisfy OpLike concept"
+    engine::OpLike<ComputeSweptBoxBoundsOp>,
+    "ComputeSweptBoxBoundsOp must satisfy OpLike concept"
 );
 static_assert(
-    engine::OpArgsMatchView<ComputeWorldBoundsOp, CollisionView>,
-    "ComputeWorldBoundsOp's operator() must line up with kInputs/kOutputs"
+    engine::OpArgsMatchView<ComputeSweptBoxBoundsOp, CollisionView>,
+    "ComputeSweptBoxBoundsOp's operator() must line up with kInputs/kOutputs"
 );
 
 // Tests one source body's world bound (kSource, the same value in every

@@ -17,7 +17,7 @@ namespace achilles::algorithms::collision {
 // own CollisionView, looked up via ViewFor<CollisionView>() the same way
 // VIStep looks up its own VIView (see vi_step.hpp's header comment).
 //
-// ComputeWorldBoundsOp first: like VI/PI, it reads/writes each row
+// ComputeSweptBoxBoundsOp first: like VI/PI, it reads/writes each row
 // independently -- a body's world bound depends only on its own already-
 // propagated kWorldTransform, never on its parent's -- so ForwardBatched is
 // a LinearTraversal rather than a TreeTraversal. Then TestBoundsOverlapOp,
@@ -53,9 +53,9 @@ struct CollisionStep {
 
     engine::pass::Step(
         engine::pass::Ops<
-            Pass<ComputeWorldBoundsOp, ForwardBatched>,
+            Pass<ComputeSweptBoxBoundsOp, ForwardBatched>,
             Pass<TestBoundsOverlapOp, PairBatched>>{
-            ComputeWorldBoundsOp{}, TestBoundsOverlapOp{}
+            ComputeSweptBoxBoundsOp{}, TestBoundsOverlapOp{}
         },
         view,
         topology

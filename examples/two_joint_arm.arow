@@ -39,11 +39,17 @@ joints:
       joint_velocity: [0, 0, 0, 0, 0, 0]
       joint_torque: [0, 0, 0, 0, 0, 0]
       visual_extents: [0.15, 0.5, 0.15]
-      # The body-frame box the collision broad phase bounds this body by
-      # (see include/algorithms/collision/collision_data.hpp) -- here just
-      # the visual box itself.
-      collision_center: [0, 0, 0]
-      collision_extents: [0.15, 0.5, 0.15]
+      # Collision shape: a sphere-swept box (see
+      # include/algorithms/collision/collision_data.hpp) -- every point within
+      # collision_radius of an inner box with half-extents collision_extents,
+      # placed in the body frame by collision_pose. Zero extents make a
+      # sphere, one nonzero extent a capsule, zero radius a plain box. Here a
+      # rounded box whose outer size matches the visual box.
+      collision_pose:
+        translation: [0, 0, 0]
+        rotation: [1, 0, 0, 0]
+      collision_extents: [0.1, 0.45, 0.1]
+      collision_radius: [0.05]
       # Candidate pairs are found once bounds come within this distance
       # (MuJoCo's geom margin), not only once they touch.
       collision_margin: [0.02]
@@ -79,8 +85,11 @@ joints:
       joint_velocity: [0, 0, 0, 0, 0, 0]
       joint_torque: [0, 0, 0, 0, 0, 0]
       visual_extents: [0.12, 0.4, 0.12]
-      collision_center: [0, 0, 0]
-      collision_extents: [0.12, 0.4, 0.12]
+      collision_pose:
+        translation: [0, 0, 0]
+        rotation: [1, 0, 0, 0]
+      collision_extents: [0.08, 0.36, 0.08]
+      collision_radius: [0.04]
       collision_margin: [0.02]
       collision_group: [1]
       collision_mask: [65535]
