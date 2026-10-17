@@ -11,6 +11,7 @@
 using achilles::domain::math::Vector3;
 using achilles::engine::ArgData;
 using achilles::engine::OpArgsMatchView;
+using achilles::engine::OpHasInit;
 using achilles::engine::OpLike;
 using achilles::engine::memory::SimAllocator;
 using achilles::engine::pass::OpInvoker;
@@ -115,6 +116,29 @@ struct AccumulateAtTargetOp {
 static_assert(OpLike<AccumulateAtTargetOp>);
 static_assert(OpArgsMatchView<AccumulateAtTargetOp, ToyView>);
 
+// The same `+=`-onto-the-view shape again, but through Initialize/
+// kInitOutputs -- OpInitInvoker builds its own output tuple, separate from
+// OpInvokerBase's, so it needs the same load-before-store contract (outputs
+// are always read/write, see op_invoker.hpp) and its own regression tests.
+struct AccumulateOnInitializeOp {
+  using FieldEnum = ToyField;
+
+  static constexpr std::array<ArgData<FieldEnum>, 0> kInitInputs = {};
+  static constexpr std::array<ArgData<FieldEnum>, 1> kInitOutputs = {
+      ArgData<FieldEnum>{FieldEnum::kVelocity, true},
+  };
+  static constexpr std::array<ArgData<FieldEnum>, 0> kInputs = {};
+  static constexpr std::array<ArgData<FieldEnum>, 0> kOutputs = {};
+
+  void Initialize(Vector3<float>* velocity_out) const {
+    *velocity_out += Vector3<float>(1.0F, 0.0F, 0.0F);
+  }
+  void operator()() const {}
+};
+static_assert(OpLike<AccumulateOnInitializeOp>);
+static_assert(OpHasInit<AccumulateOnInitializeOp>);
+static_assert(OpArgsMatchView<AccumulateOnInitializeOp, ToyView>);
+
 }  // namespace
 
 TEST(OpInvoker, ReadsTargetAndParentWritesTarget) {
@@ -215,4 +239,45 @@ TEST(SingleOpInvokerTest, AccumulatesAcrossMultipleCallsToTheSameTarget) {
   EXPECT_TRUE((view.Load<ToyField::kVelocity, float>(2).IsApprox(
       Vector3<float>(102.0F, 0.0F, 0.0F)
   )));
+}
+
+// Regression test for the same zero-init bug, through OpInvoker::Initialize:
+// the base row's stored value must reach Initialize as its output's
+// incoming value, not be replaced by a fresh default-constructed one --
+// two calls must sum onto it.
+TEST(OpInvoker, InitializeAccumulatesOntoTheStoredValue) {
+  SimAllocator<ToyAlgorithm> sim = MakeToySim(4);
+  ToyView view = sim.ViewFor<ToyAlgorithm>();
+
+  view.Store<ToyField::kVelocity, float>(0, Vector3<float>(100.0F, 0.0F, 0.0F));
+
+  AccumulateOnInitializeOp op;
+  OpInvoker<AccumulateOnInitializeOp, ToyView> invoker(view, op);
+  invoker.Initialize(0);
+  invoker.Initialize(0);
+
+  EXPECT_TRUE((view.Load<ToyField::kVelocity, float>(0).IsApprox(
+      Vector3<float>(102.0F, 0.0F, 0.0F)
+  )));
+}
+
+// Same as above through SingleOpInvoker::Initialize -- a separate class
+// from OpInvoker, so a separate shape per TESTING.md 9.2, even though both
+// reach the same OpInitInvoker underneath today.
+TEST(SingleOpInvokerTest, InitializeAccumulatesOntoTheStoredValue) {
+  SimAllocator<ToyAlgorithm> sim = MakeToySim(4);
+  ToyView view = sim.ViewFor<ToyAlgorithm>();
+
+  view.Store<ToyField::kVelocity, float>(1, Vector3<float>(100.0F, 0.0F, 0.0F));
+
+  AccumulateOnInitializeOp op;
+  SingleOpInvoker<AccumulateOnInitializeOp, ToyView> invoker(view, op);
+  invoker.Initialize(1);
+  invoker.Initialize(1);
+
+  EXPECT_TRUE((view.Load<ToyField::kVelocity, float>(1).IsApprox(
+      Vector3<float>(102.0F, 0.0F, 0.0F)
+  )));
+  // Initialize only touches the base index it was given.
+  EXPECT_TRUE((view.Load<ToyField::kVelocity, float>(0).IsZero()));
 }

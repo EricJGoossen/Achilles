@@ -17,26 +17,6 @@ namespace achilles::engine::pass {
 
 namespace detail {
 
-// Steps one Algorithm, unless it declares NoStep (see algorithm_contract.hpp)
-// -- an Algorithm with nothing to step on its own account is silently
-// skipped, rather than requiring every caller to filter it out of the
-// Algorithms... pack by hand. Config is a template parameter, not a
-// concrete type named here, purely so this generic engine layer never has
-// to know what a real config looks like (see algorithms::SimConfig for the
-// one this codebase actually uses) -- it only ever forwards `config` on to
-// AlgorithmT::Step.
-template <typename AlgorithmT, typename SimContextT, typename Config>
-void StepAlgorithm(
-    const SimContextT& sim_context,
-    const Config& config,
-    algorithms::ScalarOperationT dt
-) {
-  using StepT = typename AlgorithmT::Step;
-  if constexpr (!std::is_same_v<StepT, NoStep>) {
-    StepT::Step(sim_context, config, dt);
-  }
-}
-
 // Collects FieldOrderingT<EnumT, Traits, F> for every field of one Algorithm
 // into a TypeList -- UsedOrderingsFor below concatenates and de-dups these
 // across a whole Algorithms... pack to find every distinct ordering policy
@@ -54,8 +34,8 @@ auto CollectFieldOrderings(std::index_sequence<Is...>)
 template <typename AlgorithmT>
 struct AlgorithmOrderings;
 
-template <typename EnumT, template <EnumT> class Traits, typename StepT>
-struct AlgorithmOrderings<Algorithm<EnumT, Traits, StepT>> {
+template <typename EnumT, template <EnumT> class Traits>
+struct AlgorithmOrderings<Algorithm<EnumT, Traits>> {
   using Type = decltype(CollectFieldOrderings<EnumT, Traits>(
       std::make_index_sequence<static_cast<std::size_t>(EnumT::kCount)>{}
   ));
@@ -149,7 +129,7 @@ class SimContext {
   // Policy, rather than having its View resolved and handed to it up front.
   // Constrained to !AlgorithmLike<ViewT> purely to stay unambiguous against
   // the overload above -- a View type is never itself AlgorithmLike (it has
-  // no ::Enum/::View/::Step), so every real call resolves to exactly one
+  // no ::Enum/::View), so every real call resolves to exactly one
   // overload.
   template <typename ViewT>
     requires(!AlgorithmLike<ViewT>)
@@ -157,20 +137,39 @@ class SimContext {
     return std::get<ViewT>(views_);
   }
 
-  // Runs every hosted Algorithm's own Step exactly once, passing along this
-  // same context and `config` -- whatever caller-supplied, whole-simulation
-  // config value a real Step actually reads (see algorithms::SimConfig),
-  // left as a template parameter here so engine::pass never has to name a
-  // concrete config type. `dt` is the tick's own timestep. One shared shape
-  // (SimContext, Config, dt) for every Step::Step, regardless of whether it
-  // uses all of it: state only some algorithms would receive is exactly the
-  // kind of ambient global that's easy to wire wrong silently. Each Step
-  // looks up its own View and Topology from sim_context itself
-  // (ViewFor<ViewT>()/TopologyFor<Policy>()), rather than either being
-  // resolved and handed to it up front.
-  template <typename Config>
+  // Runs every Step in StepList (a util::TypeList of StepLike types, see
+  // engine/algorithm_contract.hpp) exactly once, left to right, passing
+  // along this same context, `config` -- whatever caller-supplied,
+  // whole-simulation config value a real Step actually reads (see
+  // algorithms::SimConfig), left as a template parameter here so
+  // engine::pass never has to name a concrete config type -- and `dt`, the
+  // tick's own timestep. One shared shape (SimContext, Config, dt) for every
+  // Step::Step, regardless of whether it uses all of it: state only some
+  // Steps would receive is exactly the kind of ambient global that's easy to
+  // wire wrong silently.
+  //
+  // The list is named by the caller rather than implied by Algorithms...:
+  // hosting an Algorithm (carving its memory) and stepping it are separate
+  // decisions. A sim hosts several alternative integrators side by side and
+  // steps exactly one of them, and one integrator's tick can step the same
+  // Step several times (see algorithms/registry.hpp).
+  //
+  // The templated lambda only exists to unpack StepList's elements into a
+  // pack the fold below can expand -- a pack can only be deduced by
+  // matching against TypeList<Steps...>.
+  template <typename StepList, typename Config>
   void Step(algorithms::ScalarOperationT dt, const Config& config) const {
-    (detail::StepAlgorithm<Algorithms>(*this, config, dt), ...);
+    [&]<StepLike... Steps>(util::TypeList<Steps...> /*step_list*/) {
+      static_assert(
+          (util::kIsOneOfV<
+               typename Steps::FieldEnum,
+               typename Algorithms::Enum...> &&
+           ...),
+          "SimContext::Step<StepList>: every Step in StepList must run over "
+          "an Algorithm this SimContext hosts"
+      );
+      (Steps::Step(*this, config, dt), ...);
+    }(StepList{});
   }
 
  private:

@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <optional>
+#include <ostream>
 #include <string>
 #include <string_view>
 
@@ -17,6 +18,7 @@
 #include "algorithms/aba/aba_ops.hpp"
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
+#include "algorithms/integrators.hpp"
 #include "algorithms/registry.hpp"
 #include "algorithms/sim_config.hpp"
 #include "domain/archetype.hpp"
@@ -40,6 +42,7 @@
 #include "engine/pass/op_invoker.hpp"
 #include "engine/pass/sim_context.hpp"
 #include "engine/pass/traversals.hpp"
+#include "engine/pass/view_step.hpp"
 #include "engine/topology/layout.hpp"
 #include "engine/topology/layout_policy.hpp"
 #include "engine/topology/ordering_policy.hpp"
@@ -66,10 +69,6 @@ struct CliArgs {
   bool headless = false;
   std::string arow_path;
   std::string config_path;
-  // Substepping is off: it exists to shrink kSemiImplicitEuler's own
-  // per-step error, and kRungeKutta4 below gets that accuracy from its
-  // own order instead (see Simulation::SetSubsteps / Integrator).
-  int substeps = 1;
   // RK4 at a 2ms step. RK4 is the integrator MuJoCo itself points at for
   // energy-conserving systems, and it measured far and away the best on
   // this engine's own scenes -- roughly three orders of magnitude less
@@ -89,48 +88,28 @@ struct CliArgs {
   ScalarOperationT dt = 0.002F;
 };
 
+// Every --integrator name (algorithms::kIntegrators), joined by
+// `separator`.
+void PrintIntegratorNames(std::ostream& out, std::string_view separator) {
+  std::string_view between;
+  for (const achilles::algorithms::IntegratorEntry& entry :
+       achilles::algorithms::kIntegrators) {
+    out << between << entry.name;
+    between = separator;
+  }
+}
+
 // Parses argv into CliArgs, or returns std::nullopt (having already
 // printed the specific problem to stderr) for a missing flag argument or
 // an unrecognized --integrator value. Split out of main() itself purely to
 // keep main()'s own cognitive complexity down -- this has no dependency on
 // anything main() sets up.
-std::optional<Integrator> ParseIntegrator(std::string_view name) {
-  if (name == "euler") {
-    return Integrator::kSemiImplicitEuler;
-  }
-  if (name == "verlet") {
-    return Integrator::kVelocityVerlet;
-  }
-  if (name == "midpoint") {
-    return Integrator::kImplicitMidpoint;
-  }
-  if (name == "mujoco" || name == "implicit") {
-    return Integrator::kImplicitVelocity;
-  }
-  if (name == "rk4") {
-    return Integrator::kRungeKutta4;
-  }
-  if (name == "implicitfast") {
-    return Integrator::kImplicitFast;
-  }
-  std::cerr << R"(--integrator must be one of euler, verlet, midpoint, )"
-               R"(implicit, implicitfast, rk4; got ")"
-            << name << "\"\n";
-  return std::nullopt;
-}
-
 std::optional<CliArgs> ParseArgs(int argc, char** argv) {
   CliArgs args;
   for (int i = 1; i < argc; ++i) {
     std::string_view arg = argv[i];
     if (arg == "--headless") {
       args.headless = true;
-    } else if (arg == "--substeps") {
-      if (++i >= argc) {
-        std::cerr << "--substeps requires an integer argument\n";
-        return std::nullopt;
-      }
-      args.substeps = std::atoi(argv[i]);
     } else if (arg == "--dt") {
       if (++i >= argc) {
         std::cerr << "--dt requires a floating-point seconds argument\n";
@@ -139,13 +118,17 @@ std::optional<CliArgs> ParseArgs(int argc, char** argv) {
       args.dt = static_cast<ScalarOperationT>(std::strtod(argv[i], nullptr));
     } else if (arg == "--integrator") {
       if (++i >= argc) {
-        std::cerr << R"(--integrator requires one of euler, verlet, midpoint, )"
-                     R"(implicit, implicitfast, rk4)"
-                  << '\n';
+        std::cerr << "--integrator requires one of ";
+        PrintIntegratorNames(std::cerr, ", ");
+        std::cerr << '\n';
         return std::nullopt;
       }
-      std::optional<Integrator> integrator = ParseIntegrator(argv[i]);
+      std::optional<Integrator> integrator =
+          achilles::algorithms::IntegratorFromName(argv[i]);
       if (!integrator.has_value()) {
+        std::cerr << "--integrator must be one of ";
+        PrintIntegratorNames(std::cerr, ", ");
+        std::cerr << "; got \"" << argv[i] << "\"\n";
         return std::nullopt;
       }
       args.integrator = *integrator;
@@ -160,32 +143,30 @@ std::optional<CliArgs> ParseArgs(int argc, char** argv) {
 
 }  // namespace
 
-// achilles <scene.arow> [sim_config.yaml] [--headless] [--substeps N]
-//   [--dt seconds] [--integrator
-//   euler|verlet|midpoint|implicit|implicitfast|rk4]
+// achilles <scene.arow> [sim_config.yaml] [--headless] [--dt seconds]
+//   [--integrator euler|verlet|midpoint|implicitfast|rk4]
 //
 // Loads and initializes a Simulation from a .arow file (see
 // interface/archetype_loader.hpp for its format, and examples/ for a
-// sample scene), then steps it at a fixed 1/120s timestep. Visual by
-// default -- Simulation::Step renders one frame per call (see
-// interface/simulation.hpp's own comment on SetHeadless) -- so the loop
-// below is the same shape either way: it just runs until Step() says stop,
-// which happens on error, or (only when visual) once the render window is
-// closed. See scripts/run-example.sh for the common case of running this
-// against examples/two_joint_arm.arow. --substeps sets Simulation::SetSubsteps,
-// --integrator sets Simulation::Integrator and --dt the fixed timestep (see
-// their own comments); CliArgs's own defaults (kRungeKutta4, dt = 2ms,
-// substeps=1) are the CLI's, not Simulation's -- library callers (tests,
-// embedders) still get the original unsubstepped semi-implicit-Euler behavior
-// at whatever dt they pass unless they ask for something else. Pass
-// --integrator euler to see the older, visibly-dissipative behavior for
-// comparison, or raise --dt to trade fidelity back for throughput.
+// sample scene), then runs it in real time: each frame, as many fixed-dt
+// Step() ticks as the elapsed wall-clock time covers, then -- unless
+// --headless -- one Render(). Ticks and frames are independent, so dt only
+// controls accuracy, never frame rate. The loop runs until a Step() fails,
+// or (only when visual) the render window is closed. See
+// scripts/run-example.sh for the common case of running this against
+// examples/two_joint_arm.arow. --integrator sets Simulation::SetIntegrator
+// and --dt the fixed timestep; CliArgs's own defaults (kRungeKutta4,
+// dt = 2ms) are the CLI's, not Simulation's -- library callers (tests,
+// embedders) still get semi-implicit Euler at whatever dt they pass unless
+// they ask for something else. Pass --integrator euler to see the older,
+// visibly-dissipative behavior for comparison, or raise --dt to trade
+// fidelity back for throughput.
 int main(int argc, char** argv) {
   if (argc < 2) {
-    std::cerr
-        << "usage: achilles <scene.arow> [sim_config.yaml] "
-           "[--headless] [--substeps N] [--dt seconds] "
-           "[--integrator euler|verlet|midpoint|implicit|implicitfast|rk4]\n";
+    std::cerr << "usage: achilles <scene.arow> [sim_config.yaml] "
+                 "[--headless] [--dt seconds] [--integrator ";
+    PrintIntegratorNames(std::cerr, "|");
+    std::cerr << "]\n";
     return 1;
   }
 
@@ -205,8 +186,6 @@ int main(int argc, char** argv) {
     return 1;
   }
   sim.SetIntegrator(args->integrator);
-  sim.SetHeadless(args->headless);
-  sim.SetSubsteps(args->substeps);
 
   const ScalarOperationT dt = args->dt;
   constexpr ScalarOperationT kMaxFrameTime = 0.25F;
@@ -226,6 +205,9 @@ int main(int argc, char** argv) {
     while (running && accumulator >= dt) {
       running = sim.Step(dt);
       accumulator -= dt;
+    }
+    if (running && !args->headless) {
+      running = sim.Render();
     }
   }
 

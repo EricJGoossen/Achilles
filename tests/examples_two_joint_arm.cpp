@@ -41,26 +41,30 @@
 #include <filesystem>
 #include <sstream>
 #include <string>
-#include <string_view>
 #include <vector>
 
 #include "algorithms/aba/aba_data.hpp"
+#include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
+#include "algorithms/integrators.hpp"
 #include "domain/joint_topology.hpp"
 #include "domain/math/vector3.hpp"
 #include "engine/topology/ordering_policy.hpp"
 #include "interface/simulation.hpp"
 #include "support/temp_dir.hpp"
+#include "util/tmp.hpp"
 
 using achilles::algorithms::MathematicalT;
 using achilles::algorithms::ScalarOperationT;
 using achilles::algorithms::aba::ABAAlgorithm;
 using achilles::algorithms::aba::ABAField;
+using achilles::algorithms::aba::ABAStep;
 using achilles::domain::JointTopology;
 using achilles::domain::math::Vector3;
 using achilles::engine::topology::TopologicalOrdering;
 using achilles::interface::Simulation;
 using achilles::test_support::TempDir;
+using achilles::util::TypeList;
 
 using B = MathematicalT;
 
@@ -77,9 +81,11 @@ namespace {
 // about which scene it's checking, not silently pass on stale physics.
 struct LinkParams {
   ScalarOperationT mass;
-  ScalarOperationT pivot_to_com;         // r -- rigid_body_inertia's h, divided by mass
-  ScalarOperationT inertia_about_pivot;  // Ixx == Izz (both perpendicular to the pivot
-                              // -> CoM offset, which points along Y)
+  ScalarOperationT
+      pivot_to_com;  // r -- rigid_body_inertia's h, divided by mass
+  ScalarOperationT
+      inertia_about_pivot;  // Ixx == Izz (both perpendicular to the pivot
+                            // -> CoM offset, which points along Y)
 };
 constexpr LinkParams kShoulder{
     .mass = 1.0F, .pivot_to_com = 0.3F, .inertia_about_pivot = 0.18083F
@@ -87,7 +93,8 @@ constexpr LinkParams kShoulder{
 constexpr LinkParams kElbow{
     .mass = 0.4F, .pivot_to_com = 0.375F, .inertia_about_pivot = 0.07238F
 };
-constexpr ScalarOperationT kLinkLength = 1.0F;  // shoulder -> elbow offset (local Y)
+constexpr ScalarOperationT kLinkLength =
+    1.0F;  // shoulder -> elbow offset (local Y)
 
 // examples/sim_config.yaml's own base_acceleration.linear.z. ABA treats a
 // fixed base's own configured acceleration as *minus* true gravity (see
@@ -204,7 +211,9 @@ JointRows FindJointRows(const JointTopology& topology) {
 // position update): composing two pure-X rotations by quaternion
 // multiplication is exact angle addition, so reading the angle back this
 // way round-trips exactly too.
-ScalarOperationT ExtractAngleAboutX(ScalarOperationT w, ScalarOperationT x) { return 2.0F * std::atan2(x, w); }
+ScalarOperationT ExtractAngleAboutX(ScalarOperationT w, ScalarOperationT x) {
+  return 2.0F * std::atan2(x, w);
+}
 
 // The closed-form (phi'', psi'') solved from the Euler-Lagrange equations
 // for this exact two-link system -- see this file's own header comment for
@@ -217,7 +226,10 @@ struct Accelerations {
 };
 
 Accelerations ReferenceAngularAcceleration(
-    ScalarOperationT phi, ScalarOperationT psi, ScalarOperationT phi_dot, ScalarOperationT psi_dot
+    ScalarOperationT phi,
+    ScalarOperationT psi,
+    ScalarOperationT phi_dot,
+    ScalarOperationT psi_dot
 ) {
   const ScalarOperationT m1 = kShoulder.mass;
   const ScalarOperationT r1 = kShoulder.pivot_to_com;
@@ -245,7 +257,8 @@ Accelerations ReferenceAngularAcceleration(
   const ScalarOperationT b1 =
       2.0F * R * sin_psi * phi_dot * psi_dot + R * sin_psi * psi_dot * psi_dot +
       (m1 * r1 + m2 * l1) * g * cos_phi + m2 * r2 * g * cos_phi_psi;
-  const ScalarOperationT b2 = -R * sin_psi * phi_dot * phi_dot + m2 * r2 * g * cos_phi_psi;
+  const ScalarOperationT b2 =
+      -R * sin_psi * phi_dot * phi_dot + m2 * r2 * g * cos_phi_psi;
 
   const ScalarOperationT det = m11 * m22 - m12 * m21;
   return {
@@ -265,8 +278,8 @@ Accelerations ReferenceAngularAcceleration(
 // against the engine's chaos-sensitive trajectory -- it's a step-for-step
 // replica of the *same* discrete map, just fed by an independently-derived
 // closed-form qdd instead of algorithms::aba's own code. A correct
-// derivation should track the engine's own trajectory to ScalarOperationT precision
-// for as long as this test cares to run it, not just at t=0.
+// derivation should track the engine's own trajectory to ScalarOperationT
+// precision for as long as this test cares to run it, not just at t=0.
 struct ReferenceState {
   ScalarOperationT phi = 0.0F;
   ScalarOperationT psi = 0.0F;
@@ -303,7 +316,8 @@ TEST(TwoJointArmReference, InitialAccelerationMatchesClosedFormAtRest) {
   auto view = sim.ViewFor<ABAAlgorithm>();
   auto shoulder_qdd =
       view.Load<ABAField::kJointAcceleration, ScalarOperationT>(rows.shoulder);
-  auto elbow_qdd = view.Load<ABAField::kJointAcceleration, ScalarOperationT>(rows.elbow);
+  auto elbow_qdd =
+      view.Load<ABAField::kJointAcceleration, ScalarOperationT>(rows.elbow);
 
   Accelerations expected = ReferenceAngularAcceleration(0.0F, 0.0F, 0.0F, 0.0F);
 
@@ -348,8 +362,10 @@ TEST(TwoJointArmReference, TrajectoryMatchesIndependentModelOverTwoSeconds) {
     reference.Step(kDt);
 
     auto view = sim.ViewFor<ABAAlgorithm>();
-    auto shoulder_q = view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.shoulder);
-    auto elbow_q = view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.elbow);
+    auto shoulder_q =
+        view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.shoulder);
+    auto elbow_q =
+        view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.elbow);
 
     ScalarOperationT engine_phi = ExtractAngleAboutX(
         shoulder_q.Rotation().W(), shoulder_q.Rotation().X()
@@ -362,11 +378,12 @@ TEST(TwoJointArmReference, TrajectoryMatchesIndependentModelOverTwoSeconds) {
     // differences of a few ULPs per tick compound slightly over 240 ticks
     // -- measured max drift over the full 2 seconds is ~2.5e-6 rad (see
     // this test file's own derivation notes / the PR description), so
-    // 1e-4 is a ~40x margin: comfortably above ScalarOperationT noise, but nowhere
-    // near what an actually-wrong coefficient produces (multiple degrees
-    // of divergence within the first few ticks, not a slow ScalarOperationT-noise
-    // creep -- see e.g. the exact 1:1 cancellation bug the PR description
-    // traces, which showed up as an *exact*, not approximate, mismatch).
+    // 1e-4 is a ~40x margin: comfortably above ScalarOperationT noise, but
+    // nowhere near what an actually-wrong coefficient produces (multiple
+    // degrees of divergence within the first few ticks, not a slow
+    // ScalarOperationT-noise creep -- see e.g. the exact 1:1 cancellation bug
+    // the PR description traces, which showed up as an *exact*, not
+    // approximate, mismatch).
     ASSERT_NEAR(engine_phi, reference.phi, 1e-4F)
         << "shoulder angle diverged at tick " << i;
     ASSERT_NEAR(engine_psi, reference.psi, 1e-4F)
@@ -423,11 +440,14 @@ TEST(
     ASSERT_TRUE(sim.Step(kDt));
 
     auto view = sim.ViewFor<ABAAlgorithm>();
-    auto shoulder_q = view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.shoulder);
-    auto elbow_q = view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.elbow);
+    auto shoulder_q =
+        view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.shoulder);
+    auto elbow_q =
+        view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.elbow);
     auto shoulder_qd =
         view.Load<ABAField::kJointVelocity, ScalarOperationT>(rows.shoulder);
-    auto elbow_qd = view.Load<ABAField::kJointVelocity, ScalarOperationT>(rows.elbow);
+    auto elbow_qd =
+        view.Load<ABAField::kJointVelocity, ScalarOperationT>(rows.elbow);
 
     ScalarOperationT phi = ExtractAngleAboutX(
         shoulder_q.Rotation().W(), shoulder_q.Rotation().X()
@@ -438,10 +458,11 @@ TEST(
     ScalarOperationT psi_dot = elbow_qd.Angular().X();
     ScalarOperationT omega2 = phi_dot + psi_dot;
 
-    ScalarOperationT kinetic = 0.5F * P * phi_dot * phi_dot + 0.5F * Q * omega2 * omega2 +
-                    R * std::cos(psi) * phi_dot * omega2;
+    ScalarOperationT kinetic = 0.5F * P * phi_dot * phi_dot +
+                               0.5F * Q * omega2 * omega2 +
+                               R * std::cos(psi) * phi_dot * omega2;
     ScalarOperationT potential = -(m1 * r1 + m2 * l1) * g * std::sin(phi) -
-                      m2 * r2 * g * std::sin(phi + psi);
+                                 m2 * r2 * g * std::sin(phi + psi);
     ScalarOperationT total_energy = kinetic + potential;
     max_abs_energy = std::max(max_abs_energy, std::abs(total_energy));
   }
@@ -451,87 +472,15 @@ TEST(
   // pointing straight against gravity), a small, fixed number -- nowhere
   // near what an actual energy-injection bug (unbounded growth) would
   // produce over 30 simulated seconds / 3600 ticks.
-  ScalarOperationT max_possible_potential = (m1 * r1 + m2 * l1) * g + m2 * r2 * g;
+  ScalarOperationT max_possible_potential =
+      (m1 * r1 + m2 * l1) * g + m2 * r2 * g;
   EXPECT_LT(max_abs_energy, max_possible_potential * 1.5F);
-}
-
-// Simulation::SetSubsteps exists specifically to shrink the per-tick error
-// behind the dissipation the test above documents and bounds, by running
-// VI/PI's own scheme at a smaller effective dt without changing the scheme
-// itself (see its own comment). This locks in that it actually works: the
-// same scene, run for the same simulated time, must drift dramatically
-// less with substeps than without -- not just "still bounded" (the weaker
-// claim above), but *meaningfully closer to true energy conservation*.
-// Ratio-based rather than a fixed absolute threshold, since this is
-// deliberately the exact same chaotic system both runs -- the claim under
-// test is the *relative* improvement substepping buys, not some specific
-// number this scene's own chaos happens to produce today.
-TEST(TwoJointArmReference, SubstepsSubstantiallyReduceEnergyDissipation) {
-  const ScalarOperationT m1 = kShoulder.mass;
-  const ScalarOperationT r1 = kShoulder.pivot_to_com;
-  const ScalarOperationT I1 = kShoulder.inertia_about_pivot;
-  const ScalarOperationT m2 = kElbow.mass;
-  const ScalarOperationT r2 = kElbow.pivot_to_com;
-  const ScalarOperationT I2 = kElbow.inertia_about_pivot;
-  const ScalarOperationT l1 = kLinkLength;
-  const ScalarOperationT g = kGravity;
-  const ScalarOperationT P = I1 + m2 * l1 * l1;
-  const ScalarOperationT Q = I2;
-  const ScalarOperationT R = m2 * l1 * r2;
-
-  auto max_abs_total_energy = [&](int substeps) {
-    TempDir dir;
-    Simulation sim = MakeTwoJointArmSim(dir);
-    sim.SetSubsteps(substeps);
-
-    JointTopology topology = sim.TopologyFor<TopologicalOrdering>();
-    JointRows rows = FindJointRows(topology);
-
-    constexpr int kSteps = 120 * 10;  // 10 simulated seconds.
-    ScalarOperationT max_abs_energy = 0.0F;
-    for (int i = 0; i < kSteps; ++i) {
-      EXPECT_TRUE(sim.Step(kDt));
-
-      auto view = sim.ViewFor<ABAAlgorithm>();
-      auto shoulder_q =
-          view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.shoulder);
-      auto elbow_q = view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.elbow);
-      auto shoulder_qd =
-          view.Load<ABAField::kJointVelocity, ScalarOperationT>(rows.shoulder);
-      auto elbow_qd = view.Load<ABAField::kJointVelocity, ScalarOperationT>(rows.elbow);
-
-      ScalarOperationT phi = ExtractAngleAboutX(
-          shoulder_q.Rotation().W(), shoulder_q.Rotation().X()
-      );
-      ScalarOperationT psi =
-          ExtractAngleAboutX(elbow_q.Rotation().W(), elbow_q.Rotation().X());
-      ScalarOperationT phi_dot = shoulder_qd.Angular().X();
-      ScalarOperationT psi_dot = elbow_qd.Angular().X();
-      ScalarOperationT omega2 = phi_dot + psi_dot;
-
-      ScalarOperationT kinetic = 0.5F * P * phi_dot * phi_dot +
-                      0.5F * Q * omega2 * omega2 +
-                      R * std::cos(psi) * phi_dot * omega2;
-      ScalarOperationT potential = -(m1 * r1 + m2 * l1) * g * std::sin(phi) -
-                        m2 * r2 * g * std::sin(phi + psi);
-      max_abs_energy = std::max(max_abs_energy, std::abs(kinetic + potential));
-    }
-    return max_abs_energy;
-  };
-
-  ScalarOperationT max_energy_1 = max_abs_total_energy(1);
-  ScalarOperationT max_energy_8 = max_abs_total_energy(8);
-
-  EXPECT_LT(max_energy_8, max_energy_1 * 0.5F)
-      << "substeps=1 max |energy|: " << max_energy_1
-      << ", substeps=8 max |energy|: " << max_energy_8;
 }
 
 // RK4 (Simulation::Integrator::kRungeKutta4) is the integrator MuJoCo
 // itself points at for energy-conserving systems, and this pins down the
 // margin it actually buys over the registered semi-implicit-Euler scheme
-// on this repo's own demo scene. Ratio-based rather than absolute for the
-// same reason SubstepsSubstantiallyReduceEnergyDissipation above is: both
+// on this repo's own demo scene. Ratio-based rather than absolute: both
 // runs are the same chaotic system, so the claim under test is the
 // relative improvement, not a number this scene happens to produce today.
 //
@@ -567,10 +516,12 @@ TEST(TwoJointArmReference, RungeKutta4DrasticallyOutperformsEulerOnEnergy) {
       auto view = sim.ViewFor<ABAAlgorithm>();
       auto shoulder_q =
           view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.shoulder);
-      auto elbow_q = view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.elbow);
+      auto elbow_q =
+          view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.elbow);
       auto shoulder_qd =
           view.Load<ABAField::kJointVelocity, ScalarOperationT>(rows.shoulder);
-      auto elbow_qd = view.Load<ABAField::kJointVelocity, ScalarOperationT>(rows.elbow);
+      auto elbow_qd =
+          view.Load<ABAField::kJointVelocity, ScalarOperationT>(rows.elbow);
 
       ScalarOperationT phi = ExtractAngleAboutX(
           shoulder_q.Rotation().W(), shoulder_q.Rotation().X()
@@ -582,10 +533,10 @@ TEST(TwoJointArmReference, RungeKutta4DrasticallyOutperformsEulerOnEnergy) {
       ScalarOperationT omega2 = phi_dot + psi_dot;
 
       ScalarOperationT kinetic = 0.5F * P * phi_dot * phi_dot +
-                      0.5F * Q * omega2 * omega2 +
-                      R * std::cos(psi) * phi_dot * omega2;
+                                 0.5F * Q * omega2 * omega2 +
+                                 R * std::cos(psi) * phi_dot * omega2;
       ScalarOperationT potential = -(m1 * r1 + m2 * l1) * g * std::sin(phi) -
-                        m2 * r2 * g * std::sin(phi + psi);
+                                   m2 * r2 * g * std::sin(phi + psi);
       max_abs_energy = std::max(max_abs_energy, std::abs(kinetic + potential));
     }
     return max_abs_energy;
@@ -593,7 +544,8 @@ TEST(TwoJointArmReference, RungeKutta4DrasticallyOutperformsEulerOnEnergy) {
 
   ScalarOperationT euler =
       max_abs_total_energy(Simulation::Integrator::kSemiImplicitEuler);
-  ScalarOperationT rk4 = max_abs_total_energy(Simulation::Integrator::kRungeKutta4);
+  ScalarOperationT rk4 =
+      max_abs_total_energy(Simulation::Integrator::kRungeKutta4);
 
   EXPECT_LT(rk4, euler * 0.01F)
       << "euler max |energy|: " << euler << ", rk4 max |energy|: " << rk4;
@@ -613,38 +565,10 @@ namespace {
 // trajectory looks like.
 Simulation::Integrator LongHorizonIntegratorFromEnv() {
   const char* name = std::getenv("ACHILLES_LONG_HORIZON_INTEGRATOR");
-  std::string_view integrator = name != nullptr ? name : "rk4";
-  if (integrator == "euler") {
-    return Simulation::Integrator::kSemiImplicitEuler;
-  }
-  if (integrator == "verlet") {
-    return Simulation::Integrator::kVelocityVerlet;
-  }
-  if (integrator == "midpoint") {
-    return Simulation::Integrator::kImplicitMidpoint;
-  }
-  if (integrator == "implicit") {
-    return Simulation::Integrator::kImplicitVelocity;
-  }
-  return Simulation::Integrator::kRungeKutta4;
-}
-
-const char* IntegratorName(Simulation::Integrator integrator) {
-  switch (integrator) {
-    case Simulation::Integrator::kSemiImplicitEuler:
-      return "euler";
-    case Simulation::Integrator::kVelocityVerlet:
-      return "verlet";
-    case Simulation::Integrator::kImplicitMidpoint:
-      return "midpoint";
-    case Simulation::Integrator::kImplicitVelocity:
-      return "implicit";
-    case Simulation::Integrator::kRungeKutta4:
-      return "rk4";
-    case Simulation::Integrator::kImplicitFast:
-      return "implicitfast";
-  }
-  return "unknown";
+  return achilles::algorithms::IntegratorFromName(
+             name != nullptr ? name : "rk4"
+  )
+      .value_or(Simulation::Integrator::kRungeKutta4);
 }
 
 double Mean(
@@ -707,8 +631,8 @@ double TrendSlope(const std::vector<double>& y) {
 // obvious extension of TrajectoryMatchesIndependentModelOverTwoSeconds --
 // just run that same trajectory comparison for longer -- is guaranteed to
 // fail, and for a physical reason rather than a bug. This is a chaotic
-// double pendulum: two trajectories that differ by even one ScalarOperationT ulp
-// separate exponentially, so the engine and a reference stepper of the
+// double pendulum: two trajectories that differ by even one ScalarOperationT
+// ulp separate exponentially, so the engine and a reference stepper of the
 // exact same discrete map inevitably diverge once enough Lyapunov times
 // have passed. That says nothing about correctness, so trajectory
 // agreement cannot be the thing under test here.
@@ -716,10 +640,10 @@ double TrendSlope(const std::vector<double>& y) {
 // The actual check is *per-tick* rather than trajectory-wide: at every
 // state the sim visits, feed that state into the closed-form
 // ReferenceAngularAcceleration and compare against the qdd algorithms::aba
-// just produced for it (via Simulation::RefreshAccelerationForCurrentState,
-// which forces a fresh ABA evaluation at exactly the captured state --
-// see its own comment for why that call can't be skipped for any
-// Integrator other than kSemiImplicitEuler). That error never accumulates,
+// just produced for it (via Simulation::StepWith<ABAStep alone>, which
+// forces a fresh ABA evaluation at exactly the captured state -- see the
+// loop below for why that call can't be skipped for any Integrator other
+// than kSemiImplicitEuler). That error never accumulates,
 // so it stays meaningful for an arbitrarily long run -- and because a few
 // minutes of chaotic motion wanders over a far wider swath of
 // configuration space than any two-second trajectory does, it is a
@@ -776,9 +700,10 @@ TEST(
     DISABLED_LongHorizonDynamicsMatchClosedFormWithoutDrift
 ) {
   const char* horizon_env = std::getenv("ACHILLES_LONG_HORIZON_SECONDS");
-  const ScalarOperationT horizon = horizon_env != nullptr
-                            ? static_cast<ScalarOperationT>(std::atof(horizon_env))
-                            : 300.0F;
+  const ScalarOperationT horizon =
+      horizon_env != nullptr
+          ? static_cast<ScalarOperationT>(std::atof(horizon_env))
+          : 300.0F;
   constexpr int kWindowCount = 10;
   ASSERT_GT(horizon / static_cast<ScalarOperationT>(kWindowCount), 1.0F)
       << "Horizon must be long enough for " << kWindowCount
@@ -797,7 +722,7 @@ TEST(
 
   // Matches the archetype's own initial state (both links at rest,
   // identity rotation) -- Simulation::Init() loads exactly this, so the
-  // very first RefreshAccelerationForCurrentState() below evaluates ABA at
+  // very first ABA-only StepWith() below evaluates ABA at
   // exactly this state.
   ScalarOperationT phi = 0.0F;
   ScalarOperationT psi = 0.0F;
@@ -809,17 +734,18 @@ TEST(
 
   for (int i = 0; i < steps; ++i) {
     // Force a fresh ABA evaluation at the state (phi, psi, phi_dot,
-    // psi_dot) currently describes, *before* advancing anything -- see
-    // Simulation::RefreshAccelerationForCurrentState's own comment on why
-    // this can't be skipped for any Integrator other than
-    // kSemiImplicitEuler. Skipping it silently compares the closed form
+    // psi_dot) currently describes, *before* advancing anything. It can't
+    // be skipped for any Integrator other than kSemiImplicitEuler: those
+    // run ABA more than once per tick, at intermediate states, and the
+    // last such call is what kJointAcceleration holds after Step().
+    // Skipping it silently compares the closed form
     // against whatever intermediate stage state an integrator's own last
     // internal ABA call happened to leave behind, which for e.g.
     // kRungeKutta4 is a real but different state than (phi, psi, phi_dot,
     // psi_dot) -- that mismatch alone produces a large, integrator-
     // specific-looking "error" that has nothing to do with dynamics
     // correctness.
-    sim.RefreshAccelerationForCurrentState();
+    ASSERT_TRUE(sim.StepWith<TypeList<ABAStep>>(0.0F));
     auto view = sim.ViewFor<ABAAlgorithm>();
     Accelerations expected =
         ReferenceAngularAcceleration(phi, psi, phi_dot, psi_dot);
@@ -827,9 +753,10 @@ TEST(
         view.Load<ABAField::kJointAcceleration, ScalarOperationT>(rows.shoulder)
             .Angular()
             .X();
-    ScalarOperationT elbow_qdd = view.Load<ABAField::kJointAcceleration, ScalarOperationT>(rows.elbow)
-                          .Angular()
-                          .X();
+    ScalarOperationT elbow_qdd =
+        view.Load<ABAField::kJointAcceleration, ScalarOperationT>(rows.elbow)
+            .Angular()
+            .X();
 
     // Relative, not absolute. Absolute |dqdd| would trend upward over a
     // long, energy-drifting run purely because faster motion follows and
@@ -853,18 +780,23 @@ TEST(
     ASSERT_TRUE(sim.Step(kDt));
     auto next_view = sim.ViewFor<ABAAlgorithm>();
     auto shoulder_q =
-        next_view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.shoulder);
-    auto elbow_q = next_view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.elbow);
+        next_view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.shoulder
+        );
+    auto elbow_q =
+        next_view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.elbow);
     phi = ExtractAngleAboutX(
         shoulder_q.Rotation().W(), shoulder_q.Rotation().X()
     );
     psi = ExtractAngleAboutX(elbow_q.Rotation().W(), elbow_q.Rotation().X());
-    phi_dot = next_view.Load<ABAField::kJointVelocity, ScalarOperationT>(rows.shoulder)
-                  .Angular()
-                  .X();
-    psi_dot = next_view.Load<ABAField::kJointVelocity, ScalarOperationT>(rows.elbow)
-                  .Angular()
-                  .X();
+    phi_dot =
+        next_view
+            .Load<ABAField::kJointVelocity, ScalarOperationT>(rows.shoulder)
+            .Angular()
+            .X();
+    psi_dot =
+        next_view.Load<ABAField::kJointVelocity, ScalarOperationT>(rows.elbow)
+            .Angular()
+            .X();
   }
 
   // kOutlierTolerance/kTrendTolerance are headroom for ordinary chaotic
@@ -905,10 +837,12 @@ TEST(
     double slope = TrendSlope(window_means);
     double fitted_total_rise = slope * static_cast<double>(kWindowCount - 1);
 
+    const auto integrator_name = achilles::algorithms::NameOf(integrator);
     std::printf(
-        "\n  %s (integrator=%s, horizon=%.0fs, %zu ticks)\n",
+        "\n  %s (integrator=%.*s, horizon=%.0fs, %zu ticks)\n",
         label,
-        IntegratorName(integrator),
+        static_cast<int>(integrator_name.size()),
+        integrator_name.data(),
         horizon,
         total
     );

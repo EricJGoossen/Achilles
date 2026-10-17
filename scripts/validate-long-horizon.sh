@@ -23,7 +23,7 @@
 # Usage:
 #   scripts/validate-long-horizon.sh [seconds] [integrator]
 #     seconds     default 300
-#     integrator  euler | verlet | midpoint | implicit | rk4  (default rk4 --
+#     integrator  euler | verlet | midpoint | rk4 | implicitfast  (default rk4 --
 #                 the one this exists to double-check, since it's the one
 #                 that doesn't visibly look wrong when watched)
 set -euo pipefail

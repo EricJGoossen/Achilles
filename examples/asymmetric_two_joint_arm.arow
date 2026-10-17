@@ -5,21 +5,17 @@
 # own mass offset (rigid_body_inertia's h) stays along local Y, same as
 # before.
 #
-# Why this matters for benchmarking algorithms::aba::ImplicitVelocityStep
-# (interface::Simulation::Integrator::kImplicitVelocity): in the original,
-# fully-planar two_joint_arm scene, every joint shares the same rotation
-# axis (X) and the same mass-offset axis (Y) -- and for that specific
-# geometry, each joint's own *self* velocity-coupling Jacobian entry
-# (d(qdd)/d(qd) restricted to that joint's own DOF) vanishes exactly, by a
-# parallel-vector cross-product identity (a x a == 0). ImplicitVelocityStep
-# only ever corrects a joint's *own* self-coupling (see its own header
-# comment on why it ignores cross-joint coupling) -- so on the original
-# scene it has *nothing* to correct at all, and measures identically to
-# plain semi-implicit Euler. Rotating the elbow about a different axis
-# than its own offset breaks that cancellation (the joint's own rotation
-# axis and its own instantaneous v_bar are no longer forced parallel), so
-# this scene is the one to check whether the "local" scheme buys anything
-# once there's real self-coupling for it to actually capture.
+# Why this matters for benchmarking integrators (see
+# interface::Simulation::Integrator): in the original, fully-planar
+# two_joint_arm scene, every joint shares the same rotation axis (X) and the
+# same mass-offset axis (Y) -- and for that specific geometry, each joint's
+# own *self* velocity-coupling Jacobian entry (d(qdd)/d(qd) restricted to
+# that joint's own DOF) vanishes exactly, by a parallel-vector
+# cross-product identity (a x a == 0). Rotating the elbow about a different
+# axis than its own offset breaks that cancellation (the joint's own
+# rotation axis and its own instantaneous v_bar are no longer forced
+# parallel), so this scene exercises velocity-dependent self-coupling the
+# planar scene never produces.
 #
 # Elbow starts with a nonzero initial velocity (rather than zero) because
 # a Z-axis joint feels no *direct* gravity torque about its own axis (see

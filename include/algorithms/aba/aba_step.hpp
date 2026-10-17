@@ -32,8 +32,8 @@ namespace achilles::algorithms::aba {
 // same (SimContext, Config, dt) shape every Step::Step takes (see
 // engine/pass/sim_step.hpp).
 //
-// A struct (rather than a bare free function) so it can be named as
-// Algorithm<ABAField, ABAFieldTraits, ABAStep>'s Step.
+// A struct (rather than a bare free function) so it can be named in a step
+// list (see algorithms/registry.hpp).
 //
 // SimStateT is a template parameter, not engine::pass::SimContext<...>
 // named directly: SimContext is templated on the full Algorithms... pack of
@@ -108,7 +108,7 @@ struct ABAStep {
   }
 };
 
-using ABAAlgorithm = engine::Algorithm<ABAField, ABAFieldTraits, ABAStep>;
+using ABAAlgorithm = engine::Algorithm<ABAField, ABAFieldTraits>;
 static_assert(engine::AlgorithmLike<ABAAlgorithm>);
 
 }  // namespace achilles::algorithms::aba

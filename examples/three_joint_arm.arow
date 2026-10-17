@@ -8,12 +8,10 @@
 #
 # Not part of the visual demo -- this exists specifically to benchmark
 # integrators (see interface::Simulation::Integrator) on a chain with more
-# cross-joint velocity coupling than the two-link arm has, since
-# ImplicitVelocityStep's own "local" (per-joint) simplification of MuJoCo's
-# globally-coupled implicit-in-velocity scheme ignores exactly that
-# coupling (see its own header comment) -- a third link gives the wrist's
-# own Coriolis feedback something to couple back through (elbow's own
-# velocity) that the two-link scene's leaf joint (elbow) never had to.
+# cross-joint velocity coupling than the two-link arm has -- a third link
+# gives the wrist's own Coriolis feedback something to couple back through
+# (elbow's own velocity) that the two-link scene's leaf joint (elbow) never
+# had to.
 archetype: arm3
 joints:
   - name: shoulder
