@@ -237,12 +237,12 @@ Accelerations ReferenceAngularAcceleration(
   const ScalarOperationT m2 = kElbow.mass;
   const ScalarOperationT r2 = kElbow.pivot_to_com;
   const ScalarOperationT I2 = kElbow.inertia_about_pivot;
-  const ScalarOperationT l1 = kLinkLength;
+  const ScalarOperationT L1 = kLinkLength;
   const ScalarOperationT g = kGravity;
 
-  const ScalarOperationT P = I1 + m2 * l1 * l1;
+  const ScalarOperationT P = I1 + m2 * L1 * L1;
   const ScalarOperationT Q = I2;
-  const ScalarOperationT R = m2 * l1 * r2;
+  const ScalarOperationT R = m2 * L1 * r2;
 
   const ScalarOperationT cos_psi = std::cos(psi);
   const ScalarOperationT sin_psi = std::sin(psi);
@@ -256,7 +256,7 @@ Accelerations ReferenceAngularAcceleration(
 
   const ScalarOperationT b1 =
       2.0F * R * sin_psi * phi_dot * psi_dot + R * sin_psi * psi_dot * psi_dot +
-      (m1 * r1 + m2 * l1) * g * cos_phi + m2 * r2 * g * cos_phi_psi;
+      (m1 * r1 + m2 * L1) * g * cos_phi + m2 * r2 * g * cos_phi_psi;
   const ScalarOperationT b2 =
       -R * sin_psi * phi_dot * phi_dot + m2 * r2 * g * cos_phi_psi;
 
@@ -428,11 +428,11 @@ TEST(
   const ScalarOperationT m2 = kElbow.mass;
   const ScalarOperationT r2 = kElbow.pivot_to_com;
   const ScalarOperationT I2 = kElbow.inertia_about_pivot;
-  const ScalarOperationT l1 = kLinkLength;
+  const ScalarOperationT L1 = kLinkLength;
   const ScalarOperationT g = kGravity;
-  const ScalarOperationT P = I1 + m2 * l1 * l1;
+  const ScalarOperationT P = I1 + m2 * L1 * L1;
   const ScalarOperationT Q = I2;
-  const ScalarOperationT R = m2 * l1 * r2;
+  const ScalarOperationT R = m2 * L1 * r2;
 
   constexpr int kSteps = 120 * 30;  // 30 simulated seconds.
   ScalarOperationT max_abs_energy = 0.0F;
@@ -461,7 +461,7 @@ TEST(
     ScalarOperationT kinetic = 0.5F * P * phi_dot * phi_dot +
                                0.5F * Q * omega2 * omega2 +
                                R * std::cos(psi) * phi_dot * omega2;
-    ScalarOperationT potential = -(m1 * r1 + m2 * l1) * g * std::sin(phi) -
+    ScalarOperationT potential = -(m1 * r1 + m2 * L1) * g * std::sin(phi) -
                                  m2 * r2 * g * std::sin(phi + psi);
     ScalarOperationT total_energy = kinetic + potential;
     max_abs_energy = std::max(max_abs_energy, std::abs(total_energy));
@@ -473,7 +473,7 @@ TEST(
   // near what an actual energy-injection bug (unbounded growth) would
   // produce over 30 simulated seconds / 3600 ticks.
   ScalarOperationT max_possible_potential =
-      (m1 * r1 + m2 * l1) * g + m2 * r2 * g;
+      (m1 * r1 + m2 * L1) * g + m2 * r2 * g;
   EXPECT_LT(max_abs_energy, max_possible_potential * 1.5F);
 }
 
@@ -494,11 +494,11 @@ TEST(TwoJointArmReference, RungeKutta4DrasticallyOutperformsEulerOnEnergy) {
   const ScalarOperationT m2 = kElbow.mass;
   const ScalarOperationT r2 = kElbow.pivot_to_com;
   const ScalarOperationT I2 = kElbow.inertia_about_pivot;
-  const ScalarOperationT l1 = kLinkLength;
+  const ScalarOperationT L1 = kLinkLength;
   const ScalarOperationT g = kGravity;
-  const ScalarOperationT P = I1 + m2 * l1 * l1;
+  const ScalarOperationT P = I1 + m2 * L1 * L1;
   const ScalarOperationT Q = I2;
-  const ScalarOperationT R = m2 * l1 * r2;
+  const ScalarOperationT R = m2 * L1 * r2;
 
   auto max_abs_total_energy = [&](Simulation::Integrator integrator) {
     TempDir dir;
@@ -535,7 +535,7 @@ TEST(TwoJointArmReference, RungeKutta4DrasticallyOutperformsEulerOnEnergy) {
       ScalarOperationT kinetic = 0.5F * P * phi_dot * phi_dot +
                                  0.5F * Q * omega2 * omega2 +
                                  R * std::cos(psi) * phi_dot * omega2;
-      ScalarOperationT potential = -(m1 * r1 + m2 * l1) * g * std::sin(phi) -
+      ScalarOperationT potential = -(m1 * r1 + m2 * L1) * g * std::sin(phi) -
                                    m2 * r2 * g * std::sin(phi + psi);
       max_abs_energy = std::max(max_abs_energy, std::abs(kinetic + potential));
     }
@@ -601,13 +601,13 @@ double Median(std::vector<double> values) {
 // window-to-window noise (which a chaotic system has plenty of) rather
 // than comparing two individually noisy samples against each other.
 double TrendSlope(const std::vector<double>& y) {
-  double n = static_cast<double>(y.size());
+  auto n = static_cast<double>(y.size());
   double sum_x = 0.0;
   double sum_y = 0.0;
   double sum_xy = 0.0;
   double sum_xx = 0.0;
   for (std::size_t i = 0; i < y.size(); ++i) {
-    double x = static_cast<double>(i);
+    auto x = static_cast<double>(i);
     sum_x += x;
     sum_y += y[i];
     sum_xy += x * y[i];

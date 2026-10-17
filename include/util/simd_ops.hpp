@@ -124,12 +124,12 @@ concept ArithmeticLike =
 // alongside, splitting what should be one batch group into two.
 template <typename ScalarOrBatch, bool IsBatch = kIsXsimdBatch<ScalarOrBatch>>
 struct MaskElementFor {
-  using type = std::
+  using Type = std::
       conditional_t<sizeof(ScalarOrBatch) >= 8, std::int64_t, std::int32_t>;
 };
 template <typename ScalarOrBatch>
 struct MaskElementFor<ScalarOrBatch, true> {
-  using type = std::conditional_t<
+  using Type = std::conditional_t<
       sizeof(typename ScalarOrBatch::value_type) >= 8,
       std::int64_t,
       std::int32_t>;
@@ -145,8 +145,8 @@ struct MaskElementFor<ScalarOrBatch, true> {
 template <typename ScalarOrBatch>
 using MaskStorageFor = std::conditional_t<
     kIsXsimdBatch<ScalarOrBatch>,
-    xsimd::batch<typename MaskElementFor<ScalarOrBatch>::type>,
-    typename MaskElementFor<ScalarOrBatch>::type>;
+    xsimd::batch<typename MaskElementFor<ScalarOrBatch>::Type>,
+    typename MaskElementFor<ScalarOrBatch>::Type>;
 
 // A scalar-or-batch type restricted to integer lanes: plain std::int32_t,
 // std::uint8_t, etc., or an xsimd::batch of one. Narrower than
