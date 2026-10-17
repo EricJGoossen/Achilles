@@ -118,6 +118,7 @@ include/
     aba/         Articulated Body Algorithm -> joint accelerations
     vi/          Velocity integration
     pi/          Position integration
+    collision/   Broad phase: per-body world-axis-aligned bounds
     viz/         Render-only state (world transforms, visuals); never stepped
   interface/   Loaders and the Simulation facade
   render/      The OpenGL/GLFW viewer
@@ -139,9 +140,9 @@ The main pieces:
   or backward tree walk, or a flat linear pass.
 - **Registry** ([include/algorithms/registry.hpp](include/algorithms/registry.hpp)):
   the list of algorithms the simulation hosts, in the order they run.
-  Each step runs ABA, then VI, then PI. Shared fields are aliased from
-  one algorithm to the next, so nothing is copied between them. Adding
-  an algorithm takes one line here.
+  Each step runs ABA, then VI, then PI, then the collision broad phase.
+  Shared fields are aliased from one algorithm to the next, so nothing is
+  copied between them. Adding an algorithm takes one line here.
 
 ## Development
 

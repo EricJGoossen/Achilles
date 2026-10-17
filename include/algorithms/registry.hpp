@@ -1,6 +1,7 @@
 #pragma once
 
 #include "algorithms/aba/aba_step.hpp"
+#include "algorithms/collision/collision_step.hpp"
 #include "algorithms/pi/pi_step.hpp"
 #include "algorithms/vi/vi_step.hpp"
 #include "algorithms/viz/viz_step.hpp"
@@ -23,6 +24,13 @@ namespace achilles::algorithms {
 // VI/PI before ABA in a given tick would integrate stale acceleration/
 // velocity instead of this tick's own.
 //
+// collision::CollisionAlgorithm reads kWorldTransform (via
+// WorldTransformSlot), which only ABA writes and VI/PI never touch -- so it
+// sees the same pose ABA solved this tick from, and the same pose a
+// renderer draws after Step() returns, wherever it sits after ABA. It runs
+// after PI only so that every algorithm advancing the system's own state
+// comes first and everything that merely reads it comes after.
+//
 // viz::VizAlgorithm is last, and Step-order-irrelevant: it names
 // engine::NoStep (viz_step.hpp), so SimContext::Step skips it entirely --
 // it only ever supplies memory (its own kWorldTransform aliases ABA's,
@@ -32,6 +40,7 @@ using RegisteredAlgorithms = util::TypeList<
     aba::ABAAlgorithm,
     vi::VIAlgorithm,
     pi::PIAlgorithm,
+    collision::CollisionAlgorithm,
     viz::VizAlgorithm>;
 
 }  // namespace achilles::algorithms

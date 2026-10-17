@@ -39,6 +39,11 @@ joints:
       joint_velocity: [0, 0, 0, 0, 0, 0]
       joint_torque: [0, 0, 0, 0, 0, 0]
       visual_extents: [0.15, 0.5, 0.15]
+      # The body-frame box the collision broad phase bounds this body by
+      # (see include/algorithms/collision/collision_data.hpp) -- here just
+      # the visual box itself.
+      collision_center: [0, 0, 0]
+      collision_extents: [0.15, 0.5, 0.15]
       visual_color: [0.85, 0.3, 0.2]
   - name: elbow
     parent: shoulder
@@ -65,4 +70,6 @@ joints:
       joint_velocity: [0, 0, 0, 0, 0, 0]
       joint_torque: [0, 0, 0, 0, 0, 0]
       visual_extents: [0.12, 0.4, 0.12]
+      collision_center: [0, 0, 0]
+      collision_extents: [0.12, 0.4, 0.12]
       visual_color: [0.2, 0.55, 0.9]

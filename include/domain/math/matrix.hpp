@@ -234,6 +234,19 @@ class Matrix {
     }
     return *this;
   }
+  constexpr Matrix Abs() const {
+    Matrix result = *this;
+    return result.AbsInPlace();
+  }
+  constexpr Matrix& AbsInPlace() {
+    using std::abs;
+    using xsimd::abs;
+
+    for (std::size_t i = 0; i < M * N; ++i) {
+      data_[i] = abs(data_[i]);
+    }
+    return *this;
+  }
   constexpr Matrix& operator+=(const Matrix& other) {
     for (std::size_t i = 0; i < M * N; ++i) {
       data_[i] += other[i];
