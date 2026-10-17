@@ -3,15 +3,16 @@
 #include <concepts>
 #include <string_view>
 
+#include "engine/topology/indexing_policy.hpp"
 #include "engine/topology/layout_policy.hpp"
 #include "engine/topology/ordering_policy.hpp"
 
 namespace achilles::engine::memory {
 
-// Per-field sharing / ordering / layout intent, read out of the same
-// Traits<F> the Assembler already lives in. SharedAs and Ordering are
-// detected optionally -- exactly the way op_contract detects an Op's
-// optional Initialize (OpHasInit) -- but Layout is mandatory: every field
+// Per-field sharing / ordering / indexing / layout intent, read out of the
+// same Traits<F> the Assembler already lives in. SharedAs, Ordering and
+// Indexing are detected optionally -- exactly the way op_contract detects an
+// Op's optional Initialize (OpHasInit) -- but Layout is mandatory: every field
 // must say explicitly how it is laid out. Adding an algorithm stays "new
 // enum + new Traits + new Ops":
 //
@@ -20,11 +21,13 @@ namespace achilles::engine::memory {
 //     using Assembler = spatial::TransformAssembler<ScalarOperationT>;
 //     using SharedAs  = FixedJointTransformSlot;                     // opt
 //     using Ordering  = topology::TopologicalOrdering;               // opt
+//     using Indexing  = topology::RowIndexing;                       // opt
 //     using Layout    = topology::PlanarLayout;                // mandatory
 //   };
 //
 // No SharedAs -> private to this field. No Ordering -> topology::
 // LinearOrdering (every instance stands alone -- see ordering_policy.hpp).
+// No Indexing -> topology::RowIndexing (see indexing_policy.hpp).
 // Layout has no default -- omitting it is a compile error. None of these
 // require touching engine/.
 //
@@ -67,6 +70,31 @@ struct ResolvedFieldOrdering<EnumT, Traits, F> {
 
 template <typename EnumT, template <EnumT> class Traits, EnumT F>
 using FieldOrderingT = typename ResolvedFieldOrdering<EnumT, Traits, F>::Type;
+
+// Optional, like Ordering: no Indexing -> topology::RowIndexing (one value
+// per row, every field's shape before index spaces existed). A field that
+// holds one value per pair of rows (e.g. a broad phase's overlap result)
+// names topology::PairIndexing instead -- see indexing_policy.hpp.
+template <typename EnumT, template <EnumT> class Traits, EnumT F>
+concept FieldHasIndexing = requires { typename Traits<F>::Indexing; };
+
+template <typename EnumT, template <EnumT> class Traits, EnumT F>
+struct ResolvedFieldIndexing {
+  using Type = topology::RowIndexing;
+};
+
+template <typename EnumT, template <EnumT> class Traits, EnumT F>
+  requires FieldHasIndexing<EnumT, Traits, F>
+struct ResolvedFieldIndexing<EnumT, Traits, F> {
+  using Type = typename Traits<F>::Indexing;
+  static_assert(
+      topology::IndexingPolicyLike<Type>,
+      "Traits<F>::Indexing, if declared, must satisfy IndexingPolicyLike."
+  );
+};
+
+template <typename EnumT, template <EnumT> class Traits, EnumT F>
+using FieldIndexingT = typename ResolvedFieldIndexing<EnumT, Traits, F>::Type;
 
 template <typename EnumT, template <EnumT> class Traits, EnumT F>
 concept FieldHasLayout = requires { typename Traits<F>::Layout; };

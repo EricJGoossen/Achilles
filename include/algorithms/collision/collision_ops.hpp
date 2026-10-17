@@ -18,15 +18,16 @@ namespace achilles::algorithms::collision {
 struct ComputeWorldBoundsOp {
   using FieldEnum = CollisionField;
   using ArgData = engine::ArgData<FieldEnum>;
+  using ArgIndex = engine::ArgIndex;
 
   static constexpr std::array<ArgData, 3> kInputs = {
-      ArgData{FieldEnum::kWorldTransform, true},
-      ArgData{FieldEnum::kCollisionCenter, true},
-      ArgData{FieldEnum::kCollisionExtents, true},
+      ArgData{FieldEnum::kWorldTransform, ArgIndex::kTarget},
+      ArgData{FieldEnum::kCollisionCenter, ArgIndex::kTarget},
+      ArgData{FieldEnum::kCollisionExtents, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData, 2> kOutputs = {
-      ArgData{FieldEnum::kWorldBoundCenter, true},
-      ArgData{FieldEnum::kWorldBoundExtents, true},
+      ArgData{FieldEnum::kWorldBoundCenter, ArgIndex::kTarget},
+      ArgData{FieldEnum::kWorldBoundExtents, ArgIndex::kTarget},
   };
 
   void operator()(

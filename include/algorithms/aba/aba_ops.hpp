@@ -37,14 +37,15 @@ namespace achilles::algorithms::aba {
 struct PropagateVelocityOp {
   using FieldEnum = ABAField;
   using ArgData = engine::ArgData<FieldEnum>;
+  using ArgIndex = engine::ArgIndex;
 
   PropagateVelocityOp(const Transform& x_world_base, const Velocity& v_base)
       : x_world_base_(x_world_base), v_base_(v_base) {}
 
   static constexpr std::array<ArgData, 0> kInitInputs = {};
   static constexpr std::array<ArgData, 2> kInitOutputs = {
-      ArgData{FieldEnum::kWorldTransform, true},
-      ArgData{FieldEnum::kSpatialVelocity, true},
+      ArgData{FieldEnum::kWorldTransform, ArgIndex::kTarget},
+      ArgData{FieldEnum::kSpatialVelocity, ArgIndex::kTarget},
   };
 
   // Seeds the base row's world transform/velocity -- what a root joint
@@ -52,21 +53,21 @@ struct PropagateVelocityOp {
   void Initialize(Transform* x_world_out, Velocity* v_out) const;
 
   static constexpr std::array<ArgData, 7> kInputs = {
-      ArgData{FieldEnum::kJointSubspace, true},
-      ArgData{FieldEnum::kRigidBodyInertia, true},
-      ArgData{FieldEnum::kWorldTransform, false},
-      ArgData{FieldEnum::kFixedJointTransform, true},
-      ArgData{FieldEnum::kJointPosition, true},
-      ArgData{FieldEnum::kJointVelocity, true},
-      ArgData{FieldEnum::kSpatialVelocity, false},
+      ArgData{FieldEnum::kJointSubspace, ArgIndex::kTarget},
+      ArgData{FieldEnum::kRigidBodyInertia, ArgIndex::kTarget},
+      ArgData{FieldEnum::kWorldTransform, ArgIndex::kParent},
+      ArgData{FieldEnum::kFixedJointTransform, ArgIndex::kTarget},
+      ArgData{FieldEnum::kJointPosition, ArgIndex::kTarget},
+      ArgData{FieldEnum::kJointVelocity, ArgIndex::kTarget},
+      ArgData{FieldEnum::kSpatialVelocity, ArgIndex::kParent},
   };
   static constexpr std::array<ArgData, 6> kOutputs = {
-      ArgData{FieldEnum::kArticulatedInertia, true},
-      ArgData{FieldEnum::kParentToBodyTransform, true},
-      ArgData{FieldEnum::kWorldTransform, true},
-      ArgData{FieldEnum::kSpatialVelocity, true},
-      ArgData{FieldEnum::kBiasAcceleration, true},
-      ArgData{FieldEnum::kArticulatedBiasForce, true},
+      ArgData{FieldEnum::kArticulatedInertia, ArgIndex::kTarget},
+      ArgData{FieldEnum::kParentToBodyTransform, ArgIndex::kTarget},
+      ArgData{FieldEnum::kWorldTransform, ArgIndex::kTarget},
+      ArgData{FieldEnum::kSpatialVelocity, ArgIndex::kTarget},
+      ArgData{FieldEnum::kBiasAcceleration, ArgIndex::kTarget},
+      ArgData{FieldEnum::kArticulatedBiasForce, ArgIndex::kTarget},
   };
 
   void operator()(
@@ -105,11 +106,12 @@ static_assert(
 struct PropagateInertiaOp {
   using FieldEnum = ABAField;
   using ArgData = engine::ArgData<FieldEnum>;
+  using ArgIndex = engine::ArgIndex;
 
   static constexpr std::array<ArgData, 0> kInitInputs = {};
   static constexpr std::array<ArgData, 2> kInitOutputs = {
-      ArgData{FieldEnum::kArticulatedInertia, true},
-      ArgData{FieldEnum::kArticulatedBiasForce, true},
+      ArgData{FieldEnum::kArticulatedInertia, ArgIndex::kTarget},
+      ArgData{FieldEnum::kArticulatedBiasForce, ArgIndex::kTarget},
   };
 
   // Zeroes the base row's articulated-inertia/bias-force accumulator --
@@ -121,20 +123,20 @@ struct PropagateInertiaOp {
       const;
 
   static constexpr std::array<ArgData, 7> kInputs = {
-      ArgData{FieldEnum::kJointSubspace, true},
-      ArgData{FieldEnum::kJointActivationMask, true},
-      ArgData{FieldEnum::kParentToBodyTransform, true},
-      ArgData{FieldEnum::kArticulatedInertia, true},
-      ArgData{FieldEnum::kBiasAcceleration, true},
-      ArgData{FieldEnum::kJointTorque, true},
-      ArgData{FieldEnum::kArticulatedBiasForce, true},
+      ArgData{FieldEnum::kJointSubspace, ArgIndex::kTarget},
+      ArgData{FieldEnum::kJointActivationMask, ArgIndex::kTarget},
+      ArgData{FieldEnum::kParentToBodyTransform, ArgIndex::kTarget},
+      ArgData{FieldEnum::kArticulatedInertia, ArgIndex::kTarget},
+      ArgData{FieldEnum::kBiasAcceleration, ArgIndex::kTarget},
+      ArgData{FieldEnum::kJointTorque, ArgIndex::kTarget},
+      ArgData{FieldEnum::kArticulatedBiasForce, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData, 5> kOutputs = {
-      ArgData{FieldEnum::kArticulatedInertia, false},
-      ArgData{FieldEnum::kUTerm, true},
-      ArgData{FieldEnum::kDInvTerm, true},
-      ArgData{FieldEnum::kArticulatedBiasForce, false},
-      ArgData{FieldEnum::kJointBiasForce, true},
+      ArgData{FieldEnum::kArticulatedInertia, ArgIndex::kParent},
+      ArgData{FieldEnum::kUTerm, ArgIndex::kTarget},
+      ArgData{FieldEnum::kDInvTerm, ArgIndex::kTarget},
+      ArgData{FieldEnum::kArticulatedBiasForce, ArgIndex::kParent},
+      ArgData{FieldEnum::kJointBiasForce, ArgIndex::kTarget},
   };
 
   void operator()(
@@ -173,13 +175,14 @@ static_assert(
 struct PropagateAccelerationOp {
   using FieldEnum = ABAField;
   using ArgData = engine::ArgData<FieldEnum>;
+  using ArgIndex = engine::ArgIndex;
 
   explicit PropagateAccelerationOp(const Acceleration& a_base)
       : a_base_(a_base) {}
 
   static constexpr std::array<ArgData, 0> kInitInputs = {};
   static constexpr std::array<ArgData, 1> kInitOutputs = {
-      ArgData{FieldEnum::kSpatialAcceleration, true},
+      ArgData{FieldEnum::kSpatialAcceleration, ArgIndex::kTarget},
   };
 
   // Seeds the base row's spatial acceleration -- what a root joint reads
@@ -188,17 +191,17 @@ struct PropagateAccelerationOp {
   void Initialize(Acceleration* a_base_out) const;
 
   static constexpr std::array<ArgData, 7> kInputs = {
-      ArgData{FieldEnum::kJointSubspace, true},
-      ArgData{FieldEnum::kDInvTerm, true},
-      ArgData{FieldEnum::kUTerm, true},
-      ArgData{FieldEnum::kParentToBodyTransform, true},
-      ArgData{FieldEnum::kBiasAcceleration, true},
-      ArgData{FieldEnum::kSpatialAcceleration, false},
-      ArgData{FieldEnum::kJointBiasForce, true},
+      ArgData{FieldEnum::kJointSubspace, ArgIndex::kTarget},
+      ArgData{FieldEnum::kDInvTerm, ArgIndex::kTarget},
+      ArgData{FieldEnum::kUTerm, ArgIndex::kTarget},
+      ArgData{FieldEnum::kParentToBodyTransform, ArgIndex::kTarget},
+      ArgData{FieldEnum::kBiasAcceleration, ArgIndex::kTarget},
+      ArgData{FieldEnum::kSpatialAcceleration, ArgIndex::kParent},
+      ArgData{FieldEnum::kJointBiasForce, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData, 2> kOutputs = {
-      ArgData{FieldEnum::kJointAcceleration, true},
-      ArgData{FieldEnum::kSpatialAcceleration, true},
+      ArgData{FieldEnum::kJointAcceleration, ArgIndex::kTarget},
+      ArgData{FieldEnum::kSpatialAcceleration, ArgIndex::kTarget},
   };
 
   void operator()(

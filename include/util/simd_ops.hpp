@@ -43,6 +43,19 @@ inline T SimdLoad(const ElemT* ptr, std::size_t idx) {
   return ptr[idx];
 }
 
+// Load the single ElemT at ptr[0] and splat it across every lane of T --
+// no alignment requirement, since only one element is ever read. For a
+// scalar T this is just ptr[0], the same as SimdLoad at index 0.
+template <typename T, typename ElemT>
+  requires(xsimd::is_batch<T>::value)
+inline T SimdBroadcast(const ElemT* ptr) {
+  return xsimd::broadcast(*ptr);
+}
+template <typename T, typename ElemT>
+inline T SimdBroadcast(const ElemT* ptr) {
+  return *ptr;
+}
+
 template <typename T, typename ElemT>
   requires(xsimd::is_batch<T>::value)
 inline void SimdStore(ElemT* ptr, std::size_t idx, T val) {

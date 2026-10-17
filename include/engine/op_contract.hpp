@@ -3,6 +3,7 @@
 #include <array>
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -13,13 +14,31 @@
 
 namespace achilles::engine {
 
+// Which of the indices a traversal hands an Op an argument is read from (or
+// written to) -- a position, not a flag: OpInvoker packs every index a
+// traversal hands it into one tuple, in this order, and an argument picks
+// its own by std::get<ArgIndex>, never by a branch (see
+// engine/pass/op_invoker.hpp). kTarget is always the row/group the
+// traversal is visiting. kSource is the second index, whatever that
+// traversal makes it -- kParent names the same slot under a TreeTraversal,
+// which is the only place it means "parent"; a LinearTraversal hands the
+// target again, and a PairTraversal hands the broadcast source row
+// (engine/pass/traversals.hpp).
+enum class ArgIndex : uint8_t {
+  kTarget = 0,
+  kSource = 1,
+  kParent = kSource,
+};
+
 // One argument to gather (or scatter) for an Op: `field` selects which
-// field to read from (or write to) the View, and `use_target` selects
-// whether the target or parent index is used to do so.
+// field to read from (or write to) the View, and `index` selects which of
+// the traversal's indices to do so at. A field whose own Indexing policy
+// isn't per-row (e.g. topology::PairIndexing) may resolve from every index
+// regardless; see topology/indexing_policy.hpp.
 template <FieldEnumLike EnumT>
 struct ArgData {
   EnumT field;
-  bool use_target;
+  ArgIndex index;
 };
 
 template <typename T>

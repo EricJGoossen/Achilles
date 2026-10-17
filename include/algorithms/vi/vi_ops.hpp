@@ -9,14 +9,15 @@ namespace achilles::algorithms::vi {
 struct IntegrateVelocityOp {
   using FieldEnum = VIField;
   using ArgData = engine::ArgData<FieldEnum>;
+  using ArgIndex = engine::ArgIndex;
 
   explicit IntegrateVelocityOp(ScalarOperationT dt) : dt_(dt) {}
 
   static constexpr std::array<ArgData, 1> kInputs = {
-      ArgData{FieldEnum::kJointAcceleration, true},
+      ArgData{FieldEnum::kJointAcceleration, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData, 1> kOutputs = {
-      ArgData{FieldEnum::kJointVelocity, true},
+      ArgData{FieldEnum::kJointVelocity, ArgIndex::kTarget},
   };
 
   void operator()(const Acceleration& qdd, Velocity* qd_out) const;

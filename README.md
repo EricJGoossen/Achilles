@@ -137,7 +137,11 @@ The main pieces:
   define `Initialize`.
 - **Traversals** ([include/engine/pass/traversals.hpp](include/engine/pass/traversals.hpp)):
   set the order Ops run in over the joint tree. The options are a forward
-  or backward tree walk, or a flat linear pass.
+  or backward tree walk, a flat linear pass, or an all-pairs walk that
+  checks one row against a whole SIMD lane group at a time. A field holds
+  one value per row by default; naming `Indexing = topology::PairIndexing`
+  in its Traits gives it one value per pair of rows instead
+  ([include/engine/topology/indexing_policy.hpp](include/engine/topology/indexing_policy.hpp)).
 - **Registry** ([include/algorithms/registry.hpp](include/algorithms/registry.hpp)):
   the list of algorithms the simulation hosts, in the order they run.
   Each step runs ABA, then VI, then PI, then the collision broad phase.

@@ -9,9 +9,10 @@
 
 namespace achilles::engine::view {
 
-// Builds one FieldBinding<Policy, Assembler> per field: Assembler from
-// Traits<F>::Assembler and Policy from Traits<F>::Layout, both exactly as
-// Traits<F> declares them, and instantiates View<EnumT, Bindings...> from
+// Builds one FieldBinding<Policy, Assembler, Indexing> per field: Assembler
+// from Traits<F>::Assembler, Policy from Traits<F>::Layout, and Indexing from
+// Traits<F>::Indexing (topology::RowIndexing if it names none), all exactly
+// as Traits<F> declares them, and instantiates View<EnumT, Bindings...> from
 // them. View itself is never a parameter here: it's the one view class
 // that exists, and which Layout policy each field declares is already what
 // determines its shape -- there's nothing left for a caller to choose
@@ -25,7 +26,8 @@ auto MakeViewFromTraits(std::index_sequence<Is...>)
         EnumT,
         FieldBinding<
             memory::FieldLayoutT<EnumT, Traits, static_cast<EnumT>(Is)>,
-            typename Traits<static_cast<EnumT>(Is)>::Assembler>...>;
+            typename Traits<static_cast<EnumT>(Is)>::Assembler,
+            memory::FieldIndexingT<EnumT, Traits, static_cast<EnumT>(Is)>>...>;
 
 template <typename EnumT, template <EnumT> class Traits>
   requires FieldTraitsLike<EnumT, Traits>

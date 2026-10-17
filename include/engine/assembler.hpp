@@ -178,7 +178,28 @@ class Assembler {
         "Read<TargetScalar> requires TargetScalar to be this "
         "Assembler's ScalarType or an xsimd::batch of it."
     );
-    return ReadImpl<TargetScalar>(field0, field_stride_bytes, ChildIndices{});
+    return ReadImpl<TargetScalar, false>(
+        field0, field_stride_bytes, ChildIndices{}
+    );
+  }
+
+  // Read's broadcasting counterpart: reads the one instance at field0 and
+  // hands every lane of TargetScalar that same value, leaf by leaf (see
+  // util::SimdBroadcast) -- what a View hands an Op for an argument read
+  // through a topology::BroadcastIndex (engine/topology/indexing_policy.hpp).
+  // Same TargetScalar restriction and same result type as Read, so an Op
+  // never sees any difference between a gathered and a broadcast argument.
+  template <typename TargetScalar>
+  static auto Broadcast(const std::byte* field0, size_t field_stride_bytes) {
+    static_assert(
+        std::is_same_v<TargetScalar, ScalarType> ||
+            std::is_same_v<TargetScalar, xsimd::batch<ScalarType>>,
+        "Broadcast<TargetScalar> requires TargetScalar to be this "
+        "Assembler's ScalarType or an xsimd::batch of it."
+    );
+    return ReadImpl<TargetScalar, true>(
+        field0, field_stride_bytes, ChildIndices{}
+    );
   }
 
   template <typename TargetScalar, typename ValueT>
@@ -233,33 +254,53 @@ class Assembler {
     return assembler_detail::FieldOffset<ChildTuple, Index>::kValue;
   }
 
-  template <typename Child, typename TargetScalar>
+  // One overload per (leaf or nested Assembler) x (gather or splat) case,
+  // picked by its requires-clause: a leaf is loaded straight out of its own
+  // planar array, a nested Assembler recurses into its own Read/Broadcast.
+  template <typename Child, typename TargetScalar, bool Splat>
+    requires(assembler_detail::kIsLeaf<Child> && !Splat)
+  static auto
+  ReadChild(const std::byte* field0, size_t /*field_stride_bytes*/) {
+    return util::SimdLoad<TargetScalar>(std::bit_cast<const Child*>(field0), 0);
+  }
+  template <typename Child, typename TargetScalar, bool Splat>
+    requires(assembler_detail::kIsLeaf<Child> && Splat)
+  static auto
+  ReadChild(const std::byte* field0, size_t /*field_stride_bytes*/) {
+    return util::SimdBroadcast<TargetScalar>(std::bit_cast<const Child*>(field0)
+    );
+  }
+  template <typename Child, typename TargetScalar, bool Splat>
+    requires(!assembler_detail::kIsLeaf<Child> && !Splat)
   static auto ReadChild(const std::byte* field0, size_t field_stride_bytes) {
-    if constexpr (assembler_detail::kIsLeaf<Child>) {
-      return util::SimdLoad<TargetScalar>(
-          std::bit_cast<const Child*>(field0), 0
-      );
-    } else {
-      return Child::template Read<TargetScalar>(field0, field_stride_bytes);
-    }
+    return Child::template Read<TargetScalar>(field0, field_stride_bytes);
+  }
+  template <typename Child, typename TargetScalar, bool Splat>
+    requires(!assembler_detail::kIsLeaf<Child> && Splat)
+  static auto ReadChild(const std::byte* field0, size_t field_stride_bytes) {
+    return Child::template Broadcast<TargetScalar>(field0, field_stride_bytes);
   }
 
   template <typename Child, typename TargetScalar, typename ValueT>
+    requires(assembler_detail::kIsLeaf<Child>)
+  static void WriteChild(
+      std::byte* field0, size_t /*field_stride_bytes*/, const ValueT& value
+  ) {
+    util::SimdStore(std::bit_cast<Child*>(field0), 0, value);
+  }
+  template <typename Child, typename TargetScalar, typename ValueT>
+    requires(!assembler_detail::kIsLeaf<Child>)
   static void WriteChild(
       std::byte* field0, size_t field_stride_bytes, const ValueT& value
   ) {
-    if constexpr (assembler_detail::kIsLeaf<Child>) {
-      util::SimdStore(std::bit_cast<Child*>(field0), 0, value);
-    } else {
-      Child::template Write<TargetScalar>(field0, field_stride_bytes, value);
-    }
+    Child::template Write<TargetScalar>(field0, field_stride_bytes, value);
   }
 
-  template <typename TargetScalar, size_t... Is>
+  template <typename TargetScalar, bool Splat, size_t... Is>
   static Target<TargetScalar>
   ReadImpl(const std::byte* field0, size_t field_stride_bytes, std::index_sequence<Is...>) {
     return Target<TargetScalar>(
-        ReadChild<std::tuple_element_t<Is, ChildTuple>, TargetScalar>(
+        ReadChild<std::tuple_element_t<Is, ChildTuple>, TargetScalar, Splat>(
             field0 + FieldOffset<Is>() * field_stride_bytes, field_stride_bytes
         )...
     );

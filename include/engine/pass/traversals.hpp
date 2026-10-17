@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "domain/joint_topology.hpp"
+#include "engine/topology/indexing_policy.hpp"
 
 namespace achilles::engine::pass {
 
@@ -31,9 +32,11 @@ struct TraversalProbe {
 
 // A traversal op's counterpart to OpLike: default-constructible, exposing
 // the same `kDirection` metadata every traversal op carries, and providing
-// static `Apply`/`ApplyToBase` entry points shaped like the two traversals
-// below -- Apply drives a callable over every (target, parent) index pair
-// (forward or backward), ApplyToBase calls the callable once, with just the
+// static `Apply`/`ApplyToBase` entry points shaped like the traversals
+// below -- Apply drives a callable over every (target, source) index pair
+// (forward or backward; source is a parent group, the target itself, or a
+// topology::BroadcastIndex row, depending on the traversal), ApplyToBase
+// calls the callable once, with just the
 // single base-row index, for whichever Op::Initialize a pass's OpInvoker
 // exposes (see OpHasInit/OpInvoker in engine/op_contract.hpp and
 // engine/op_invoker.hpp -- not every Op has one, so RunPass in
@@ -193,6 +196,92 @@ static_assert(
 static_assert(
     TraversalLike<BackwardLinearTraversal>,
     "BackwardLinearTraversal must satisfy TraversalLike concept"
+);
+
+// Every source row against every lane group of targets -- the all-pairs
+// walk a broad phase brute-forces. The callable gets (target_group,
+// BroadcastIndex{source_row}): a row-indexed argument naming
+// ArgIndex::kSource reads source_row's own value splatted across every lane, so
+// one call compares that one row against a whole lane group of targets at once,
+// and a PairIndexing field (see topology/indexing_policy.hpp) addresses the
+// (source_row, target_group) element directly.
+//
+// Only the upper triangle, by group: source row s is paired with target
+// groups s / Stride onward, never the groups wholly before its own -- every
+// unordered pair of rows is still visited at least once, in the call whose
+// source is the smaller row. Within s's own group, the lanes at or below s
+// (s against itself, and pairs the smaller row already covered) are visited
+// too; they're computed like any other lane, and it's on whatever reads the
+// result to only trust target > source. Elements of a PairIndexing output
+// whose target group comes wholly before its source's are never written, so
+// they keep whatever Carve/SeedPadding left there.
+//
+// `size` (or a Size()-carrying topology) is in raw rows, the same as
+// LinearTraversal's; a View's own Size() works and simply includes the
+// reserved base row and lane filler as extra (seeded) rows.
+template <Direction Dir, size_t Stride>
+struct PairTraversal {
+  static constexpr Direction kDirection = Dir;
+  static constexpr size_t kStride = Stride;
+
+  template <typename Callable, typename SizeOrTopology, typename... Rest>
+  static constexpr void Apply(
+      const Callable& callable,
+      const SizeOrTopology& size_or_topology,
+      const Rest&...
+  ) {
+    size_t size = [&] {
+      if constexpr (requires { size_or_topology.Size(); }) {
+        return size_or_topology.Size();
+      } else {
+        return size_or_topology;
+      }
+    }();
+    size_t groups = size / Stride;
+    if constexpr (Dir == Direction::kForward) {
+      for (size_t source = 0; source < size; ++source) {
+        for (size_t j = source / Stride; j < groups; ++j) {
+          callable(j, topology::BroadcastIndex{source});
+        }
+      }
+    } else {
+      for (size_t source = size; source-- > 0;) {
+        for (size_t j = groups; j-- > source / Stride;) {
+          callable(j, topology::BroadcastIndex{source});
+        }
+      }
+    }
+  }
+
+  // Same as LinearTraversal's: Initialize at index 0 if there's anything to
+  // walk at all.
+  template <typename Callable, typename SizeOrTopology, typename... Rest>
+  static constexpr void InitOp(
+      const Callable& callable,
+      const SizeOrTopology& size_or_topology,
+      const Rest&...
+  ) {
+    size_t size = [&] {
+      if constexpr (requires { size_or_topology.Size(); }) {
+        return size_or_topology.Size();
+      } else {
+        return size_or_topology;
+      }
+    }();
+    if (size / Stride > 0) {
+      callable.Initialize(0);
+    }
+  }
+};
+using ForwardPairTraversal = PairTraversal<Direction::kForward, 1>;
+using BackwardPairTraversal = PairTraversal<Direction::kBackward, 1>;
+static_assert(
+    TraversalLike<ForwardPairTraversal>,
+    "ForwardPairTraversal must satisfy TraversalLike concept"
+);
+static_assert(
+    TraversalLike<BackwardPairTraversal>,
+    "BackwardPairTraversal must satisfy TraversalLike concept"
 );
 
 }  // namespace achilles::engine::pass

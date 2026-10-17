@@ -9,6 +9,7 @@
 #include <span>
 #include <string_view>
 #include <tuple>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -52,6 +53,7 @@ struct SlotRecord {
   std::size_t alignment = 0;
   std::size_t lane_count = 0;
   const void* ordering_id = nullptr;
+  const void* indexing_id = nullptr;
 };
 using SlotMap = std::unordered_map<const void*, SlotRecord>;
 
@@ -63,6 +65,7 @@ struct FieldVisitor {
   using FieldAssembler = typename FieldTraits::Assembler;
   using FieldLayout = FieldLayoutT<EnumT, Traits, F>;
   using FieldOrdering = FieldOrderingT<EnumT, Traits, F>;
+  using FieldIndexing = FieldIndexingT<EnumT, Traits, F>;
 
   static constexpr std::size_t LaneCount() {
     return FieldLayout::template LaneCount<FieldAssembler>();
@@ -70,8 +73,18 @@ struct FieldVisitor {
   static constexpr std::size_t Alignment() {
     return FieldLayout::template Alignment<FieldAssembler>();
   }
+  // How many elements this field's block holds for `padded_instances` rows
+  // -- padded_instances itself for a row-indexed field, more for any other
+  // index space (see topology/indexing_policy.hpp). Every byte-size/stride
+  // computation below is taken over this, never over padded_instances
+  // directly.
+  static constexpr std::size_t Elements(std::size_t padded_instances) {
+    return FieldIndexing::Count(padded_instances);
+  }
   static std::size_t BlockBytes(std::size_t padded_instances) {
-    return FieldLayout::template BlockBytes<FieldAssembler>(padded_instances);
+    return FieldLayout::template BlockBytes<FieldAssembler>(
+        Elements(padded_instances)
+    );
   }
 
   // This field's own row order -- built once per distinct policy by
@@ -95,6 +108,7 @@ struct FieldVisitor {
     std::size_t alignment = Alignment();
     std::size_t lanes = LaneCount();
     const void* ordering_id = SlotId<FieldOrdering>();
+    const void* indexing_id = SlotId<FieldIndexing>();
 
     if constexpr (FieldIsShared<EnumT, Traits, F>) {
       using Tag = typename FieldTraits::SharedAs;
@@ -105,8 +119,10 @@ struct FieldVisitor {
         assert(
             rec.block_bytes == bytes && rec.alignment == alignment &&
             rec.lane_count == lanes && rec.ordering_id == ordering_id &&
+            rec.indexing_id == indexing_id &&
             "Two algorithms name the same SharedAs tag with incompatible "
-            "field shapes (bytes/alignment/lane count/ordering) -- sharing "
+            "field shapes (bytes/alignment/lane count/ordering/indexing) -- "
+            "sharing "
             "an array two algorithms disagree about the layout of is "
             "unsound."
         );
@@ -114,7 +130,10 @@ struct FieldVisitor {
       }
       std::byte* base = arena.Allocate(bytes, alignment);
       arena.ZeroFill(base, bytes);
-      slots.emplace(id, SlotRecord{base, bytes, alignment, lanes, ordering_id});
+      slots.emplace(
+          id,
+          SlotRecord{base, bytes, alignment, lanes, ordering_id, indexing_id}
+      );
       return base;
     } else {
       std::byte* base = arena.Allocate(bytes, alignment);
@@ -123,21 +142,19 @@ struct FieldVisitor {
     }
   }
 
-  // Writes AssembledType::PaddingSeed() into every row of this field's
-  // block that isn't a real (instance, joint) under its OWN Layout
-  // (FieldLayoutFor) -- every padding row up to that Layout's own
-  // BaseRowIndex(), then everything past it up to padded_instances (the
-  // global max over every hosted field's own Layout -- see
-  // SimAllocator::padded_instances_), which covers both this field's own
-  // lane-rounding tail and the gap between its own row count and whatever
-  // wider Layout some other field in the sim needed. No policy-specific
-  // branch here: every ordering policy can produce padding rows (even
-  // LinearOrdering, from lane-rounding an archetype's own instance count),
-  // so every field gets seeded the same way regardless of which policy it
-  // named. The reserved base row itself is deliberately NOT touched here:
-  // it is seeded by the hosting algorithm's own Op::Initialize with real
-  // physically meaningful state (e.g. gravity, world velocity), not a
-  // generic safe-neutral value.
+  // Writes AssembledType::PaddingSeed() into every element of this field's
+  // block that doesn't belong to a real (instance, joint) under its OWN
+  // Layout (FieldLayoutFor). *Which* elements those are is this field's own
+  // Indexing policy's call (topology/indexing_policy.hpp) -- for a row-
+  // indexed field, every padding row up to that Layout's own BaseRowIndex(),
+  // then everything past it up to padded_instances (the global max over
+  // every hosted field's own Layout -- see SimAllocator::padded_instances_),
+  // which covers both this field's own lane-rounding tail and the gap
+  // between its own row count and whatever wider Layout some other field in
+  // the sim needed. No ordering-specific branch here: every ordering policy
+  // can produce padding rows (even LinearOrdering, from lane-rounding an
+  // archetype's own instance count), so every field gets seeded the same
+  // way regardless of which policy it named.
   static void SeedPadding(
       std::byte* base,
       std::size_t padded_instances,
@@ -149,25 +166,18 @@ struct FieldVisitor {
     ));
     const AssembledScalar seed = AssembledScalar::PaddingSeed();
     const std::size_t stride =
-        FieldLayout::template StrideBytes<FieldAssembler>(padded_instances);
+        FieldLayout::template StrideBytes<FieldAssembler>(
+            Elements(padded_instances)
+        );
     const std::size_t element_stride =
         FieldLayout::template ElementStrideBytes<FieldAssembler>();
 
-    auto write_row = [&](std::size_t row) {
-      std::byte* row_ptr = base + row * element_stride;
-      FieldAssembler::template Write<ScalarType>(row_ptr, stride, seed);
+    auto write_element = [&](std::size_t element) {
+      std::byte* element_ptr = base + element * element_stride;
+      FieldAssembler::template Write<ScalarType>(element_ptr, stride, seed);
     };
 
-    for (std::size_t sorted = 0; sorted < field_layout.PaddedSize(); ++sorted) {
-      if (field_layout.IsPadding(sorted)) {
-        write_row(sorted);
-      }
-    }
-    for (std::size_t row = field_layout.BaseRowIndex() + 1;
-         row < padded_instances;
-         ++row) {
-      write_row(row);
-    }
+    FieldIndexing::SeedPadding(write_element, field_layout, padded_instances);
   }
 
   // Copies this field's data out of whichever of `archetypes` declares a
@@ -194,6 +204,12 @@ struct FieldVisitor {
       std::span<const domain::Archetype> archetypes
   ) {
     if constexpr (FieldHasName<EnumT, Traits, F>) {
+      static_assert(
+          std::is_same_v<FieldIndexing, topology::RowIndexing>,
+          "SimAllocator: a field with a kName must be row-indexed -- "
+          "archetype data supplies one value per (instance, joint), and "
+          "there's no row of any other index space to copy it into."
+      );
       constexpr std::string_view kFieldName = Traits<F>::kName;
       constexpr std::size_t kLeafCount = FieldAssembler::kNumFields;
       using ScalarType = typename FieldAssembler::ScalarType;

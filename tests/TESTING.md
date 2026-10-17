@@ -224,7 +224,7 @@ enumerate its shapes and check each has its own test:
   identical code, in which case say so in the test comment rather than
   skipping the second test silently.
 - Overwrite (`=`) vs. accumulate (`+=`) outputs, wherever `ArgData`/
-  `use_target` lets an Op express either. A suite built only from
+  `ArgIndex` lets an Op express either. A suite built only from
   `=`-style ops (the common case) will not catch a bug specific to `+=`.
 - Zero-length/empty input, wherever a loop's exit condition isn't an
   explicit `size == 0` guard (a `j-- > 0` loop is correct at zero only by
