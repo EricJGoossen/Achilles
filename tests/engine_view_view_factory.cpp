@@ -22,7 +22,7 @@ using achilles::test_support::ToyView;
 // is declared, never defined -- it only exists to be named inside
 // decltype()) -- there's no runtime behavior, so this is entirely
 // static_asserts with an empty TEST body per file, same as
-// engine_field_contract.cpp/engine_view_contract.cpp.
+// engine_field_contract.cpp/engine_view_view_contract.cpp.
 
 namespace {
 

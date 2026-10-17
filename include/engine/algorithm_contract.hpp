@@ -10,43 +10,45 @@
 
 namespace achilles::engine {
 
-// Sentinel Step for an Algorithm with no per-tick computation of its own --
-// e.g. a field pool other algorithms only read/write via SharedAs, with
-// nothing to step on its own account, or a test Algorithm that exists
-// purely to exercise SimAllocator's memory-layout machinery. engine::pass::
-// Step (engine/pass/sim_step.hpp) skips any Algorithm whose Step names this
-// type, rather than every caller having to omit it from an Algorithms...
-// pack by hand.
-struct NoStep {};
+// A Step: one named stage of a tick, stepped from a list by
+// engine::pass::SimContext::Step<StepList> (see algorithms/registry.hpp for
+// the real lists). Its contract:
+//   - FieldEnum names the Algorithm whose View it runs over, and that
+//     Algorithm must be hosted by the SimContext stepping it.
+//   - A static Step(sim_state, sim_config, dt) does the stage's work through
+//     Views (and JointTopologies) it looks up from sim_state.
+// By convention a Step is one engine::pass::Step(Ops<...>{...}, view, ...)
+// call -- the Ops are the math, the Passes the order they run in -- and
+// engine::pass::ViewStep (engine/pass/view_step.hpp) implements that shape
+// for the common whole-View case. Nothing requires it: a Step that needs
+// something else (a topology-driven traversal, several Views) writes its
+// own Step body. Which stages run, in what order, how many times, with
+// what compile-time weights, belongs to the step list, not to a Step.
+// Step(...) itself is a template on SimStateT, so only FieldEnum can be
+// checked here; the rest is checked where the list is stepped.
+template <typename T>
+concept StepLike =
+    requires { typename T::FieldEnum; } && FieldEnumLike<typename T::FieldEnum>;
 
 // Ties one FieldEnum to its Traits and resolves the View type ViewFactory
-// would build from them, plus (optionally) the type that knows how to step
-// it -- StepT, a struct exposing a static Step(View, ExtraArgs...) that
-// runs one full tick over a View of this shape (see algorithms/aba/
-// aba_step.hpp's ABAStep for the real example). Defaults to NoStep: most
-// Algorithms in a test or a shared-memory-only role never get stepped, so
-// naming a real StepT is opt-in, not mandatory the way Traits is.
+// would build from them -- everything SimAllocator needs to host it.
+// Hosting is all an Algorithm is for; what gets stepped each tick is a
+// list of Steps (see StepLike above), named separately.
 //
 // EnumT and TraitsT are recovered later via partial specialization (see
 // AlgorithmVisitor in sim_allocator.hpp) rather than stored as member
 // aliases, since Traits is a template, not a value the type system can hand
 // back out of an alias template.
-template <
-    FieldEnumLike EnumT,
-    template <EnumT>
-    class TraitsT,
-    typename StepT = NoStep>
+template <FieldEnumLike EnumT, template <EnumT> class TraitsT>
 struct Algorithm {
   using Enum = EnumT;
   using View = view::ViewFactory<EnumT, TraitsT>;
-  using Step = StepT;
 };
 
 template <typename AlgorithmT>
 concept AlgorithmLike = requires {
   typename AlgorithmT::Enum;
   typename AlgorithmT::View;
-  typename AlgorithmT::Step;
   requires FieldEnumLike<typename AlgorithmT::Enum>;
   requires view::ViewLike<typename AlgorithmT::View, typename AlgorithmT::Enum>;
 };
