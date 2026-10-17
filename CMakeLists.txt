@@ -20,17 +20,8 @@ if (NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
 endif ()
 
 include(FetchContent)
-FetchContent_Declare(
-    Eigen
-    GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
-    GIT_TAG 3.4.0
-    GIT_SHALLOW TRUE
-)
-
-set(EIGEN_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-set(EIGEN_BUILD_DOC OFF CACHE BOOL "" FORCE)
+# Keeps every fetched dependency below from building its own test suite.
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(Eigen)
 
 # yaml-cpp backs the .arow archetype loader (engine/topology/archetype_loader.hpp)
 # -- pulled in rather than hand-rolling a YAML parser.
@@ -48,7 +39,7 @@ FetchContent_MakeAvailable(yaml-cpp)
 
 # GLFW backs the OpenGL visualization module (src/render/, wired into
 # interface::Simulation's own headless flag -- see simulation.hpp) --
-# always fetched, the same as Eigen/yaml-cpp above, since the renderer is
+# always fetched, the same as yaml-cpp above, since the renderer is
 # now a normal part of achilles_lib rather than an opt-in module. Building
 # GLFW from source needs its own X11/OpenGL dev headers (on Linux:
 # libgl1-mesa-dev, libx11-dev, libxrandr-dev, libxinerama-dev,
@@ -96,7 +87,7 @@ target_include_directories(achilles_lib ${ACHILLES_LIB_TYPE}
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
 )
 
-target_link_libraries(achilles_lib ${ACHILLES_LIB_TYPE} Eigen3::Eigen yaml-cpp::yaml-cpp glfw OpenGL::GL)
+target_link_libraries(achilles_lib ${ACHILLES_LIB_TYPE} yaml-cpp::yaml-cpp glfw OpenGL::GL)
 
 add_executable(achilles "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
 target_link_libraries(achilles PRIVATE achilles_lib)

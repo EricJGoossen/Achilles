@@ -60,11 +60,10 @@ fi
 # governed by whichever config the src/*.cpp side already uses.
 SRC_HEADER_FILTER="^${ROOT_DIR}/(src|include)/.*"
 TEST_HEADER_FILTER="^${ROOT_DIR}/tests/.*"
-EIGEN_INCLUDE_DIR="$BUILD_DIR/_deps/eigen-src"
 GOOGLETEST_INCLUDE_DIR="$BUILD_DIR/_deps/googletest-src/googletest/include"
 YAML_CPP_INCLUDE_DIR="$BUILD_DIR/_deps/yaml-cpp-src/include"
 GLFW_INCLUDE_DIR="$BUILD_DIR/_deps/glfw-src/include"
-DEP_ARGS=(-x c++ -std=c++20 -I"$ROOT_DIR/src" -I"$ROOT_DIR/include" -isystem"$EIGEN_INCLUDE_DIR" -isystem"$GOOGLETEST_INCLUDE_DIR" -isystem"$YAML_CPP_INCLUDE_DIR" -isystem"$GLFW_INCLUDE_DIR")
+DEP_ARGS=(-x c++ -std=c++20 -I"$ROOT_DIR/src" -I"$ROOT_DIR/include" -isystem"$GOOGLETEST_INCLUDE_DIR" -isystem"$YAML_CPP_INCLUDE_DIR" -isystem"$GLFW_INCLUDE_DIR")
 
 # Hashes both .clang-tidy configs (root and tests/ -- a tests/*.cpp file
 # resolves tests/.clang-tidy as its nearest config, not the root one) and
@@ -74,7 +73,7 @@ CONFIG_HASH="$(cat "$ROOT_DIR/.clang-tidy" "$ROOT_DIR/tests/.clang-tidy" "${BASH
 
 # Prints one project header/source path per line that $1 transitively
 # includes (via the preprocessor, so it's exact, not a guess), restricted
-# to files under src/, include/, or tests/ -- third-party headers (Eigen,
+# to files under src/, include/, or tests/ -- third-party headers (yaml-cpp,
 # xsimd, googletest) are deliberately excluded: they're pinned by
 # CMakeLists.txt, not edited here, and hashing them on every run would be
 # pure overhead.
