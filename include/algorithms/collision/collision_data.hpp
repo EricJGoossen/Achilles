@@ -8,6 +8,7 @@
 #include "algorithms/shared_slots.hpp"
 #include "domain/joint_topology.hpp"
 #include "domain/math/activation_mask.hpp"
+#include "domain/math/scalar.hpp"
 #include "domain/math/vector3.hpp"
 #include "domain/spatial/transform.hpp"
 #include "engine/field_contract.hpp"
@@ -39,6 +40,11 @@ inline constexpr std::size_t kPairLanes = util::LaneCountOf<MathematicalT>();
 // overlaps the source row. Plain int32 storage, not a batch -- a whole lane
 // group's result packs into one of these (see topology::PairGroupIndexing).
 using PairLaneMask = math::ActivationMask<std::int32_t, kPairLanes>;
+static_assert(
+    util::LaneCountOf<util::MaskStorageFor<MathematicalT>>() == kPairLanes,
+    "Int32 filter lanes must line up one-to-one with MathematicalT's lanes, "
+    "or their movemask bits won't AND with the bound test's."
+);
 
 // The broad-phase half of collision: every body carries one box, fixed in
 // its own frame (kCollisionCenter/kCollisionExtents -- static per-archetype
@@ -55,34 +61,48 @@ using PairLaneMask = math::ActivationMask<std::int32_t, kPairLanes>;
 //
 // The body-frame box is a *bound*, not the narrow-phase shape: whatever
 // shape the fine check ends up testing (box, sphere, capsule, ...) only has
-// to fit inside it. A body with no "collision_extents" in its archetype gets
-// PlanarLayout's/Vector3's own zero-fill default (Vector3::Zero()) -- a
-// point at its body origin -- the same "absent data reads as an inert
-// default" convention algorithms::viz's own kVisualExtents follows
-// (viz_data.hpp).
+// to fit inside it. Until that shape exists the bound is authored directly;
+// once it does, kCollisionCenter/kCollisionExtents become derived from it
+// instead.
+//
+// kCollisionMargin is MuJoCo's geom margin: it inflates the world bound on
+// every axis, so a pair becomes a candidate once its bounds come within
+// that distance, not only once they touch -- catching a pair a tick early
+// rather than after it's already interpenetrated. (MuJoCo's `gap`, which
+// decides whether such a not-yet-touching contact produces force, belongs
+// to the fine check and has no broad-phase meaning.) A body with no
+// "collision_extents" in its archetype gets PlanarLayout's/Vector3's own
+// zero-fill default (Vector3::Zero()) -- a point at its body origin -- the same
+// "absent data reads as an inert default" convention algorithms::viz's own
+// kVisualExtents follows (viz_data.hpp).
 //
 // Which pairs are even allowed to collide is per-body data too, Bullet-
 // style: kCollisionGroup is the set of groups a body belongs to,
 // kCollisionMask the set of groups it collides with, and a pair (a, b) is
 // tested only when each one's group intersects the other's mask -- two ANDs
-// per lane, no branch. That one rule covers every exclusion the broad phase
-// needs: a parent/child pair that always touches at its joint is just two
-// groups that leave each other out of their masks, and a padding row (or a
-// body whose archetype gives no "collision_group") reads Zero() and so
-// never collides with anything.
+// per lane, no branch. A padding row (or a body whose archetype gives no
+// "collision_group") reads Zero() and so never collides with anything.
+//
+// On top of that, the PairTraversal itself works out from the topology
+// which lanes of each call are distinct, non-parent/child pairs with the
+// target row above the source row (engine::pass::PairStructure), and the
+// pair test ANDs that in, still without a branch -- dropping a parent/child
+// pair, which always touches at the joint it shares (MuJoCo's
+// filterparent), a body paired with itself, and the duplicate half of every
+// pair.
 //
 // The result, kBoundsOverlap, is the rows x (rows / kPairLanes) bit matrix
 // of which pairs both pass the filter and overlap -- one PairLaneMask word
 // per (source row, target lane group), see topology::PairGroupIndexing.
-// Only the upper triangle is meaningful: a set bit is a real candidate pair
-// only when its target row is greater than its source row (see
-// engine::pass::PairTraversal, which also never writes the words below the
-// diagonal group).
+// Every set bit is a real, distinct candidate pair with target row >
+// source row; words wholly below the diagonal are never written and stay
+// zero.
 enum class CollisionField : uint8_t {
   // --- Model/kinematic inputs ---
   kWorldTransform,    // x_world -- ABA's own kWorldTransform, read-only here
   kCollisionCenter,   // c_local (bound center, in the body's own frame)
   kCollisionExtents,  // h_local (bound half-extents, along the body's axes)
+  kCollisionMargin,   // m (bound inflation, on every world axis)
   kCollisionGroup,    // groups this body belongs to
   kCollisionMask,     // groups this body collides with
 
@@ -128,6 +148,13 @@ struct CollisionFieldTraits<CollisionField::kCollisionExtents> {
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
   static constexpr std::string_view kName = "collision_extents";
+};
+template <>
+struct CollisionFieldTraits<CollisionField::kCollisionMargin> {
+  using Assembler = math::ScalarAssembler<ScalarOperationT>;
+  using Ordering = engine::topology::TopologicalOrdering;
+  using Layout = engine::topology::PlanarLayout;
+  static constexpr std::string_view kName = "collision_margin";
 };
 template <>
 struct CollisionFieldTraits<CollisionField::kCollisionGroup> {

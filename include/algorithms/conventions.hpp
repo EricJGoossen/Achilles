@@ -5,6 +5,7 @@
 #include "domain/math/activation_mask.hpp"
 #include "domain/math/matrix.hpp"
 #include "domain/math/quaternion.hpp"
+#include "domain/math/scalar.hpp"
 #include "domain/math/vector3.hpp"
 #include "domain/math/vector6.hpp"
 #include "domain/spatial/dual.hpp"
@@ -21,6 +22,7 @@ using ScalarOperationT = float;
 using MathematicalT = BatchOperationT;
 
 // Math
+using Scalar = math::Scalar<MathematicalT>;
 using Vector3 = math::Vector3<MathematicalT>;
 using Vector6 = math::Vector6<MathematicalT>;
 using Matrix3x3 = math::Matrix<MathematicalT, 3, 3>;

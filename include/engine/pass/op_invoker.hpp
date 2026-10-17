@@ -26,8 +26,10 @@ namespace achilles::engine::pass {
 //   1. Reads each of kInputs through its cursor, at whichever element that
 //      argument's field's own Indexing policy resolves the tuple to for its
 //      ArgData::index -- see FieldCursor::Resolve.
-//   2. Calls Op::operator() with those values, followed by a pointer to a
-//      freshly default-constructed local for each of kOutputs.
+//   2. Calls Op::operator() with those values, then each slot of the tuple
+//      kTraversalInputs names handed over as-is (if the Op declares any --
+//      see kTraversalInputCountV, engine/op_contract.hpp), then a pointer to
+//      a local for each of kOutputs.
 //   3. Writes each local back through its cursor, resolved the same way.
 // Arguments are strictly one or the other: an Op contract has no room for
 // a parameter that is both read from and written back to the View.
@@ -41,6 +43,7 @@ template <OpLike Op, typename View>
 class OpInvokerBase {
  protected:
   using InputSeq = std::make_index_sequence<Op::kInputs.size()>;
+  using TraversalInputSeq = std::make_index_sequence<kTraversalInputCountV<Op>>;
   using OutputSeq = std::make_index_sequence<Op::kOutputs.size()>;
 
  private:
@@ -87,8 +90,15 @@ class OpInvokerBase {
       std::tuple_element_t<I, util::ArgsOfT<decltype(&Op::operator())>>>;
   template <size_t I>
   using OutputParam = std::remove_pointer_t<std::tuple_element_t<
-      Op::kInputs.size() + I,
+      Op::kInputs.size() + kTraversalInputCountV<Op> + I,
       util::ArgsOfT<decltype(&Op::operator())>>>;
+
+  // The K-th kTraversalInputs value: whatever the traversal put in the
+  // tuple slot it names, unchanged -- no cursor, no field.
+  template <size_t K, typename Indices>
+  static const auto& TraversalInputAt(const Indices& indices) {
+    return std::get<static_cast<size_t>(Op::kTraversalInputs[K])>(indices);
+  }
 
   // Gathers/scatters one argument through `cursor` at whatever element its
   // own field's Indexing policy resolves `indices` to for Index -- the only
@@ -115,9 +125,9 @@ class OpInvokerBase {
     );
   }
 
-  template <typename Indices, size_t... InIs, size_t... OutIs>
+  template <typename Indices, size_t... InIs, size_t... TrIs, size_t... OutIs>
   void
-  Invoke(const Indices& indices, std::index_sequence<InIs...>, std::index_sequence<OutIs...>)
+  Invoke(const Indices& indices, std::index_sequence<InIs...>, std::index_sequence<TrIs...>, std::index_sequence<OutIs...>)
       const {
     std::tuple<OutputParam<OutIs>...> outputs{LoadAt<
         typename OutputParam<OutIs>::ScalarType,
@@ -129,6 +139,7 @@ class OpInvokerBase {
         LoadAt<typename InputParam<InIs>::ScalarType, Op::kInputs[InIs].index>(
             std::get<InIs>(this->input_cursors_), indices
         )...,
+        TraversalInputAt<TrIs>(indices)...,
         &std::get<OutIs>(outputs)...
     );
 
@@ -259,11 +270,19 @@ class OpInvoker : public OpInvokerBase<Op, View>,
   explicit OpInvoker(View& view, const Op& op)
       : Base(view, op), InitBase(view, op) {}
 
-  template <typename SourceIndex>
-  void operator()(size_t target_index, SourceIndex source_index) const {
+  // `extra` is whatever further tuple slots the traversal fills beyond
+  // target/source (e.g. a PairTraversal's PairStructure, ArgIndex::
+  // kStructure) -- packed into the same tuple, in order.
+  template <typename SourceIndex, typename... Extra>
+  void operator()(
+      size_t target_index, SourceIndex source_index, const Extra&... extra
+  ) const {
     this->Invoke(
-        std::tuple<size_t, SourceIndex>{target_index, source_index},
+        std::tuple<size_t, SourceIndex, Extra...>{
+            target_index, source_index, extra...
+        },
         typename Base::InputSeq{},
+        typename Base::TraversalInputSeq{},
         typename Base::OutputSeq{}
     );
   }
@@ -292,6 +311,7 @@ class SingleOpInvoker : public OpInvokerBase<Op, View>,
     this->Invoke(
         std::tuple<size_t, size_t>{target_index, target_index},
         typename Base::InputSeq{},
+        typename Base::TraversalInputSeq{},
         typename Base::OutputSeq{}
     );
   }

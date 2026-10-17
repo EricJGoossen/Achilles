@@ -123,10 +123,9 @@ struct PairGroupIndexing {
 
   template <std::size_t Slot, std::size_t LoadLanes>
     requires(LoadLanes == 1)
-  static constexpr std::size_t Resolve(
-      const std::tuple<std::size_t, BroadcastIndex>& indices, std::size_t rows
-  ) {
-    const auto& [target_group, source] = indices;
+  static constexpr std::size_t Resolve(const auto& indices, std::size_t rows) {
+    const auto& target_group = std::get<0>(indices);
+    const BroadcastIndex& source = std::get<1>(indices);
     return source.row * (rows / Lanes) + target_group;
   }
 
