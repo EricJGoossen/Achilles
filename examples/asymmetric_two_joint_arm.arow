@@ -1,0 +1,92 @@
+# A variant of examples/two_joint_arm.arow built specifically to break that
+# scene's planar symmetry: the elbow here rotates about local Z instead of
+# local X (joint_subspace row 2 -- Yaw -- instead of row 0 -- Roll; see
+# domain::spatial::Dual's own Roll/Pitch/Yaw/X/Y/Z row order), while its
+# own mass offset (rigid_body_inertia's h) stays along local Y, same as
+# before.
+#
+# Why this matters for benchmarking algorithms::aba::ImplicitVelocityStep
+# (interface::Simulation::Integrator::kImplicitVelocity): in the original,
+# fully-planar two_joint_arm scene, every joint shares the same rotation
+# axis (X) and the same mass-offset axis (Y) -- and for that specific
+# geometry, each joint's own *self* velocity-coupling Jacobian entry
+# (d(qdd)/d(qd) restricted to that joint's own DOF) vanishes exactly, by a
+# parallel-vector cross-product identity (a x a == 0). ImplicitVelocityStep
+# only ever corrects a joint's *own* self-coupling (see its own header
+# comment on why it ignores cross-joint coupling) -- so on the original
+# scene it has *nothing* to correct at all, and measures identically to
+# plain semi-implicit Euler. Rotating the elbow about a different axis
+# than its own offset breaks that cancellation (the joint's own rotation
+# axis and its own instantaneous v_bar are no longer forced parallel), so
+# this scene is the one to check whether the "local" scheme buys anything
+# once there's real self-coupling for it to actually capture.
+#
+# Elbow starts with a nonzero initial velocity (rather than zero) because
+# a Z-axis joint feels no *direct* gravity torque about its own axis (see
+# two_joint_arm.arow's own header comment on why) -- with sim_config.yaml's
+# Z-axis gravity, an elbow at rest here would only ever move via whatever
+# inertial coupling arrives from the shoulder's own swinging, which is
+# exactly the regime this scene exists to probe, not something to leave to
+# chance.
+archetype: arm_asym
+joints:
+  - name: shoulder
+    parent: null
+    fields:
+      joint_subspace:
+        [
+          1, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+        ]
+      joint_activation_mask: [1]
+      fixed_joint_transform:
+        translation: [0, 0, 0]
+        rotation: [1, 0, 0, 0]
+      rigid_body_inertia: [1.0, 0, 0.3, 0, 0.18083, 0.015, 0.18083, 0, 0, 0]
+      joint_position:
+        translation: [0, 0, 0]
+        rotation: [1, 0, 0, 0]
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.15, 0.5, 0.15]
+      visual_color: [0.85, 0.3, 0.2]
+  - name: elbow
+    parent: shoulder
+    fields:
+      # Row 2 (Yaw/Z) active instead of row 0 (Roll/X) -- the one change
+      # from two_joint_arm.arow's own elbow that breaks the shared-axis
+      # symmetry (see this file's own header comment).
+      joint_subspace:
+        [
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          1, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+        ]
+      joint_activation_mask: [1]
+      fixed_joint_transform:
+        translation: [0, 1.0, 0]
+        rotation: [1, 0, 0, 0]
+      rigid_body_inertia: [0.4, 0, 0.15, 0, 0.08, 0.006, 0.08, 0, 0, 0]
+      joint_position:
+        translation: [0, 0, 0]
+        rotation: [1, 0, 0, 0]
+      # Nonzero so this joint has real motion/coupling to measure from the
+      # first tick -- see this file's own header comment on why gravity
+      # alone can't be relied on to move it. Index 0, not index 2: this
+      # field is indexed by *generalized coordinate slot* (the column of
+      # joint_subspace), not by spatial row -- joint_subspace's own
+      # nonzero entry here is (row 2, col 0), so slot 0 is this joint's
+      # one real DOF and S lifts it to spatial row 2 (Yaw). Putting the
+      # value at index 2 instead silently leaves the joint at rest, since
+      # S * qd would then read slot 2, which no column of S drives.
+      joint_velocity: [1.2, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.12, 0.4, 0.12]
+      visual_color: [0.2, 0.55, 0.9]

@@ -29,7 +29,9 @@ struct PIStep {
 
   template <engine::pass::SimContextLike SimStateT>
   static void Step(
-      const SimStateT& sim_state, const SimConfig& sim_config, float dt
+      const SimStateT& sim_state,
+      const SimConfig& sim_config,
+      ScalarOperationT dt
   ) {
     (void)sim_config;
     using engine::pass::Pass;

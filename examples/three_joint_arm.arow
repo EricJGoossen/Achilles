@@ -1,0 +1,98 @@
+# A three-joint revolute chain (shoulder -> elbow -> wrist), built by
+# extending examples/two_joint_arm.arow's own shoulder/elbow with a third
+# link -- same axis convention (each joint a single DOF about its own
+# local X, perpendicular to sim_config.yaml's Z-axis gravity so the chain
+# actually swings) and the same pivot-referenced inertia parameterization
+# (see two_joint_arm.arow's own header comment for why Ixx/Izz get raised
+# via the parallel axis theorem).
+#
+# Not part of the visual demo -- this exists specifically to benchmark
+# integrators (see interface::Simulation::Integrator) on a chain with more
+# cross-joint velocity coupling than the two-link arm has, since
+# ImplicitVelocityStep's own "local" (per-joint) simplification of MuJoCo's
+# globally-coupled implicit-in-velocity scheme ignores exactly that
+# coupling (see its own header comment) -- a third link gives the wrist's
+# own Coriolis feedback something to couple back through (elbow's own
+# velocity) that the two-link scene's leaf joint (elbow) never had to.
+archetype: arm3
+joints:
+  - name: shoulder
+    parent: null
+    fields:
+      joint_subspace:
+        [
+          1, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+        ]
+      joint_activation_mask: [1]
+      fixed_joint_transform:
+        translation: [0, 0, 0]
+        rotation: [1, 0, 0, 0]
+      rigid_body_inertia: [1.0, 0, 0.3, 0, 0.18083, 0.015, 0.18083, 0, 0, 0]
+      joint_position:
+        translation: [0, 0, 0]
+        rotation: [1, 0, 0, 0]
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.15, 0.5, 0.15]
+      visual_color: [0.85, 0.3, 0.2]
+  - name: elbow
+    parent: shoulder
+    fields:
+      joint_subspace:
+        [
+          1, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+        ]
+      joint_activation_mask: [1]
+      fixed_joint_transform:
+        translation: [0, 1.0, 0]
+        rotation: [1, 0, 0, 0]
+      rigid_body_inertia: [0.4, 0, 0.15, 0, 0.08, 0.006, 0.08, 0, 0, 0]
+      joint_position:
+        translation: [0, 0, 0]
+        rotation: [1, 0, 0, 0]
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.12, 0.4, 0.12]
+      visual_color: [0.2, 0.55, 0.9]
+  - name: wrist
+    parent: elbow
+    fields:
+      joint_subspace:
+        [
+          1, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+        ]
+      joint_activation_mask: [1]
+      # Offset 0.8 units up elbow's own local Y -- a shorter third link,
+      # placed at the elbow's own joint frame the same way the elbow sits
+      # at the shoulder's.
+      fixed_joint_transform:
+        translation: [0, 0.8, 0]
+        rotation: [1, 0, 0, 0]
+      # mass 0.16 / h=0.024 (offset 0.15) -- same ~0.4x-per-link taper as
+      # shoulder->elbow, one more step out. Ixx/Izz raised by mass*offset^2
+      # (0.16*0.15^2 = 0.0036) over a small about-com value the same way
+      # elbow's own Ixx/Izz were.
+      rigid_body_inertia:
+        [0.16, 0, 0.024, 0, 0.0076, 0.0015, 0.0076, 0, 0, 0]
+      joint_position:
+        translation: [0, 0, 0]
+        rotation: [1, 0, 0, 0]
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.09, 0.32, 0.09]
+      visual_color: [0.9, 0.8, 0.2]

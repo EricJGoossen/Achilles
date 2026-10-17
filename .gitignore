@@ -1,6 +1,8 @@
 .cache/
-build/
+build*/
 compile_commands.json
 .clangd
 .claude/
 settings.json
+__pycache__/
+bench/results/traces/

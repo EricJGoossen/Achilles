@@ -35,7 +35,7 @@ namespace {
 
 using B = MathematicalT;
 
-std::size_t Lane() { return xsimd::batch<float>::size; }
+std::size_t Lane() { return B::size; }
 
 ::testing::AssertionResult BatchTrue(const auto& mask) {
   if (achilles::util::AllTrue(mask)) {

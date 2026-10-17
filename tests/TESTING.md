@@ -155,8 +155,7 @@ conditional when it isn't.
 ## 7. Assertions
 
 - `EXPECT_*`, not `ASSERT_*`, unless a failed check makes the rest of the
-  test meaningless (e.g. a null/size check before indexing) — matches
-  `test_helpers.cpp`.
+  test meaningless (e.g. a null/size check before indexing).
 - Floating point: `EXPECT_FLOAT_EQ` for `float`, `EXPECT_DOUBLE_EQ` for
   `double`. Never `EXPECT_EQ` on floating point.
 - Integers and enums: `EXPECT_EQ`.

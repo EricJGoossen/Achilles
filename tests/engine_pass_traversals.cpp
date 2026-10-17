@@ -62,7 +62,7 @@ TEST(TraversalDirectionMetadata, KDirectionMatchesTheTemplateArgument) {
 // topology[target_index]) for every index, 0..Size()-1 forward or the
 // reverse order backward -- this is the two-argument shape
 // OpInvoker::operator()(target_index, parent_index) expects (see
-// engine_algorithm_step.cpp for that pairing exercised for real).
+// engine_pass_algorithm_step.cpp for that pairing exercised for real).
 TEST(TreeTraversalApply, ForwardVisitsEachIndexOnceInOrderWithItsParent) {
   TopologyArchetype topology{{10, 0, 1}};  // joint i's parent = parents[i]
   std::vector<std::pair<size_t, size_t>> calls;
@@ -146,7 +146,7 @@ TEST(TreeTraversalApply, EmptyTopologyMakesNoCalls) {
 // ("a parentless field... reads/writes itself either way") -- the shape
 // OpInvoker::operator()(target_index, parent_index) needs, since Pass
 // (algorithm_step.hpp) always pairs a Traversal with a real OpInvoker.
-// See engine_algorithm_step.cpp for that pairing exercised for real.
+// See engine_pass_algorithm_step.cpp for that pairing exercised for real.
 TEST(
     LinearTraversalApply, ForwardVisitsEachIndexOnceInOrderTargetEqualsParent
 ) {
