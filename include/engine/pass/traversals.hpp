@@ -203,8 +203,9 @@ static_assert(
 // BroadcastIndex{source_row}): a row-indexed argument naming
 // ArgIndex::kSource reads source_row's own value splatted across every lane, so
 // one call compares that one row against a whole lane group of targets at once,
-// and a PairIndexing field (see topology/indexing_policy.hpp) addresses the
-// (source_row, target_group) element directly.
+// and a PairGroupIndexing<Stride> field (see topology/indexing_policy.hpp)
+// addresses the one (source_row, target_group) element summarizing that
+// whole call.
 //
 // Only the upper triangle, by group: source row s is paired with target
 // groups s / Stride onward, never the groups wholly before its own -- every
@@ -212,9 +213,9 @@ static_assert(
 // source is the smaller row. Within s's own group, the lanes at or below s
 // (s against itself, and pairs the smaller row already covered) are visited
 // too; they're computed like any other lane, and it's on whatever reads the
-// result to only trust target > source. Elements of a PairIndexing output
-// whose target group comes wholly before its source's are never written, so
-// they keep whatever Carve/SeedPadding left there.
+// result to only trust target > source. Elements of a PairGroupIndexing
+// output whose target group comes wholly before its source's are never
+// written, so they keep whatever Carve/SeedPadding left there.
 //
 // `size` (or a Size()-carrying topology) is in raw rows, the same as
 // LinearTraversal's; a View's own Size() works and simply includes the

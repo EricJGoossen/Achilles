@@ -74,7 +74,7 @@ using FieldOrderingT = typename ResolvedFieldOrdering<EnumT, Traits, F>::Type;
 // Optional, like Ordering: no Indexing -> topology::RowIndexing (one value
 // per row, every field's shape before index spaces existed). A field that
 // holds one value per pair of rows (e.g. a broad phase's overlap result)
-// names topology::PairIndexing instead -- see indexing_policy.hpp.
+// names topology::PairGroupIndexing instead -- see indexing_policy.hpp.
 template <typename EnumT, template <EnumT> class Traits, EnumT F>
 concept FieldHasIndexing = requires { typename Traits<F>::Indexing; };
 

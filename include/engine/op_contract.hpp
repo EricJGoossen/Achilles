@@ -33,7 +33,7 @@ enum class ArgIndex : uint8_t {
 // One argument to gather (or scatter) for an Op: `field` selects which
 // field to read from (or write to) the View, and `index` selects which of
 // the traversal's indices to do so at. A field whose own Indexing policy
-// isn't per-row (e.g. topology::PairIndexing) may resolve from every index
+// isn't per-row (e.g. topology::PairGroupIndexing) may resolve from every index
 // regardless; see topology/indexing_policy.hpp.
 template <FieldEnumLike EnumT>
 struct ArgData {

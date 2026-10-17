@@ -88,38 +88,54 @@ struct RowIndexing {
 };
 static_assert(IndexingPolicyLike<RowIndexing>);
 
-// One element per ordered (source row, target row) pair, source-major: the
-// `rows` targets paired against source row s occupy elements
-// [s * rows, (s + 1) * rows), in the same row order every row-indexed field
-// in the View uses -- so a lane group of targets maps onto one aligned batch
-// of this field exactly the way it maps onto a row-indexed field's. Only a
-// traversal that hands a BroadcastIndex source (PairTraversal) can address
-// it; Resolve has no overload for any other source, so pairing a field like
-// this with a tree or linear pass fails to compile instead of silently
-// reading row-indexed addresses out of a pair-sized block.
+// One element per (source row, target lane group), source-major: the
+// `rows / Lanes` groups of targets paired against source row s occupy
+// elements [s * rows / Lanes, (s + 1) * rows / Lanes). Lanes is the width of
+// the target groups a PairTraversal hands out (its own Stride), not the
+// width this field is itself read at -- the point is that one element
+// summarizes a whole lane group's worth of pairs at once, e.g. a
+// Lanes-bit domain::math::ActivationMask with bit t set when target
+// (group * Lanes + t) overlaps the source. As a whole the field is the
+// rows x (rows / Lanes) matrix of those per-group words.
+//
+// Read/written one element at a time (an Op parameter whose ScalarType is
+// the field's plain scalar, not a batch of it) -- Resolve has no overload
+// for any wider load, since a batch of consecutive elements would span
+// several target groups, never anything one call means. Only a traversal
+// that hands a BroadcastIndex source (PairTraversal) can address it at all;
+// pairing a field like this with a tree or linear pass fails to compile
+// instead of silently reading row-indexed addresses out of a pair-sized
+// block.
 //
 // Both indices always feed the address, whatever Slot the argument names:
 // a pair element belongs to the pair, not to either side of it.
 //
-// Sized rows * rows, so its memory is quadratic in the sim's row count --
-// fine for the tens-to-hundreds of bodies a broad phase brute-forces, and
-// exactly the dense layout a GPU grid over (source, target) wants, but not
-// something to name for a field that only needs one value per row.
-struct PairIndexing {
-  static constexpr std::size_t Count(std::size_t rows) { return rows * rows; }
+// Sized rows * rows / Lanes, so its memory is still quadratic in the sim's
+// row count -- fine for the tens-to-hundreds of bodies a broad phase
+// brute-forces, and exactly the dense layout a GPU grid over
+// (source, target group) wants.
+template <std::size_t Lanes>
+  requires(Lanes > 0)
+struct PairGroupIndexing {
+  static constexpr std::size_t Count(std::size_t rows) {
+    return rows * (rows / Lanes);
+  }
 
-  template <std::size_t Slot, std::size_t Lanes>
+  template <std::size_t Slot, std::size_t LoadLanes>
+    requires(LoadLanes == 1)
   static constexpr std::size_t Resolve(
       const std::tuple<std::size_t, BroadcastIndex>& indices, std::size_t rows
   ) {
-    const auto& [target, source] = indices;
-    return source.row * (rows / Lanes) + target;
+    const auto& [target_group, source] = indices;
+    return source.row * (rows / Lanes) + target_group;
   }
 
-  // Every pair with at least one side that isn't a real row -- padding,
-  // the reserved base row, or filler. A pair of two real rows is left to
-  // Carve's zero-fill, the same as any real row of a row-indexed output: a
-  // pass computes it at runtime, there's nothing meaningful to seed.
+  // Every element whose source isn't a real row (padding, the reserved base
+  // row, or filler), or whose target group holds no real row at all. An
+  // element pairing a real source with a group that holds at least one real
+  // target is left to Carve's zero-fill, the same as any real row of a
+  // row-indexed output: a pass computes it at runtime, and any padding
+  // targets inside that group are that pass's to mask out.
   template <typename WriteElement>
   static void SeedPadding(
       const WriteElement& write, const Layout& layout, std::size_t rows
@@ -127,15 +143,24 @@ struct PairIndexing {
     auto is_real = [&](std::size_t row) {
       return row < layout.PaddedSize() && !layout.IsPadding(row);
     };
+    auto group_has_real = [&](std::size_t group) {
+      for (std::size_t lane = 0; lane < Lanes; ++lane) {
+        if (is_real(group * Lanes + lane)) {
+          return true;
+        }
+      }
+      return false;
+    };
+    std::size_t groups = rows / Lanes;
     for (std::size_t source = 0; source < rows; ++source) {
-      for (std::size_t target = 0; target < rows; ++target) {
-        if (!is_real(source) || !is_real(target)) {
-          write(source * rows + target);
+      for (std::size_t group = 0; group < groups; ++group) {
+        if (!is_real(source) || !group_has_real(group)) {
+          write(source * groups + group);
         }
       }
     }
   }
 };
-static_assert(IndexingPolicyLike<PairIndexing>);
+static_assert(IndexingPolicyLike<PairGroupIndexing<1>>);
 
 }  // namespace achilles::engine::topology
