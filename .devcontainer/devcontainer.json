@@ -4,6 +4,12 @@
   "remoteUser": "root",
   "workspaceFolder": "/workspaces/Achilles",
   "postCreateCommand": "git config core.hooksPath .githooks",
+  "mounts": [
+    "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind"
+  ],
+  "containerEnv": {
+    "DISPLAY": "${localEnv:DISPLAY}"
+  },
   "customizations": {
     "vscode": {
       "extensions": [
@@ -16,7 +22,8 @@
         "eamodio.gitlens",
         "usernamehw.errorlens",
         "ajshort.include-autocomplete",
-        "streetsidesoftware.code-spell-checker"
+        "streetsidesoftware.code-spell-checker",
+        "anthropic.claude-code"
       ]
     }
   }

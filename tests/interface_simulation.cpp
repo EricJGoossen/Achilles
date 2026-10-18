@@ -19,6 +19,7 @@
 #include "support/aba_reference.hpp"
 #include "support/temp_dir.hpp"
 #include "util/simd_ops.hpp"
+#include "util/tmp.hpp"
 
 using achilles::algorithms::Acceleration;
 using achilles::algorithms::InertiaOperator;
@@ -42,6 +43,7 @@ using achilles::test_support::ComputeAbaAcceleration;
 using achilles::test_support::ComputeAbaVelocity;
 using achilles::test_support::RevoluteZSubspace;
 using achilles::test_support::TempDir;
+using achilles::util::TypeList;
 
 using B = MathematicalT;
 
@@ -175,6 +177,13 @@ bool Lane0True(const auto& mask) {
   }
 }
 
+// The single real joint's rotation angle about Z (its own axis -- see
+// RevoluteZFieldsYaml), read through the scalar row-0 Load.
+float JointAngleZ(Simulation& sim) {
+  auto q = sim.ViewFor<ABAAlgorithm>().Load<ABAField::kJointPosition, float>(0);
+  return 2.0F * std::atan2(q.Rotation().Z(), q.Rotation().W());
+}
+
 ::testing::AssertionResult Lane0Approx(const auto& lhs, const auto& rhs) {
   if (Lane0True(lhs.IsApprox(rhs))) {
     return ::testing::AssertionSuccess();
@@ -235,6 +244,20 @@ TEST(Simulation, InitReturnsFalseWithoutLoadingAnArowFileFirst) {
 TEST(Simulation, StepReturnsFalseBeforeInit) {
   Simulation sim;
   EXPECT_FALSE(sim.Step(0.1F));
+}
+
+// StepWith shares Step's precondition and must report it the same way,
+// rather than dereferencing an empty state.
+TEST(Simulation, StepWithReturnsFalseBeforeInit) {
+  Simulation sim;
+  EXPECT_FALSE(sim.StepWith<TypeList<ABAStep>>(0.1F));
+}
+
+// Render needs the sim's state to draw; before Init it must refuse (and so
+// never open a window), not dereference an empty state.
+TEST(Simulation, RenderReturnsFalseBeforeInit) {
+  Simulation sim;
+  EXPECT_FALSE(sim.Render());
 }
 
 // Full stack: a real .arow file, loaded through the real LoadArchetypes,
@@ -645,7 +668,7 @@ TEST(
   SimAllocator<ABAAlgorithm> sim(archetypes);
   auto view = sim.ViewFor<ABAAlgorithm>();
   const auto& layout = sim.LayoutFor<TopologicalOrdering>();
-  std::size_t lane = xsimd::batch<float>::size;
+  std::size_t lane = B::size;
   std::size_t root_group = layout.ToSorted(0, 0) / lane;
   std::size_t child_group = layout.ToSorted(1, 0) / lane;
   ASSERT_NE(root_group, child_group);
@@ -669,4 +692,71 @@ TEST(
   EXPECT_TRUE(Lane0Approx(
       view.Load<ABAField::kSpatialVelocity, B>(child_group), reference.v
   ));
+}
+
+// StepWith runs exactly the list it's given: an ABA-only list evaluates the
+// dynamics at the current state (qdd = tau / Izz = 5 / 4 for this joint)
+// without integrating -- q and qd must come out unchanged. This is what the
+// long-horizon validation relies on to read qdd at a committed state.
+TEST(Simulation, StepWithRunsOnlyTheGivenList) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.3F, 1.0F, 5.0F);
+  Transform q_before = JointPosition(sim);
+  Velocity qd_before = JointVelocityField(sim);
+
+  ASSERT_TRUE(sim.StepWith<TypeList<ABAStep>>(0.5F));
+
+  EXPECT_TRUE(BatchApprox(JointPosition(sim), q_before));
+  EXPECT_TRUE(BatchApprox(JointVelocityField(sim), qd_before));
+  EXPECT_FLOAT_EQ(
+      (sim.ViewFor<ABAAlgorithm>().Load<ABAField::kJointAcceleration, float>(0
+      )[0]),
+      5.0F / 4.0F
+  );
+}
+
+// From rest under a constant acceleration a, one tick of semi-implicit
+// Euler moves the joint a dt^2 (velocity first, then position from the new
+// velocity), while RK4 moves it exactly a dt^2 / 2 -- so the angle after
+// one Step says which integrator ran. For this joint a = tau / Izz = 1.
+constexpr float kOneTickDt = 0.5F;
+constexpr float kEulerOneTickAngle = kOneTickDt * kOneTickDt;
+constexpr float kExactOneTickAngle = 0.5F * kOneTickDt * kOneTickDt;
+
+// Without SetIntegrator, Step is semi-implicit Euler -- library callers get
+// the original behavior unless they ask for something else.
+TEST(Simulation, DefaultIntegratorIsSemiImplicitEuler) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.0F, 0.0F, 4.0F);
+
+  ASSERT_TRUE(sim.Step(kOneTickDt));
+
+  EXPECT_NEAR(JointAngleZ(sim), kEulerOneTickAngle, 1e-6F);
+}
+
+// SetIntegrator before Init must survive Init -- Init rebuilds the sim's
+// state, and the selection mustn't be part of what it throws away.
+TEST(Simulation, SetIntegratorBeforeInitIsUsedByStep) {
+  TempDir dir;
+  std::filesystem::path file =
+      dir.Write("base.arow", MakeRevoluteZArow(0.0F, 0.0F, 4.0F));
+  Simulation sim;
+  sim.SetIntegrator(Simulation::Integrator::kRungeKutta4);
+  ASSERT_TRUE(sim.LoadArowFile(file.string()));
+  ASSERT_TRUE(sim.Init());
+
+  ASSERT_TRUE(sim.Step(kOneTickDt));
+
+  EXPECT_NEAR(JointAngleZ(sim), kExactOneTickAngle, 1e-6F);
+}
+
+// SetIntegrator after Init (between Steps) takes effect on the next Step.
+TEST(Simulation, SetIntegratorAfterInitTakesEffectOnTheNextStep) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.0F, 0.0F, 4.0F);
+  sim.SetIntegrator(Simulation::Integrator::kRungeKutta4);
+
+  ASSERT_TRUE(sim.Step(kOneTickDt));
+
+  EXPECT_NEAR(JointAngleZ(sim), kExactOneTickAngle, 1e-6F);
 }

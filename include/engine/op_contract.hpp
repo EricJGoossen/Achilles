@@ -65,6 +65,10 @@ template <typename T>
   }
 inline constexpr size_t kTraversalInputCountV<T> = T::kTraversalInputs.size();
 
+// An Op: operator() takes one `const P&` per kInputs entry (read-only),
+// then one `const T&` per kTraversalInputs entry (if any), then one `P*`
+// per kOutputs entry (read/write -- loaded before the call and stored after
+// it, see OpInvokerBase in engine/pass/op_invoker.hpp).
 template <typename T>
 concept OpLike = requires(T a) {
   requires std::same_as<util::ReturnTypeOfT<decltype(&T::operator())>, void>;

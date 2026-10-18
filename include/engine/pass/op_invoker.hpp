@@ -23,16 +23,21 @@ namespace achilles::engine::pass {
 // group, a LinearTraversal's own target again, or a PairTraversal's
 // topology::BroadcastIndex (see engine/pass/traversals.hpp) -- packs both
 // into one tuple, ordered the way ArgIndex numbers them, and:
-//   1. Reads each of kInputs through its cursor, at whichever element that
-//      argument's field's own Indexing policy resolves the tuple to for its
-//      ArgData::index -- see FieldCursor::Resolve.
-//   2. Calls Op::operator() with those values, then each slot of the tuple
-//      kTraversalInputs names handed over as-is (if the Op declares any --
-//      see kTraversalInputCountV, engine/op_contract.hpp), then a pointer to
-//      a local for each of kOutputs.
-//   3. Writes each local back through its cursor, resolved the same way.
-// Arguments are strictly one or the other: an Op contract has no room for
-// a parameter that is both read from and written back to the View.
+//   1. Reads each of kInputs and kOutputs through its cursor, at whichever
+//      element that argument's field's own Indexing policy resolves the
+//      tuple to for its ArgData::index -- see FieldCursor::Resolve.
+//   2. Calls Op::operator() with the inputs by const reference, then each
+//      slot of the tuple kTraversalInputs names handed over as-is (if the
+//      Op declares any -- see kTraversalInputCountV, engine/op_contract.hpp),
+//      then a pointer to the loaded value of each of kOutputs.
+//   3. Writes each output back through its cursor, resolved the same way.
+// That is the whole Op contract: inputs are read-only, outputs are always
+// read/write. An output's incoming value is whatever the View holds at that
+// index -- an accumulator to add onto (vi's IntegrateVelocityOp, ABA's
+// PropagateInertiaOp into its parent), a previous value an Op means to
+// read, or stale data an Op simply overwrites. Which of those it is, is the
+// Op's own business to document; the invoker treats them all the same.
+// Initialize (OpInitInvoker below) follows the same contract.
 //
 // Op is borrowed, not copied: operator() is const, so the invoker never
 // needs its own copy to call through -- it just binds a reference to
@@ -238,7 +243,12 @@ class OpInitInvoker<Op, View, true> {
   void
   InitializeImpl(size_t base_index, std::index_sequence<InIs...>, std::index_sequence<OutIs...>)
       const {
-    std::tuple<InitOutputParam<OutIs>...> outputs;
+    std::tuple<InitOutputParam<OutIs>...> outputs{
+        std::get<OutIs>(init_output_cursors_)
+            .template Load<typename InitOutputParam<OutIs>::ScalarType>(
+                base_index
+            )...
+    };
 
     init_op_->Initialize(
         std::get<InIs>(init_input_cursors_)

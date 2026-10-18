@@ -1,7 +1,9 @@
 #pragma once
 
 #include <optional>
+#include <string>
 
+#include "algorithms/integrators.hpp"
 #include "algorithms/registry.hpp"
 #include "algorithms/sim_config.hpp"
 #include "algorithms/viz/viz_step.hpp"
@@ -22,14 +24,16 @@ class Simulation {
       engine::memory::SimAllocatorForT<algorithms::RegisteredAlgorithms>;
 
  public:
-  // Headless by default -- constructing a Simulation never opens a window
-  // unless a caller explicitly opts in, so existing/programmatic/test
-  // usage (which never calls this) is completely unaffected. When set to
-  // false, Step() renders one frame per call (lazily opening a window on
-  // its first non-headless Step()) via render::SceneRenderer, walking
-  // this sim's own viz::VizAlgorithm state -- see that module's own
-  // comment (algorithms/viz/viz_data.hpp) for what gets drawn.
-  void SetHeadless(bool headless) { headless_ = headless; }
+  // See algorithms/integrators.hpp for what each one is.
+  using Integrator = algorithms::Integrator;
+
+  // kSemiImplicitEuler by default. Resolves `integrator` to its tick once,
+  // here, so Step() itself never branches on which integrator is selected.
+  // Valid before or after Init().
+  void SetIntegrator(Integrator integrator) {
+    integrator_step_ = algorithms::StepFnFor(integrator);
+  }
+
   bool LoadConfigFile(const std::string& path) {
     try {
       config_ = LoadSimConfig(path);
@@ -63,38 +67,50 @@ class Simulation {
     return true;
   }
 
-  // Steps the physics, then -- unless SetHeadless(true) (the default) --
-  // renders exactly one frame of the resulting state. Returns false (the
-  // same "stop" signal a caller already checks for on any other failure)
-  // once the render window has been closed, so a simple `while (sim.
-  // Step(dt)) {}` loop is both the headless and the visual shape.
-  bool Step(float dt) {
+  // Advances the physics by one tick of the selected integrator (see
+  // SetIntegrator) over `dt`. Never renders -- see Render(). Returns false
+  // (after warning) if the sim isn't initialized or the step throws.
+  bool Step(algorithms::ScalarOperationT dt) {
+    return Advance(integrator_step_, dt);
+  }
+
+  // Runs any step list (a util::TypeList of Steps, see engine::StepLike)
+  // once, over the same state Step() advances -- e.g.
+  // StepWith<util::TypeList<algorithms::aba::ABAStep>>(0) re-evaluates the
+  // dynamics at the current (q, qd) without integrating anything. Same
+  // return contract as Step().
+  template <typename StepList>
+  bool StepWith(algorithms::ScalarOperationT dt) {
+    return Advance(&algorithms::StepIntegrator<StepList>, dt);
+  }
+
+  // Draws one frame of the current state through render::SceneRenderer,
+  // opening the window on the first call -- walking this sim's own
+  // viz::VizAlgorithm state (see algorithms/viz/viz_data.hpp for what gets
+  // drawn). Separate from Step() so a caller decides how many ticks run
+  // per frame; a caller that never calls this never opens a window.
+  // Returns false once the window has been closed (or if the sim isn't
+  // initialized).
+  bool Render() {
     if (!state_.has_value()) {
       return util::Warning(
-          "Simulation::Step() called before Simulation::Init() -- "
+          "Simulation::Render() called before Simulation::Init() -- "
           "the sim is not yet initialized."
       );
     }
-    try {
-      state_->context.Step(dt, config_);
-    } catch (const std::exception& e) {
-      return util::Warning("Simulation step failed", e.what());
+    if (!renderer_.has_value()) {
+      renderer_.emplace("Achilles Viewer");
     }
-
-    if (!headless_) {
-      if (!renderer_.has_value()) {
-        renderer_.emplace("Achilles Viewer");
-      }
-      renderer_->PollInput();
-      if (renderer_->ShouldClose()) {
-        return false;
-      }
-      renderer_->RenderFrame(
-          ViewFor<algorithms::viz::VizAlgorithm>(),
-          TopologyFor<engine::topology::TopologicalOrdering>()
-      );
-      renderer_->SwapBuffers();
+    renderer_->PollInput();
+    if (renderer_->ShouldClose()) {
+      return false;
     }
+    renderer_->RenderFrame(
+        state_->context.template ViewFor<algorithms::viz::VizAlgorithm>(),
+        state_->context
+            .template TopologyFor<engine::topology::TopologicalOrdering>()
+    );
+    renderer_->SwapBuffers();
     return true;
   }
 
@@ -134,11 +150,29 @@ class Simulation {
   }
 
  private:
+  bool Advance(
+      algorithms::IntegratorStepFn step, algorithms::ScalarOperationT dt
+  ) {
+    if (!state_.has_value()) {
+      return util::Warning(
+          "Simulation::Step() called before Simulation::Init() -- "
+          "the sim is not yet initialized."
+      );
+    }
+    try {
+      step(state_->context, config_, dt);
+    } catch (const std::exception& e) {
+      return util::Warning("Simulation step failed", e.what());
+    }
+    return true;
+  }
+
   algorithms::SimConfig config_;
   std::optional<Allocator::State> state_;
   std::vector<domain::Archetype> archetypes_;
-  bool headless_ = true;
   std::optional<render::SceneRenderer> renderer_;
+  algorithms::IntegratorStepFn integrator_step_ =
+      algorithms::StepFnFor(Integrator::kSemiImplicitEuler);
 };
 
 }  // namespace achilles::interface

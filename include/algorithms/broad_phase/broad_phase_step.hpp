@@ -14,8 +14,9 @@
 namespace achilles::algorithms::broad_phase {
 
 // Runs the broad phase for a single archetype: two passes over this Step's
-// own BroadPhaseView, looked up via ViewFor<BroadPhaseView>() the same way
-// VIStep looks up its own VIView (see vi_step.hpp's header comment).
+// own BroadPhaseView, looked up via ViewFor<BroadPhaseView>(). A hand-written
+// Step like aba::ABAStep rather than an engine::pass::ViewStep, since its
+// pair pass is driven by the topology, not by view.Size().
 //
 // ComputeSweptBoxBoundsOp first: like VI/PI, it reads/writes each row
 // independently -- a body's world bound depends only on its own already-
@@ -40,7 +41,9 @@ struct BroadPhaseStep {
 
   template <engine::pass::SimContextLike SimStateT>
   static void Step(
-      const SimStateT& sim_state, const SimConfig& sim_config, float dt
+      const SimStateT& sim_state,
+      const SimConfig& sim_config,
+      ScalarOperationT dt
   ) {
     (void)sim_config;
     (void)dt;
@@ -63,7 +66,7 @@ struct BroadPhaseStep {
 };
 
 using BroadPhaseAlgorithm =
-    engine::Algorithm<BroadPhaseField, BroadPhaseFieldTraits, BroadPhaseStep>;
+    engine::Algorithm<BroadPhaseField, BroadPhaseFieldTraits>;
 static_assert(engine::AlgorithmLike<BroadPhaseAlgorithm>);
 
 }  // namespace achilles::algorithms::broad_phase

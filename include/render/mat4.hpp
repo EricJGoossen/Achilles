@@ -9,8 +9,8 @@
 namespace achilles::render {
 
 // The renderer's own 4x4, scalar-float math -- deliberately not built on
-// algorithms::conventions' MathematicalT (an xsimd::batch<float> lane
-// group meant for the sim's own per-joint SIMD kernels). A frame's worth
+// algorithms::conventions' MathematicalT (a BatchOperationT lane group
+// meant for the sim's own per-joint SIMD kernels). A frame's worth
 // of camera/model matrices is a handful of values, not a lane-parallel
 // workload, and GL's own uniform upload wants one plain float[16] per
 // matrix regardless -- so this stays scalar throughout, reusing

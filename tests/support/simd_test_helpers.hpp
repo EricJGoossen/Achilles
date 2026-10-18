@@ -12,8 +12,7 @@ namespace achilles::test_support {
 // know the native batch width). Used by domain/math test files to prove a
 // type's scalar T is a genuine free parameter -- not just float in
 // disguise -- by giving each lane a distinct value and checking the result
-// lane-by-lane, the same way tests/test_helpers.cpp already does for
-// View.
+// lane-by-lane.
 inline xsimd::batch<float> MakeBatch(std::initializer_list<float> lanes) {
   constexpr std::size_t kWidth = xsimd::batch<float>::size;
   std::vector<float> buf(kWidth, 0.0F);

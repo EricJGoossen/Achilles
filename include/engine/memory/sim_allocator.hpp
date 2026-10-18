@@ -367,9 +367,9 @@ inline std::size_t MaxViewInstanceCount(const LayoutMap& layouts) {
 template <typename AlgorithmT>
 struct AlgorithmVisitor;
 
-template <typename EnumT, template <EnumT> class Traits, typename StepT>
-struct AlgorithmVisitor<Algorithm<EnumT, Traits, StepT>> {
-  using View = typename Algorithm<EnumT, Traits, StepT>::View;
+template <typename EnumT, template <EnumT> class Traits>
+struct AlgorithmVisitor<Algorithm<EnumT, Traits>> {
+  using View = typename Algorithm<EnumT, Traits>::View;
 
   template <std::size_t... Is>
   static constexpr std::size_t MaxLaneCount(std::index_sequence<Is...>) {

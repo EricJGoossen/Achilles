@@ -19,7 +19,7 @@
 #include "support/aba_reference.hpp"
 #include "util/simd_ops.hpp"
 
-// VizAlgorithm has no Step of its own (viz_step.hpp names engine::NoStep),
+// VizAlgorithm has no Step of its own (see viz_step.hpp),
 // so there is no traversal/Op to exercise the way algorithms_aba_aba_step.
 // cpp or algorithms_vi_vi_step.cpp do -- what actually needs proving here
 // is the memory-sharing contract itself:
@@ -50,7 +50,7 @@ namespace {
 
 using B = MathematicalT;
 
-std::size_t Lane() { return xsimd::batch<float>::size; }
+std::size_t Lane() { return B::size; }
 
 ::testing::AssertionResult BatchTrue(const auto& mask) {
   if (achilles::util::AllTrue(mask)) {
@@ -160,9 +160,11 @@ TEST(VizData, VisualExtentsAndColorPopulateFromArchetypeByName) {
   VizView view = sim.ViewFor<VizAlgorithm>();
   std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted(0, 0);
 
-  using ScalarVector3 = achilles::domain::math::Vector3<float>;
-  ScalarVector3 extents = view.Load<VizField::kVisualExtents, float>(row);
-  ScalarVector3 color = view.Load<VizField::kVisualColor, float>(row);
+  using ScalarVector3 = achilles::domain::math::Vector3<ScalarOperationT>;
+  ScalarVector3 extents =
+      view.Load<VizField::kVisualExtents, ScalarOperationT>(row);
+  ScalarVector3 color =
+      view.Load<VizField::kVisualColor, ScalarOperationT>(row);
 
   EXPECT_TRUE(extents.IsApprox(ScalarVector3(0.5F, 0.25F, 0.1F)));
   EXPECT_TRUE(color.IsApprox(ScalarVector3(1.0F, 0.0F, 0.0F)));

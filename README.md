@@ -119,6 +119,7 @@ include/
     aba/         Articulated Body Algorithm -> joint accelerations
     vi/          Velocity integration
     pi/          Position integration
+    verlet/, midpoint/, rk4/  The other integrators' own steps
     broad_phase/ Collision broad phase: sphere-swept-box shapes -> world
                  bounds -> filtered candidate-pair bitmask
     narrow_phase/ Collision narrow phase: candidate pairs -> up to 4 contacts
@@ -152,12 +153,14 @@ The main pieces:
   lane group at a time
   ([include/engine/topology/indexing_policy.hpp](include/engine/topology/indexing_policy.hpp)).
 - **Registry** ([include/algorithms/registry.hpp](include/algorithms/registry.hpp)):
-  the list of algorithms the simulation hosts, in the order they run.
-  Each step runs ABA, then VI, then the collision broad and narrow
-  phases, then PI -- so a contact solver can correct VI's velocity before
-  PI integrates it.
+  the list of algorithms the simulation hosts -- what memory exists.
   Shared fields are aliased from one algorithm to the next, so nothing is
   copied between them. Adding an algorithm takes one line here.
+- **Integrators** ([include/algorithms/integrators.hpp](include/algorithms/integrators.hpp)):
+  what one tick runs, as an ordered list of Steps over the hosted
+  algorithms. Semi-implicit Euler (the default) runs ABA, then VI, then the
+  collision broad and narrow phases, then PI -- so a contact solver can
+  correct VI's velocity before PI integrates it.
 
 ## Development
 

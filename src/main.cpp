@@ -7,7 +7,10 @@
 // this file.
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <iostream>
+#include <optional>
+#include <ostream>
 #include <string>
 #include <string_view>
 
@@ -15,6 +18,7 @@
 #include "algorithms/aba/aba_ops.hpp"
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
+#include "algorithms/integrators.hpp"
 #include "algorithms/registry.hpp"
 #include "algorithms/sim_config.hpp"
 #include "domain/archetype.hpp"
@@ -38,6 +42,7 @@
 #include "engine/pass/op_invoker.hpp"
 #include "engine/pass/sim_context.hpp"
 #include "engine/pass/traversals.hpp"
+#include "engine/pass/view_step.hpp"
 #include "engine/topology/layout.hpp"
 #include "engine/topology/layout_policy.hpp"
 #include "engine/topology/ordering_policy.hpp"
@@ -55,67 +60,154 @@
 #include "util/yaml.hpp"
 // NOLINTEND(misc-include-cleaner)
 
-// achilles <scene.arow> [sim_config.yaml] [--headless]
-//
-// Loads and initializes a Simulation from a .arow file (see
-// interface/archetype_loader.hpp for its format, and examples/ for a
-// sample scene), then steps it at a fixed 1/120s timestep. Visual by
-// default -- Simulation::Step renders one frame per call (see
-// interface/simulation.hpp's own comment on SetHeadless) -- so the loop
-// below is the same shape either way: it just runs until Step() says stop,
-// which happens on error, or (only when visual) once the render window is
-// closed. See scripts/run-example.sh for the common case of running this
-// against examples/two_joint_arm.arow.
-int main(int argc, char** argv) {
-  if (argc < 2) {
-    std::cerr
-        << "usage: achilles <scene.arow> [sim_config.yaml] [--headless]\n";
-    return 1;
-  }
+namespace {
 
+using Integrator = achilles::interface::Simulation::Integrator;
+using achilles::algorithms::ScalarOperationT;
+
+struct CliArgs {
   bool headless = false;
   std::string arow_path;
   std::string config_path;
+  // RK4 at a 2ms step. RK4 is the integrator MuJoCo itself points at for
+  // energy-conserving systems, and it measured far and away the best on
+  // this engine's own scenes -- roughly three orders of magnitude less
+  // energy drift than semi-implicit Euler at the same step, and the only
+  // scheme benchmarked here that stayed stable out to dt = 1/20.
+  //
+  // Note what this costs: 4 ABA evaluations per tick at 500 ticks per
+  // simulated second is 2000 evaluations/sim-second, which is the most
+  // expensive setting in the benchmark, not the cheapest. RK4's own
+  // efficiency argument is that it buys quality by taking *larger* steps
+  // (at dt = 0.05 it holds drift near 0.58 for only 80 evaluations/sim-
+  // second, a third of what Euler at 1/120 costs). A 2ms step spends that
+  // headroom on fidelity instead: drift falls well below what the 1/120
+  // row already measured at 0.001. Raise dt toward 0.0333 or 0.05 to trade
+  // that back for throughput.
+  Integrator integrator = Integrator::kRungeKutta4;
+  ScalarOperationT dt = 0.002F;
+};
+
+// Every --integrator name (algorithms::kIntegrators), joined by
+// `separator`.
+void PrintIntegratorNames(std::ostream& out, std::string_view separator) {
+  std::string_view between;
+  for (const achilles::algorithms::IntegratorEntry& entry :
+       achilles::algorithms::kIntegrators) {
+    out << between << entry.name;
+    between = separator;
+  }
+}
+
+// Parses argv into CliArgs, or returns std::nullopt (having already
+// printed the specific problem to stderr) for a missing flag argument or
+// an unrecognized --integrator value. Split out of main() itself purely to
+// keep main()'s own cognitive complexity down -- this has no dependency on
+// anything main() sets up.
+std::optional<CliArgs> ParseArgs(int argc, char** argv) {
+  CliArgs args;
   for (int i = 1; i < argc; ++i) {
     std::string_view arg = argv[i];
     if (arg == "--headless") {
-      headless = true;
-    } else if (arow_path.empty()) {
-      arow_path = arg;
+      args.headless = true;
+    } else if (arg == "--dt") {
+      if (++i >= argc) {
+        std::cerr << "--dt requires a floating-point seconds argument\n";
+        return std::nullopt;
+      }
+      args.dt = static_cast<ScalarOperationT>(std::strtod(argv[i], nullptr));
+    } else if (arg == "--integrator") {
+      if (++i >= argc) {
+        std::cerr << "--integrator requires one of ";
+        PrintIntegratorNames(std::cerr, ", ");
+        std::cerr << '\n';
+        return std::nullopt;
+      }
+      std::optional<Integrator> integrator =
+          achilles::algorithms::IntegratorFromName(argv[i]);
+      if (!integrator.has_value()) {
+        std::cerr << "--integrator must be one of ";
+        PrintIntegratorNames(std::cerr, ", ");
+        std::cerr << "; got \"" << argv[i] << "\"\n";
+        return std::nullopt;
+      }
+      args.integrator = *integrator;
+    } else if (args.arow_path.empty()) {
+      args.arow_path = arg;
     } else {
-      config_path = arg;
+      args.config_path = arg;
     }
+  }
+  return args;
+}
+
+}  // namespace
+
+// achilles <scene.arow> [sim_config.yaml] [--headless] [--dt seconds]
+//   [--integrator euler|verlet|midpoint|implicitfast|rk4]
+//
+// Loads and initializes a Simulation from a .arow file (see
+// interface/archetype_loader.hpp for its format, and examples/ for a
+// sample scene), then runs it in real time: each frame, as many fixed-dt
+// Step() ticks as the elapsed wall-clock time covers, then -- unless
+// --headless -- one Render(). Ticks and frames are independent, so dt only
+// controls accuracy, never frame rate. The loop runs until a Step() fails,
+// or (only when visual) the render window is closed. See
+// scripts/run-example.sh for the common case of running this against
+// examples/two_joint_arm.arow. --integrator sets Simulation::SetIntegrator
+// and --dt the fixed timestep; CliArgs's own defaults (kRungeKutta4,
+// dt = 2ms) are the CLI's, not Simulation's -- library callers (tests,
+// embedders) still get semi-implicit Euler at whatever dt they pass unless
+// they ask for something else. Pass --integrator euler to see the older,
+// visibly-dissipative behavior for comparison, or raise --dt to trade
+// fidelity back for throughput.
+int main(int argc, char** argv) {
+  if (argc < 2) {
+    std::cerr << "usage: achilles <scene.arow> [sim_config.yaml] "
+                 "[--headless] [--dt seconds] [--integrator ";
+    PrintIntegratorNames(std::cerr, "|");
+    std::cerr << "]\n";
+    return 1;
+  }
+
+  std::optional<CliArgs> args = ParseArgs(argc, argv);
+  if (!args.has_value()) {
+    return 1;
   }
 
   achilles::interface::Simulation sim;
-  if (!sim.LoadArowFile(arow_path)) {
+  if (!sim.LoadArowFile(args->arow_path)) {
     return 1;
   }
-  if (!config_path.empty() && !sim.LoadConfigFile(config_path)) {
+  if (!args->config_path.empty() && !sim.LoadConfigFile(args->config_path)) {
     return 1;
   }
   if (!sim.Init()) {
     return 1;
   }
-  sim.SetHeadless(headless);
+  sim.SetIntegrator(args->integrator);
 
-  constexpr float kDt = 1.0F / 120.0F;
-  constexpr float kMaxFrameTime = 0.25F;
-  float accumulator = 0.0F;
+  const ScalarOperationT dt = args->dt;
+  constexpr ScalarOperationT kMaxFrameTime = 0.25F;
+  ScalarOperationT accumulator = 0.0F;
   auto last_time = std::chrono::steady_clock::now();
 
   bool running = true;
   while (running) {
     auto now = std::chrono::steady_clock::now();
-    float elapsed = std::chrono::duration<float>(now - last_time).count();
+    ScalarOperationT elapsed =
+        std::chrono::duration<ScalarOperationT>(now - last_time).count();
     last_time = now;
     // Clamped so a debugger pause or a hitch (e.g. window drag) doesn't
     // make the next real frame try to catch up with a huge burst of steps.
     accumulator += std::min(elapsed, kMaxFrameTime);
 
-    while (running && accumulator >= kDt) {
-      running = sim.Step(kDt);
-      accumulator -= kDt;
+    while (running && accumulator >= dt) {
+      running = sim.Step(dt);
+      accumulator -= dt;
+    }
+    if (running && !args->headless) {
+      running = sim.Render();
     }
   }
 

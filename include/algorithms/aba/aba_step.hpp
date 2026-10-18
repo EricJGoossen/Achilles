@@ -32,8 +32,8 @@ namespace achilles::algorithms::aba {
 // same (SimContext, Config, dt) shape every Step::Step takes (see
 // engine/pass/sim_step.hpp).
 //
-// A struct (rather than a bare free function) so it can be named as
-// Algorithm<ABAField, ABAFieldTraits, ABAStep>'s Step.
+// A struct (rather than a bare free function) so it can be named in a step
+// list (see algorithms/registry.hpp).
 //
 // SimStateT is a template parameter, not engine::pass::SimContext<...>
 // named directly: SimContext is templated on the full Algorithms... pack of
@@ -61,7 +61,7 @@ struct ABAStep {
   using FieldEnum = ABAField;
 
   // Every ABA Op is called with TargetScalar = MathematicalT =
-  // xsimd::batch<float> (see aba_data.hpp), never a scalar -- so the
+  // BatchOperationT (see algorithms/conventions.hpp), never a scalar -- so the
   // traversal driving them must walk batch-GROUPS of the real,
   // TopologicalOrdering-built topology, not its raw rows one at a time
   // (see engine::pass::TreeTraversal's own comment on Stride for why a raw
@@ -78,7 +78,9 @@ struct ABAStep {
 
   template <engine::pass::SimContextLike SimStateT>
   static void Step(
-      const SimStateT& sim_state, const SimConfig& sim_config, float dt
+      const SimStateT& sim_state,
+      const SimConfig& sim_config,
+      ScalarOperationT dt
   ) {
     (void)dt;
     using engine::pass::Pass;
@@ -104,7 +106,7 @@ struct ABAStep {
   }
 };
 
-using ABAAlgorithm = engine::Algorithm<ABAField, ABAFieldTraits, ABAStep>;
+using ABAAlgorithm = engine::Algorithm<ABAField, ABAFieldTraits>;
 static_assert(engine::AlgorithmLike<ABAAlgorithm>);
 
 }  // namespace achilles::algorithms::aba
