@@ -19,7 +19,7 @@
 #include "engine/view/view_factory.hpp"
 #include "util/simd_ops.hpp"
 
-namespace achilles::algorithms::collision {
+namespace achilles::algorithms::broad_phase {
 
 // How many distinct collision groups a body can belong to/collide with --
 // the bit width of kCollisionGroup/kCollisionMask. 16 rather than the full
@@ -32,29 +32,19 @@ inline constexpr std::size_t kCollisionGroupCount = 16;
 using CollisionGroupMask = math::
     ActivationMask<util::MaskStorageFor<MathematicalT>, kCollisionGroupCount>;
 
-// How many targets one PairTraversal call tests a source against -- and so
-// how many bits one kBoundsOverlap word holds.
-inline constexpr std::size_t kPairLanes = util::LaneCountOf<MathematicalT>();
-
-// One kBoundsOverlap word: bit t set when target (group * kPairLanes + t)
-// overlaps the source row. Plain int32 storage, not a batch -- a whole lane
-// group's result packs into one of these (see topology::PairGroupIndexing).
-using PairLaneMask = math::ActivationMask<std::int32_t, kPairLanes>;
-static_assert(
-    util::LaneCountOf<util::MaskStorageFor<MathematicalT>>() == kPairLanes,
-    "Int32 filter lanes must line up one-to-one with MathematicalT's lanes, "
-    "or their movemask bits won't AND with the bound test's."
-);
-
 // Every body carries one collision shape, and the broad phase derives a
 // world-axis-aligned bound from it each tick that a pair pass can overlap-
-// test with nothing but per-axis compares.
+// test with nothing but per-axis compares. It's the first of two collision
+// Algorithms: the narrow phase (narrow_phase/narrow_phase_data.hpp) runs
+// right after it and turns the candidate pairs it ends on into contacts,
+// reading this phase's shape, world shape pose and kBoundsOverlap through
+// SharedAs slots (shared_slots.hpp) -- the same memory, nothing copied.
 //
 // The shape is a sphere-swept box -- a box with every point of its surface
 // pushed out by a radius, i.e. the set of points within kCollisionRadius of
 // the inner box kCollisionExtents. That one type covers a sphere (zero
 // extents), a capsule (one nonzero extent), a box (zero radius) and a
-// rounded box, so the fine check has exactly one shape pair to handle and
+// rounded box, so the narrow phase has exactly one shape pair to handle and
 // never branches on shape type. kCollisionPose places the shape's own frame
 // in the body's, so a capsule can lie along any axis and a link's geometry
 // needn't be centred on its joint. All four are static per-archetype data,
@@ -62,7 +52,7 @@ static_assert(
 //
 // More shape types later each bring their own shape fields and their own
 // bound Op writing the same kWorldBoundCenter/kWorldBoundExtents (see
-// ComputeSweptBoxBoundsOp, collision_ops.hpp) -- the pair test only ever
+// ComputeSweptBoxBoundsOp, broad_phase_ops.hpp) -- the pair test only ever
 // reads the bound, so nothing downstream of it changes per type.
 //
 // Center + half-extents rather than min/max corners: the shape maps onto its
@@ -76,16 +66,15 @@ static_assert(
 // that distance, not only once they touch -- catching a pair a tick early
 // rather than after it's already interpenetrated. (MuJoCo's `gap`, which
 // decides whether such a not-yet-touching contact produces force, belongs
-// to the fine check and has no broad-phase meaning.)
+// to the contact solver and has no broad-phase meaning.)
 //
 // A body that gives none of these in its archetype reads the zero-fill
 // default: zero extents, radius and margin -- a point at its body origin --
-// and a zero kCollisionPose, whose rotation part still reads as identity
-// through ToRotationMatrix (every term of it is 1 - 0 or 0), so the shape
-// just sits on the body frame. That's the same "absent data reads as an
-// inert default" convention algorithms::viz's own kVisualExtents follows
-// (viz_data.hpp); such a body also has no kCollisionGroup, so it never
-// collides anyway.
+// and a zero kCollisionPose, whose rotation part is read as identity (see
+// ComputeSweptBoxBoundsOp), so the shape just sits on the body frame. That's
+// the same "absent data reads as an inert default" convention algorithms::viz's
+// own kVisualExtents follows (viz_data.hpp); such a body also has no
+// kCollisionGroup, so it never collides anyway.
 //
 // Which pairs are even allowed to collide is per-body data too, Bullet-
 // style: kCollisionGroup is the set of groups a body belongs to,
@@ -102,13 +91,13 @@ static_assert(
 // filterparent), a body paired with itself, and the duplicate half of every
 // pair.
 //
-// The result, kBoundsOverlap, is the rows x (rows / kPairLanes) bit matrix
-// of which pairs both pass the filter and overlap -- one PairLaneMask word
+// The result, kBoundsOverlap, is the rows x (rows / kLanes) bit matrix
+// of which pairs both pass the filter and overlap -- one LaneMask word
 // per (source row, target lane group), see topology::PairGroupIndexing.
 // Every set bit is a real, distinct candidate pair with target row >
 // source row; words wholly below the diagonal are never written and stay
 // zero.
-enum class CollisionField : uint8_t {
+enum class BroadPhaseField : uint8_t {
   // --- Model/kinematic inputs ---
   kWorldTransform,    // x_world -- ABA's own kWorldTransform, read-only here
   kCollisionPose,     // x_shape (the shape's frame, in the body's own)
@@ -119,18 +108,19 @@ enum class CollisionField : uint8_t {
   kCollisionMask,     // groups this body collides with
 
   // --- Broad-phase outputs ---
+  kWorldShapePose,     // x_world x_shape (the shape's frame, in the world)
   kWorldBoundCenter,   // c_world
   kWorldBoundExtents,  // h_world (half-extents, along the world axes)
   kBoundsOverlap,      // per (source row, target lane group) overlap bits
 
   kCount
 };
-static_assert(engine::FieldEnumLike<CollisionField>);
+static_assert(engine::FieldEnumLike<BroadPhaseField>);
 
-template <CollisionField F>
-struct CollisionFieldTraits;
+template <BroadPhaseField F>
+struct BroadPhaseFieldTraits;
 
-// Every CollisionField binds Ordering = TopologicalOrdering, matching ABA's
+// Every BroadPhaseField binds Ordering = TopologicalOrdering, matching ABA's
 // own choice for kWorldTransform (aba_data.hpp) -- for the same reason
 // algorithms::viz does (see viz_data.hpp's own comment): a View addresses
 // every one of its fields by the same sorted row index, so every field has
@@ -138,83 +128,94 @@ struct CollisionFieldTraits;
 // kCollisionExtents and row i of kWorldTransform could silently refer to two
 // different joints.
 template <>
-struct CollisionFieldTraits<CollisionField::kWorldTransform> {
+struct BroadPhaseFieldTraits<BroadPhaseField::kWorldTransform> {
   // SharedAs = WorldTransformSlot so this is ABA's own kWorldTransform
   // block (aba_data.hpp), not a private, unconnected copy -- nothing in
-  // algorithms::collision itself ever writes it.
+  // algorithms::broad_phase itself ever writes it.
   using Assembler = spatial::TransformAssembler<ScalarOperationT>;
   using SharedAs = WorldTransformSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
 };
 template <>
-struct CollisionFieldTraits<CollisionField::kCollisionPose> {
+struct BroadPhaseFieldTraits<BroadPhaseField::kCollisionPose> {
   using Assembler = spatial::TransformAssembler<ScalarOperationT>;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
   static constexpr std::string_view kName = "collision_pose";
 };
 template <>
-struct CollisionFieldTraits<CollisionField::kCollisionExtents> {
+struct BroadPhaseFieldTraits<BroadPhaseField::kCollisionExtents> {
   using Assembler = math::Vector3Assembler<ScalarOperationT>;
+  using SharedAs = CollisionExtentsSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
   static constexpr std::string_view kName = "collision_extents";
 };
 template <>
-struct CollisionFieldTraits<CollisionField::kCollisionRadius> {
+struct BroadPhaseFieldTraits<BroadPhaseField::kCollisionRadius> {
   using Assembler = math::ScalarAssembler<ScalarOperationT>;
+  using SharedAs = CollisionRadiusSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
   static constexpr std::string_view kName = "collision_radius";
 };
 template <>
-struct CollisionFieldTraits<CollisionField::kCollisionMargin> {
+struct BroadPhaseFieldTraits<BroadPhaseField::kCollisionMargin> {
   using Assembler = math::ScalarAssembler<ScalarOperationT>;
+  using SharedAs = CollisionMarginSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
   static constexpr std::string_view kName = "collision_margin";
 };
 template <>
-struct CollisionFieldTraits<CollisionField::kCollisionGroup> {
+struct BroadPhaseFieldTraits<BroadPhaseField::kCollisionGroup> {
   using Assembler = math::ActivationMaskAssembler<kCollisionGroupCount>;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
   static constexpr std::string_view kName = "collision_group";
 };
 template <>
-struct CollisionFieldTraits<CollisionField::kCollisionMask> {
+struct BroadPhaseFieldTraits<BroadPhaseField::kCollisionMask> {
   using Assembler = math::ActivationMaskAssembler<kCollisionGroupCount>;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
   static constexpr std::string_view kName = "collision_mask";
 };
 template <>
-struct CollisionFieldTraits<CollisionField::kWorldBoundCenter> {
+struct BroadPhaseFieldTraits<BroadPhaseField::kWorldShapePose> {
+  using Assembler = spatial::TransformAssembler<ScalarOperationT>;
+  using SharedAs = WorldShapePoseSlot;
+  using Ordering = engine::topology::TopologicalOrdering;
+  using Layout = engine::topology::PlanarLayout;
+};
+template <>
+struct BroadPhaseFieldTraits<BroadPhaseField::kWorldBoundCenter> {
   using Assembler = math::Vector3Assembler<ScalarOperationT>;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
 };
 template <>
-struct CollisionFieldTraits<CollisionField::kWorldBoundExtents> {
+struct BroadPhaseFieldTraits<BroadPhaseField::kWorldBoundExtents> {
   using Assembler = math::Vector3Assembler<ScalarOperationT>;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
 };
 template <>
-struct CollisionFieldTraits<CollisionField::kBoundsOverlap> {
-  using Assembler = math::ActivationMaskAssembler<kPairLanes>;
+struct BroadPhaseFieldTraits<BroadPhaseField::kBoundsOverlap> {
+  using Assembler = math::ActivationMaskAssembler<kLanes>;
+  using SharedAs = BoundsOverlapSlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Indexing = engine::topology::PairGroupIndexing<kPairLanes>;
+  using Indexing = engine::topology::PairGroupIndexing<kLanes>;
   using Layout = engine::topology::PlanarLayout;
 };
-static_assert(engine::FieldTraitsLike<CollisionField, CollisionFieldTraits>);
+static_assert(engine::FieldTraitsLike<BroadPhaseField, BroadPhaseFieldTraits>);
 
-using CollisionView =
-    engine::view::ViewFactory<CollisionField, CollisionFieldTraits>;
-static_assert(engine::view::ViewLike<CollisionView, CollisionField>);
+using BroadPhaseView =
+    engine::view::ViewFactory<BroadPhaseField, BroadPhaseFieldTraits>;
+static_assert(engine::view::ViewLike<BroadPhaseView, BroadPhaseField>);
 
-using CollisionTopology = domain::JointTopology;
-static_assert(domain::TopologyLike<CollisionTopology>);
+using BroadPhaseTopology = domain::JointTopology;
+static_assert(domain::TopologyLike<BroadPhaseTopology>);
 
-}  // namespace achilles::algorithms::collision
+}  // namespace achilles::algorithms::broad_phase

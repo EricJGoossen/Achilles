@@ -1,14 +1,15 @@
-#include "algorithms/collision/collision_ops.hpp"
+#include "algorithms/broad_phase/broad_phase_ops.hpp"
 
 #include <cmath>
 #include <cstdint>
 #include <xsimd/xsimd.hpp>
 
-#include "algorithms/collision/collision_data.hpp"
+#include "algorithms/broad_phase/broad_phase_data.hpp"
 #include "algorithms/conventions.hpp"
 #include "engine/pass/traversals.hpp"
+#include "util/simd_ops.hpp"
 
-namespace achilles::algorithms::collision {
+namespace achilles::algorithms::broad_phase {
 
 void ComputeSweptBoxBoundsOp::operator()(
     const Transform& x_world,
@@ -16,18 +17,26 @@ void ComputeSweptBoxBoundsOp::operator()(
     const Vector3& h,
     const Scalar& radius,
     const Scalar& margin,
+    Transform* x_world_shape_out,
     Vector3* c_world_out,
     Vector3* h_world_out
 ) const {
-  Matrix3x3 r_world = x_world.Rotation().ToRotationMatrix();
+  // q_shape, read as identity when unset (zero)
+  const Quaternion& q = x_shape.Rotation();
+  MathematicalT unset = util::Select(
+      q.SquaredNorm() == MathematicalT(0), MathematicalT(1), MathematicalT(0)
+  );
+  Quaternion q_shape(q.W() + unset, q.X(), q.Y(), q.Z());
 
-  // R = R_world R_shape
-  Matrix3x3 r = r_world * x_shape.Rotation().ToRotationMatrix();
+  // x = x_world x_shape
+  Transform x = x_world * Transform(x_shape.Translation(), q_shape);
+  *x_world_shape_out = x;
 
-  // c_world = x_world t_shape
-  *c_world_out = x_world.Translation() + r_world * x_shape.Translation();
+  // c_world = x t_shape
+  *c_world_out = x.Translation();
 
-  // h_world = |R| h + (r + m)
+  // h_world = |R| h + (r + m), R = R_world R_shape
+  Matrix3x3 r = x.Rotation().ToRotationMatrix();
   MathematicalT pad = (radius + margin).Value();
   *h_world_out = r.Abs() * h + Vector3(pad, pad, pad);
 }
@@ -42,7 +51,7 @@ void TestBoundsOverlapOp::operator()(
     const CollisionGroupMask& group_source,
     const CollisionGroupMask& mask_source,
     const engine::pass::PairStructure& structure,
-    PairLaneMask* overlap_out
+    LaneMask* overlap_out
 ) const {
   using xsimd::abs;
 
@@ -56,9 +65,9 @@ void TestBoundsOverlapOp::operator()(
   auto allowed = !(group_target & mask_source).AllFalse() &
                  !(group_source & mask_target).AllFalse();
 
-  *overlap_out = PairLaneMask(static_cast<std::int32_t>(
+  *overlap_out = LaneMask(static_cast<std::int32_t>(
       overlap.mask() & allowed.mask() & structure.distinct_lanes
   ));
 }
 
-}  // namespace achilles::algorithms::collision
+}  // namespace achilles::algorithms::broad_phase

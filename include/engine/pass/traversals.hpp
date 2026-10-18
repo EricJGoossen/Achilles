@@ -218,7 +218,9 @@ struct PairStructure {
 // every lane, so one call compares that one row against a whole lane group
 // of targets at once; a PairGroupIndexing<Stride> field (see
 // topology/indexing_policy.hpp) addresses the one (source_row,
-// target_group) element summarizing that whole call; and kStructure says
+// target_group) element summarizing that whole call, and a
+// PairGroupIndexing<Stride, Stride> field that call's own batch of
+// per-pair values, lane for lane with the targets; and kStructure says
 // which of those lanes are real, distinct, non-parent/child pairs.
 //
 // Driven by the topology, like TreeTraversal: it's what PairStructure is

@@ -1,7 +1,8 @@
 #pragma once
 
 #include "algorithms/aba/aba_step.hpp"
-#include "algorithms/collision/collision_step.hpp"
+#include "algorithms/broad_phase/broad_phase_step.hpp"
+#include "algorithms/narrow_phase/narrow_phase_step.hpp"
 #include "algorithms/pi/pi_step.hpp"
 #include "algorithms/vi/vi_step.hpp"
 #include "algorithms/viz/viz_step.hpp"
@@ -24,12 +25,16 @@ namespace achilles::algorithms {
 // VI/PI before ABA in a given tick would integrate stale acceleration/
 // velocity instead of this tick's own.
 //
-// collision::CollisionAlgorithm reads kWorldTransform (via
-// WorldTransformSlot), which only ABA writes and VI/PI never touch -- so it
-// sees the same pose ABA solved this tick from, and the same pose a
-// renderer draws after Step() returns, wherever it sits after ABA. It runs
-// after PI only so that every algorithm advancing the system's own state
-// comes first and everything that merely reads it comes after.
+// broad_phase::BroadPhaseAlgorithm and then narrow_phase::NarrowPhaseAlgorithm
+// sit between VI and PI. Both read only kWorldTransform (via
+// WorldTransformSlot), which only ABA writes and VI/PI never touch -- so
+// they see this tick's pose wherever they sit after ABA -- and the narrow
+// phase reads the broad phase's own results (via its SharedAs slots), so it
+// runs second. They sit before PI, not after it, so that this tick's
+// contacts exist while VI's updated kJointVelocity hasn't yet been
+// integrated into kJointPosition: a contact solver correcting that velocity
+// slots in right after the narrow phase, and PI then integrates the
+// corrected velocity instead of one that ignores the contacts.
 //
 // viz::VizAlgorithm is last, and Step-order-irrelevant: it names
 // engine::NoStep (viz_step.hpp), so SimContext::Step skips it entirely --
@@ -39,8 +44,9 @@ namespace achilles::algorithms {
 using RegisteredAlgorithms = util::TypeList<
     aba::ABAAlgorithm,
     vi::VIAlgorithm,
+    broad_phase::BroadPhaseAlgorithm,
+    narrow_phase::NarrowPhaseAlgorithm,
     pi::PIAlgorithm,
-    collision::CollisionAlgorithm,
     viz::VizAlgorithm>;
 
 }  // namespace achilles::algorithms

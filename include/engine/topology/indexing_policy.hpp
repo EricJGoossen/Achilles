@@ -88,53 +88,64 @@ struct RowIndexing {
 };
 static_assert(IndexingPolicyLike<RowIndexing>);
 
-// One element per (source row, target lane group), source-major: the
-// `rows / Lanes` groups of targets paired against source row s occupy
-// elements [s * rows / Lanes, (s + 1) * rows / Lanes). Lanes is the width of
-// the target groups a PairTraversal hands out (its own Stride), not the
-// width this field is itself read at -- the point is that one element
-// summarizes a whole lane group's worth of pairs at once, e.g. a
-// Lanes-bit domain::math::ActivationMask with bit t set when target
-// (group * Lanes + t) overlaps the source. As a whole the field is the
-// rows x (rows / Lanes) matrix of those per-group words.
+// ElementLanes elements per (source row, target lane group), source-major:
+// the `rows / Lanes` groups of targets paired against source row s occupy
+// groups [s * rows / Lanes, (s + 1) * rows / Lanes), each ElementLanes
+// elements wide. Lanes is the width of the target groups a PairTraversal
+// hands out (its own Stride), not necessarily the width this field is read
+// at; ElementLanes is how many elements one group holds, and so the one
+// load width Resolve accepts:
 //
-// Read/written one element at a time (an Op parameter whose ScalarType is
-// the field's plain scalar, not a batch of it) -- Resolve has no overload
-// for any wider load, since a batch of consecutive elements would span
-// several target groups, never anything one call means. Only a traversal
-// that hands a BroadcastIndex source (PairTraversal) can address it at all;
-// pairing a field like this with a tree or linear pass fails to compile
-// instead of silently reading row-indexed addresses out of a pair-sized
-// block.
+//   - ElementLanes = 1 (the default): one element summarizes a whole lane
+//     group's worth of pairs at once, e.g. a Lanes-bit
+//     domain::math::ActivationMask with bit t set when target
+//     (group * Lanes + t) overlaps the source. As a whole the field is the
+//     rows x (rows / Lanes) matrix of those per-group words, read/written
+//     as the field's plain scalar.
+//   - ElementLanes = Lanes: one element per pair, lane t of a group holding
+//     target (group * Lanes + t) -- a per-pair quantity (a contact
+//     distance, normal, ...) read/written as one batch per call, lane for
+//     lane with the target group it was computed from. As a whole the
+//     field is the rows x rows matrix of those per-pair values.
+//
+// Either way the address is the same (source row, target group) index, in
+// units of the load width -- which is exactly the unit FieldCursor's
+// Load/Store index in (engine/view/view.hpp), so one formula serves both.
+// Resolve has no overload for any other width: a narrower load would split
+// a group, a wider one would span several, never anything one call means.
+// Only a traversal that hands a BroadcastIndex source (PairTraversal) can
+// address it at all; pairing a field like this with a tree or linear pass
+// fails to compile instead of silently reading row-indexed addresses out of
+// a pair-sized block.
 //
 // Both indices always feed the address, whatever Slot the argument names:
 // a pair element belongs to the pair, not to either side of it.
 //
-// Sized rows * rows / Lanes, so its memory is still quadratic in the sim's
-// row count -- fine for the tens-to-hundreds of bodies a broad phase
-// brute-forces, and exactly the dense layout a GPU grid over
-// (source, target group) wants.
-template <std::size_t Lanes>
-  requires(Lanes > 0)
+// Sized rows * (rows / Lanes) * ElementLanes, so its memory is still
+// quadratic in the sim's row count -- fine for the tens-to-hundreds of
+// bodies a brute-forced pair pass handles, and exactly the dense layout a
+// GPU grid over (source, target group) wants.
+template <std::size_t Lanes, std::size_t ElementLanes = 1>
+  requires(Lanes > 0 && ElementLanes > 0)
 struct PairGroupIndexing {
   static constexpr std::size_t Count(std::size_t rows) {
-    return rows * (rows / Lanes);
+    return rows * (rows / Lanes) * ElementLanes;
   }
 
   template <std::size_t Slot, std::size_t LoadLanes>
-    requires(LoadLanes == 1)
+    requires(LoadLanes == ElementLanes)
   static constexpr std::size_t Resolve(const auto& indices, std::size_t rows) {
     const auto& target_group = std::get<0>(indices);
     const BroadcastIndex& source = std::get<1>(indices);
     return source.row * (rows / Lanes) + target_group;
   }
 
-  // Every element whose source isn't a real row (padding, the reserved base
-  // row, or filler), or whose target group holds no real row at all. An
-  // element pairing a real source with a group that holds at least one real
-  // target is left to Carve's zero-fill, the same as any real row of a
-  // row-indexed output: a pass computes it at runtime, and any padding
-  // targets inside that group are that pass's to mask out.
+  // Every element of every group whose source isn't a real row (padding,
+  // the reserved base row, or filler), or whose target group holds no real
+  // row at all. A group pairing a real source with at least one real target
+  // is left to Carve's zero-fill, the same as any real row of a row-indexed
+  // output: a pass computes it at runtime, and any padding targets inside
+  // that group are that pass's to mask out.
   template <typename WriteElement>
   static void SeedPadding(
       const WriteElement& write, const Layout& layout, std::size_t rows
@@ -154,12 +165,15 @@ struct PairGroupIndexing {
     for (std::size_t source = 0; source < rows; ++source) {
       for (std::size_t group = 0; group < groups; ++group) {
         if (!is_real(source) || !group_has_real(group)) {
-          write(source * groups + group);
+          for (std::size_t element = 0; element < ElementLanes; ++element) {
+            write(((source * groups + group) * ElementLanes) + element);
+          }
         }
       }
     }
   }
 };
 static_assert(IndexingPolicyLike<PairGroupIndexing<1>>);
+static_assert(IndexingPolicyLike<PairGroupIndexing<4, 4>>);
 
 }  // namespace achilles::engine::topology

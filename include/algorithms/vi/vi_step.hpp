@@ -23,9 +23,8 @@ namespace achilles::algorithms::vi {
 struct VIStep {
   using FieldEnum = VIField;
 
-  using ForwardBatched = engine::pass::LinearTraversal<
-      engine::pass::Direction::kForward,
-      util::LaneCountOf<MathematicalT>()>;
+  using ForwardBatched =
+      engine::pass::LinearTraversal<engine::pass::Direction::kForward, kLanes>;
 
   template <engine::pass::SimContextLike SimStateT>
   static void Step(

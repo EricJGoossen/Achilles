@@ -118,8 +118,10 @@ include/
     aba/         Articulated Body Algorithm -> joint accelerations
     vi/          Velocity integration
     pi/          Position integration
-    collision/   Broad phase: sphere-swept-box shapes -> world bounds ->
-                 filtered candidate-pair bitmask
+    broad_phase/ Collision broad phase: sphere-swept-box shapes -> world
+                 bounds -> filtered candidate-pair bitmask
+    narrow_phase/ Collision narrow phase: candidate pairs -> per-pair contact
+                 (signed distance, normal, point, active bit)
     viz/         Render-only state (world transforms, visuals); never stepped
   interface/   Loaders and the Simulation facade
   render/      The OpenGL/GLFW viewer
@@ -143,11 +145,15 @@ The main pieces:
   one value per row by default; naming
   `Indexing = topology::PairGroupIndexing<Lanes>` in its Traits gives it one
   value per (row, lane group of rows) pair instead -- e.g. a bitmask of which
-  targets in that group overlap the row
+  targets in that group overlap the row -- and
+  `PairGroupIndexing<Lanes, Lanes>` one value per (row, row) pair, read a
+  lane group at a time
   ([include/engine/topology/indexing_policy.hpp](include/engine/topology/indexing_policy.hpp)).
 - **Registry** ([include/algorithms/registry.hpp](include/algorithms/registry.hpp)):
   the list of algorithms the simulation hosts, in the order they run.
-  Each step runs ABA, then VI, then PI, then the collision broad phase.
+  Each step runs ABA, then VI, then the collision broad and narrow
+  phases, then PI -- so a contact solver can correct VI's velocity before
+  PI integrates it.
   Shared fields are aliased from one algorithm to the next, so nothing is
   copied between them. Adding an algorithm takes one line here.
 

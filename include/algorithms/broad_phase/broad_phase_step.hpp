@@ -1,7 +1,7 @@
 #pragma once
 
-#include "algorithms/collision/collision_data.hpp"
-#include "algorithms/collision/collision_ops.hpp"
+#include "algorithms/broad_phase/broad_phase_data.hpp"
+#include "algorithms/broad_phase/broad_phase_ops.hpp"
 #include "algorithms/conventions.hpp"
 #include "algorithms/sim_config.hpp"
 #include "engine/algorithm_contract.hpp"
@@ -11,10 +11,10 @@
 #include "engine/topology/ordering_policy.hpp"
 #include "util/tmp.hpp"
 
-namespace achilles::algorithms::collision {
+namespace achilles::algorithms::broad_phase {
 
 // Runs the broad phase for a single archetype: two passes over this Step's
-// own CollisionView, looked up via ViewFor<CollisionView>() the same way
+// own BroadPhaseView, looked up via ViewFor<BroadPhaseView>() the same way
 // VIStep looks up its own VIView (see vi_step.hpp's header comment).
 //
 // ComputeSweptBoxBoundsOp first: like VI/PI, it reads/writes each row
@@ -30,14 +30,13 @@ namespace achilles::algorithms::collision {
 // Padding rows inside it read as Zero() groups, so the filter drops them.
 // `sim_config` and `dt` are both unused: the broad phase is a pure function of
 // this tick's pose.
-struct CollisionStep {
-  using FieldEnum = CollisionField;
+struct BroadPhaseStep {
+  using FieldEnum = BroadPhaseField;
 
-  using ForwardBatched = engine::pass::LinearTraversal<
-      engine::pass::Direction::kForward,
-      util::LaneCountOf<MathematicalT>()>;
-  using PairBatched = engine::pass::
-      PairTraversal<engine::pass::Direction::kForward, kPairLanes>;
+  using ForwardBatched =
+      engine::pass::LinearTraversal<engine::pass::Direction::kForward, kLanes>;
+  using PairBatched =
+      engine::pass::PairTraversal<engine::pass::Direction::kForward, kLanes>;
 
   template <engine::pass::SimContextLike SimStateT>
   static void Step(
@@ -47,8 +46,8 @@ struct CollisionStep {
     (void)dt;
     using engine::pass::Pass;
 
-    const auto view = sim_state.template ViewFor<CollisionView>();
-    const CollisionTopology& topology =
+    const auto view = sim_state.template ViewFor<BroadPhaseView>();
+    const BroadPhaseTopology& topology =
         sim_state.template TopologyFor<engine::topology::TopologicalOrdering>();
 
     engine::pass::Step(
@@ -63,8 +62,8 @@ struct CollisionStep {
   }
 };
 
-using CollisionAlgorithm =
-    engine::Algorithm<CollisionField, CollisionFieldTraits, CollisionStep>;
-static_assert(engine::AlgorithmLike<CollisionAlgorithm>);
+using BroadPhaseAlgorithm =
+    engine::Algorithm<BroadPhaseField, BroadPhaseFieldTraits, BroadPhaseStep>;
+static_assert(engine::AlgorithmLike<BroadPhaseAlgorithm>);
 
-}  // namespace achilles::algorithms::collision
+}  // namespace achilles::algorithms::broad_phase

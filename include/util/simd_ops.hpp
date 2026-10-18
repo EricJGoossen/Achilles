@@ -94,6 +94,12 @@ inline T Select(const MaskT& mask, T if_true, T if_false) {
   return mask ? if_true : if_false;
 }
 
+// +1 where v >= 0, -1 elsewhere -- per lane, by select rather than branch.
+template <typename T>
+inline T Sign(T v) {
+  return Select(v >= T(0), T(1), T(-1));
+}
+
 template <typename T>
 struct IsXsimdBatch : std::false_type {};
 

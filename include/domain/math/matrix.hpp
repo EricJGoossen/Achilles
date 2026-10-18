@@ -110,7 +110,7 @@ class Matrix {
   constexpr Matrix<T, M, 1> Column(std::size_t j) const {
     assert(j < N && "Column index out of bounds");
 
-    std::array<T, M> result;
+    std::array<T, M> result{};
     for (std::size_t i = 0; i < M; ++i) {
       result[i] = (*this)(i, j);
     }
@@ -246,6 +246,33 @@ class Matrix {
       data_[i] = abs(data_[i]);
     }
     return *this;
+  }
+  constexpr Matrix Min(const Matrix& other) const {
+    Matrix result;
+    for (std::size_t i = 0; i < M * N; ++i) {
+      result[i] = xsimd::min(data_[i], other[i]);
+    }
+    return result;
+  }
+  constexpr Matrix Max(const Matrix& other) const {
+    Matrix result;
+    for (std::size_t i = 0; i < M * N; ++i) {
+      result[i] = xsimd::max(data_[i], other[i]);
+    }
+    return result;
+  }
+  constexpr Matrix Clamp(const Matrix& lo, const Matrix& hi) const {
+    return Max(lo).Min(hi);
+  }
+  // Per-lane choice between two matrices, elementwise
+  static constexpr Matrix Select(
+      const Mask& mask, const Matrix& if_true, const Matrix& if_false
+  ) {
+    Matrix result;
+    for (std::size_t i = 0; i < M * N; ++i) {
+      result[i] = util::Select(mask, if_true[i], if_false[i]);
+    }
+    return result;
   }
   constexpr Matrix& operator+=(const Matrix& other) {
     for (std::size_t i = 0; i < M * N; ++i) {
