@@ -1,6 +1,6 @@
-#include <array>
-
 #include <gtest/gtest.h>
+
+#include <array>
 
 #include "domain/math/vector3.hpp"
 #include "engine/op_contract.hpp"
@@ -8,6 +8,7 @@
 
 using achilles::domain::math::Vector3;
 using achilles::engine::ArgData;
+using achilles::engine::ArgIndex;
 using achilles::engine::OpArgsMatchView;
 using achilles::engine::OpLike;
 using achilles::test_support::ToyField;
@@ -29,10 +30,10 @@ struct OpArchetype {
   using FieldEnum = ToyField;
 
   static constexpr std::array<ArgData<FieldEnum>, 1> kInputs = {
-      ArgData<FieldEnum>{FieldEnum::kPosition, true},
+      ArgData<FieldEnum>{FieldEnum::kPosition, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData<FieldEnum>, 1> kOutputs = {
-      ArgData<FieldEnum>{FieldEnum::kVelocity, true},
+      ArgData<FieldEnum>{FieldEnum::kVelocity, ArgIndex::kTarget},
   };
 
   void operator()(const Vector3<float>& position, Vector3<float>* velocity_out)
@@ -52,7 +53,7 @@ struct WrongArityOp {
   using FieldEnum = ToyField;
 
   static constexpr std::array<ArgData<FieldEnum>, 1> kInputs = {
-      ArgData<FieldEnum>{FieldEnum::kPosition, true},
+      ArgData<FieldEnum>{FieldEnum::kPosition, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData<FieldEnum>, 0> kOutputs = {};
 
@@ -74,13 +75,14 @@ struct WrongParamTypeOp {
   using FieldEnum = ToyField;
 
   static constexpr std::array<ArgData<FieldEnum>, 1> kInputs = {
-      ArgData<FieldEnum>{FieldEnum::kPosition, true},
+      ArgData<FieldEnum>{FieldEnum::kPosition, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData<FieldEnum>, 1> kOutputs = {
-      ArgData<FieldEnum>{FieldEnum::kVelocity, true},
+      ArgData<FieldEnum>{FieldEnum::kVelocity, ArgIndex::kTarget},
   };
 
-  void operator()(const float& not_a_vector3, Vector3<float>* velocity_out) const {
+  void operator()(const float& not_a_vector3, Vector3<float>* velocity_out)
+      const {
     *velocity_out = Vector3<float>(not_a_vector3, not_a_vector3, not_a_vector3);
   }
 };
@@ -94,10 +96,10 @@ struct OutputNotAPointerOp {
   using FieldEnum = ToyField;
 
   static constexpr std::array<ArgData<FieldEnum>, 1> kInputs = {
-      ArgData<FieldEnum>{FieldEnum::kPosition, true},
+      ArgData<FieldEnum>{FieldEnum::kPosition, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData<FieldEnum>, 1> kOutputs = {
-      ArgData<FieldEnum>{FieldEnum::kVelocity, true},
+      ArgData<FieldEnum>{FieldEnum::kVelocity, ArgIndex::kTarget},
   };
 
   void operator()(const Vector3<float>& position, Vector3<float>& velocity_out)

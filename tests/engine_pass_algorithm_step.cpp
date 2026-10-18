@@ -14,6 +14,7 @@
 
 using achilles::domain::math::Vector3;
 using achilles::engine::ArgData;
+using achilles::engine::ArgIndex;
 using achilles::engine::OpHasInit;
 using achilles::engine::memory::SimAllocator;
 using achilles::engine::pass::ForwardLinearTraversal;
@@ -45,11 +46,11 @@ static_assert(achilles::domain::TopologyLike<TopologyArchetype>);
 struct PropagateOp {
   using FieldEnum = ToyField;
   static constexpr std::array<ArgData<FieldEnum>, 2> kInputs = {
-      ArgData<FieldEnum>{FieldEnum::kPosition, true},
-      ArgData<FieldEnum>{FieldEnum::kVelocity, false},
+      ArgData<FieldEnum>{FieldEnum::kPosition, ArgIndex::kTarget},
+      ArgData<FieldEnum>{FieldEnum::kVelocity, ArgIndex::kParent},
   };
   static constexpr std::array<ArgData<FieldEnum>, 1> kOutputs = {
-      ArgData<FieldEnum>{FieldEnum::kVelocity, true},
+      ArgData<FieldEnum>{FieldEnum::kVelocity, ArgIndex::kTarget},
   };
   void operator()(
       const Vector3<float>& position,
@@ -73,18 +74,18 @@ struct SeededPropagateOp {
 
   static constexpr std::array<ArgData<FieldEnum>, 0> kInitInputs = {};
   static constexpr std::array<ArgData<FieldEnum>, 1> kInitOutputs = {
-      ArgData<FieldEnum>{FieldEnum::kVelocity, true},
+      ArgData<FieldEnum>{FieldEnum::kVelocity, ArgIndex::kTarget},
   };
   void Initialize(Vector3<float>* velocity_out) const {
     *velocity_out = seed_value;
   }
 
   static constexpr std::array<ArgData<FieldEnum>, 2> kInputs = {
-      ArgData<FieldEnum>{FieldEnum::kPosition, true},
-      ArgData<FieldEnum>{FieldEnum::kVelocity, false},
+      ArgData<FieldEnum>{FieldEnum::kPosition, ArgIndex::kTarget},
+      ArgData<FieldEnum>{FieldEnum::kVelocity, ArgIndex::kParent},
   };
   static constexpr std::array<ArgData<FieldEnum>, 1> kOutputs = {
-      ArgData<FieldEnum>{FieldEnum::kVelocity, true},
+      ArgData<FieldEnum>{FieldEnum::kVelocity, ArgIndex::kTarget},
   };
   void operator()(
       const Vector3<float>& position,
@@ -104,10 +105,10 @@ static_assert(OpHasInit<SeededPropagateOp>);
 struct DoubleOp {
   using FieldEnum = ToyField;
   static constexpr std::array<ArgData<FieldEnum>, 1> kInputs = {
-      ArgData<FieldEnum>{FieldEnum::kPosition, true},
+      ArgData<FieldEnum>{FieldEnum::kPosition, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData<FieldEnum>, 1> kOutputs = {
-      ArgData<FieldEnum>{FieldEnum::kVelocity, true},
+      ArgData<FieldEnum>{FieldEnum::kVelocity, ArgIndex::kTarget},
   };
   void operator()(const Vector3<float>& position, Vector3<float>* velocity_out)
       const {
@@ -134,10 +135,10 @@ static_assert(!PassLike<NotAPass>);
 struct AccumulateIntoParentOp {
   using FieldEnum = ToyField;
   static constexpr std::array<ArgData<FieldEnum>, 1> kInputs = {
-      ArgData<FieldEnum>{FieldEnum::kPosition, true},
+      ArgData<FieldEnum>{FieldEnum::kPosition, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData<FieldEnum>, 1> kOutputs = {
-      ArgData<FieldEnum>{FieldEnum::kVelocity, false},
+      ArgData<FieldEnum>{FieldEnum::kVelocity, ArgIndex::kParent},
   };
   void operator()(
       const Vector3<float>& contribution, Vector3<float>* velocity_parent_out
@@ -301,7 +302,7 @@ TEST(RunPassTest, EmptyLinearPassSkipsInitializeAndApply) {
 // callable with (j, j) instead of just (j), this failed to compile
 // outright (OpInvoker::operator() requires exactly two arguments; see the
 // fix and its accompanying note). DoubleOp only ever reads with
-// use_target=true, so it never notices target==parent, but the pairing
+// ArgIndex::kTarget, so it never notices target==parent, but the pairing
 // itself compiling and running at all is the thing being proven here.
 TEST(RunPassTest, LinearTraversalPairsWithRealOpInvoker) {
   SimAllocator<ToyAlgorithm> sim = MakeToySim(3);

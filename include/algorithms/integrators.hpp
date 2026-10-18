@@ -8,8 +8,10 @@
 #include <string_view>
 
 #include "algorithms/aba/aba_step.hpp"
+#include "algorithms/broad_phase/broad_phase_step.hpp"
 #include "algorithms/conventions.hpp"
 #include "algorithms/midpoint/midpoint_step.hpp"
+#include "algorithms/narrow_phase/narrow_phase_step.hpp"
 #include "algorithms/pi/pi_step.hpp"
 #include "algorithms/registry.hpp"
 #include "algorithms/rk4/rk4_step.hpp"
@@ -28,9 +30,22 @@ namespace achilles::algorithms {
 // result. ABA's fields are SharedAs-aliased with every integrator's, so
 // each ABAStep reads whatever state the Step before it wrote.
 
+// The collision pipeline: the broad phase's candidate pairs, then the
+// narrow phase's contacts for them (algorithms/broad_phase,
+// algorithms/narrow_phase). Both read only the world pose ABA last wrote,
+// so it runs anywhere after an ABAStep and sees that evaluation's pose.
+using Collision =
+    util::TypeList<broad_phase::BroadPhaseStep, narrow_phase::NarrowPhaseStep>;
+
 // ABA solves for qdd at (q, qd), VI integrates that into qd, PI integrates
-// the updated qd into q for the next tick's ABA to read.
-using SemiImplicitEuler = util::TypeList<aba::ABAStep, vi::VIStep, pi::PIStep>;
+// the updated qd into q for the next tick's ABA to read. Collision runs
+// between VI and PI, on this tick's pose: a contact solver correcting VI's
+// velocity slots in right after it, so PI integrates the corrected velocity
+// instead of one that ignores the contacts.
+using SemiImplicitEuler = util::ConcatT<
+    util::TypeList<aba::ABAStep, vi::VIStep>,
+    Collision,
+    util::TypeList<pi::PIStep>>;
 
 // See algorithms/verlet.
 using VelocityVerlet = util::TypeList<

@@ -19,13 +19,18 @@ namespace achilles::engine::pass {
 // a View. At construction it pulls one FieldCursor per kInputs/kOutputs
 // entry out of the View and keeps those, not the View itself, so the hot
 // loop never repeats the View's pointer/stride lookup. Invoking it with a
-// (target, parent) index pair:
-//   1. Reads each of kInputs and kOutputs through its cursor (from
-//      `target_index` or `parent_index`, per that argument's `use_target`).
-//   2. Calls Op::operator() with the inputs by const reference, followed
-//      by a pointer to the loaded value of each of kOutputs.
-//   3. Writes each output back through its cursor, again at `target_index`
-//      or `parent_index` per that output's `use_target`.
+// (target, source) index pair -- source being a TreeTraversal's parent
+// group, a LinearTraversal's own target again, or a PairTraversal's
+// topology::BroadcastIndex (see engine/pass/traversals.hpp) -- packs both
+// into one tuple, ordered the way ArgIndex numbers them, and:
+//   1. Reads each of kInputs and kOutputs through its cursor, at whichever
+//      element that argument's field's own Indexing policy resolves the
+//      tuple to for its ArgData::index -- see FieldCursor::Resolve.
+//   2. Calls Op::operator() with the inputs by const reference, then each
+//      slot of the tuple kTraversalInputs names handed over as-is (if the
+//      Op declares any -- see kTraversalInputCountV, engine/op_contract.hpp),
+//      then a pointer to the loaded value of each of kOutputs.
+//   3. Writes each output back through its cursor, resolved the same way.
 // That is the whole Op contract: inputs are read-only, outputs are always
 // read/write. An output's incoming value is whatever the View holds at that
 // index -- an accumulator to add onto (vi's IntegrateVelocityOp, ABA's
@@ -43,6 +48,7 @@ template <OpLike Op, typename View>
 class OpInvokerBase {
  protected:
   using InputSeq = std::make_index_sequence<Op::kInputs.size()>;
+  using TraversalInputSeq = std::make_index_sequence<kTraversalInputCountV<Op>>;
   using OutputSeq = std::make_index_sequence<Op::kOutputs.size()>;
 
  private:
@@ -89,57 +95,66 @@ class OpInvokerBase {
       std::tuple_element_t<I, util::ArgsOfT<decltype(&Op::operator())>>>;
   template <size_t I>
   using OutputParam = std::remove_pointer_t<std::tuple_element_t<
-      Op::kInputs.size() + I,
+      Op::kInputs.size() + kTraversalInputCountV<Op> + I,
       util::ArgsOfT<decltype(&Op::operator())>>>;
 
-  template <size_t... InIs, size_t... OutIs>
-  void
-  Invoke(size_t target_index, size_t parent_index, std::index_sequence<InIs...>, std::index_sequence<OutIs...>)
-      const {
-    std::tuple<OutputParam<OutIs>...> outputs{
-        std::get<OutIs>(this->output_cursors_)
-            .template Load<typename OutputParam<OutIs>::ScalarType>(
-                Op::kOutputs[OutIs].use_target ? target_index : parent_index
-            )...
-    };
-
-    this->op_->operator()(
-        std::get<InIs>(this->input_cursors_)
-            .template Load<typename InputParam<InIs>::ScalarType>(
-                Op::kInputs[InIs].use_target ? target_index : parent_index
-            )...,
-        &std::get<OutIs>(outputs)...
-    );
-
-    (std::get<OutIs>(this->output_cursors_)
-         .template Store<typename OutputParam<OutIs>::ScalarType>(
-             Op::kOutputs[OutIs].use_target ? target_index : parent_index,
-             std::get<OutIs>(outputs)
-         ),
-     ...);
+  // The K-th kTraversalInputs value: whatever the traversal put in the
+  // tuple slot it names, unchanged -- no cursor, no field.
+  template <size_t K, typename Indices>
+  static const auto& TraversalInputAt(const Indices& indices) {
+    return std::get<static_cast<size_t>(Op::kTraversalInputs[K])>(indices);
   }
 
-  template <size_t... InIs, size_t... OutIs>
+  // Gathers/scatters one argument through `cursor` at whatever element its
+  // own field's Indexing policy resolves `indices` to for Index -- the only
+  // place an argument's ArgData::index is ever consulted. An element that
+  // resolves to a topology::BroadcastIndex picks the cursor's broadcasting
+  // Load overload, and has no Store to pick at all.
+  template <typename T, ArgIndex Index, typename Cursor, typename Indices>
+  static auto LoadAt(const Cursor& cursor, const Indices& indices) {
+    return cursor.template Load<T>(
+        cursor.template Resolve<T, static_cast<size_t>(Index)>(indices)
+    );
+  }
+  template <
+      typename T,
+      ArgIndex Index,
+      typename Cursor,
+      typename Indices,
+      typename ValueT>
+  static void StoreAt(
+      const Cursor& cursor, const Indices& indices, const ValueT& value
+  ) {
+    cursor.template Store<T>(
+        cursor.template Resolve<T, static_cast<size_t>(Index)>(indices), value
+    );
+  }
+
+  template <typename Indices, size_t... InIs, size_t... TrIs, size_t... OutIs>
   void
-  Invoke(size_t target_index, std::index_sequence<InIs...>, std::index_sequence<OutIs...>)
+  Invoke(const Indices& indices, std::index_sequence<InIs...>, std::index_sequence<TrIs...>, std::index_sequence<OutIs...>)
       const {
-    std::tuple<OutputParam<OutIs>...> outputs{
-        std::get<OutIs>(this->output_cursors_)
-            .template Load<typename OutputParam<OutIs>::ScalarType>(target_index
-            )...
-    };
+    std::tuple<OutputParam<OutIs>...> outputs{LoadAt<
+        typename OutputParam<OutIs>::ScalarType,
+        Op::kOutputs[OutIs].index>(
+        std::get<OutIs>(this->output_cursors_), indices
+    )...};
 
     this->op_->operator()(
-        std::get<InIs>(this->input_cursors_)
-            .template Load<typename InputParam<InIs>::ScalarType>(target_index
-            )...,
+        LoadAt<typename InputParam<InIs>::ScalarType, Op::kInputs[InIs].index>(
+            std::get<InIs>(this->input_cursors_), indices
+        )...,
+        TraversalInputAt<TrIs>(indices)...,
         &std::get<OutIs>(outputs)...
     );
 
-    (std::get<OutIs>(this->output_cursors_)
-         .template Store<typename OutputParam<OutIs>::ScalarType>(
-             target_index, std::get<OutIs>(outputs)
-         ),
+    (StoreAt<
+         typename OutputParam<OutIs>::ScalarType,
+         Op::kOutputs[OutIs].index>(
+         std::get<OutIs>(this->output_cursors_),
+         indices,
+         std::get<OutIs>(outputs)
+     ),
      ...);
   }
 
@@ -152,7 +167,7 @@ class OpInvokerBase {
 // Optional second half of an invoker: builds Initialize-specific cursors
 // (from kInitInputs/kInitOutputs, distinct from OpInvokerBase's own
 // kInputs/kOutputs cursors -- a field can appear in both arrays with
-// different use_target values, e.g. PropagateInertiaOp's
+// different ArgData::index values, e.g. PropagateInertiaOp's
 // kArticulatedInertia, and the two calls must still land on the index
 // their own ArgData says) and calls Op::Initialize the same
 // gather/call/scatter way OpInvokerBase::Invoke calls operator(), just
@@ -265,11 +280,19 @@ class OpInvoker : public OpInvokerBase<Op, View>,
   explicit OpInvoker(View& view, const Op& op)
       : Base(view, op), InitBase(view, op) {}
 
-  void operator()(size_t target_index, size_t parent_index) const {
+  // `extra` is whatever further tuple slots the traversal fills beyond
+  // target/source (e.g. a PairTraversal's PairStructure, ArgIndex::
+  // kStructure) -- packed into the same tuple, in order.
+  template <typename SourceIndex, typename... Extra>
+  void operator()(
+      size_t target_index, SourceIndex source_index, const Extra&... extra
+  ) const {
     this->Invoke(
-        target_index,
-        parent_index,
+        std::tuple<size_t, SourceIndex, Extra...>{
+            target_index, source_index, extra...
+        },
         typename Base::InputSeq{},
+        typename Base::TraversalInputSeq{},
         typename Base::OutputSeq{}
     );
   }
@@ -292,9 +315,14 @@ class SingleOpInvoker : public OpInvokerBase<Op, View>,
   explicit SingleOpInvoker(View& view, const Op& op)
       : Base(view, op), InitBase(view, op) {}
 
+  // Every argument reads/writes target_index, whatever its ArgData::index
+  // says -- the target doubles as its own source.
   void operator()(size_t target_index) const {
     this->Invoke(
-        target_index, typename Base::InputSeq{}, typename Base::OutputSeq{}
+        std::tuple<size_t, size_t>{target_index, target_index},
+        typename Base::InputSeq{},
+        typename Base::TraversalInputSeq{},
+        typename Base::OutputSeq{}
     );
   }
 

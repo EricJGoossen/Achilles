@@ -110,7 +110,7 @@ class Matrix {
   constexpr Matrix<T, M, 1> Column(std::size_t j) const {
     assert(j < N && "Column index out of bounds");
 
-    std::array<T, M> result;
+    std::array<T, M> result{};
     for (std::size_t i = 0; i < M; ++i) {
       result[i] = (*this)(i, j);
     }
@@ -233,6 +233,46 @@ class Matrix {
       data_[i] = -data_[i];
     }
     return *this;
+  }
+  constexpr Matrix Abs() const {
+    Matrix result = *this;
+    return result.AbsInPlace();
+  }
+  constexpr Matrix& AbsInPlace() {
+    using std::abs;
+    using xsimd::abs;
+
+    for (std::size_t i = 0; i < M * N; ++i) {
+      data_[i] = abs(data_[i]);
+    }
+    return *this;
+  }
+  constexpr Matrix Min(const Matrix& other) const {
+    Matrix result;
+    for (std::size_t i = 0; i < M * N; ++i) {
+      result[i] = xsimd::min(data_[i], other[i]);
+    }
+    return result;
+  }
+  constexpr Matrix Max(const Matrix& other) const {
+    Matrix result;
+    for (std::size_t i = 0; i < M * N; ++i) {
+      result[i] = xsimd::max(data_[i], other[i]);
+    }
+    return result;
+  }
+  constexpr Matrix Clamp(const Matrix& lo, const Matrix& hi) const {
+    return Max(lo).Min(hi);
+  }
+  // Per-lane choice between two matrices, elementwise
+  static constexpr Matrix Select(
+      const Mask& mask, const Matrix& if_true, const Matrix& if_false
+  ) {
+    Matrix result;
+    for (std::size_t i = 0; i < M * N; ++i) {
+      result[i] = util::Select(mask, if_true[i], if_false[i]);
+    }
+    return result;
   }
   constexpr Matrix& operator+=(const Matrix& other) {
     for (std::size_t i = 0; i < M * N; ++i) {
@@ -703,6 +743,21 @@ class MatrixBlock {
   std::size_t stride_;
   std::size_t row_start_, col_start_;
 };
+// Matrix<T, M, N> takes three template parameters, but Assembler's Target
+// needs a single-scalar-parameter template -- this curries M and N so each
+// shape has its own Assembler, the same way ActivationMaskFor does for a
+// mask's width (activation_mask.hpp).
+template <std::size_t M, std::size_t N>
+struct MatrixFor {
+  template <typename T>
+  using Target = Matrix<T, M, N>;
+};
+
+template <typename T, std::size_t M, std::size_t N>
+using MatrixAssembler = engine::
+    Assembler<MatrixFor<M, N>::template Target, T, engine::RepeatTypes<M * N>>;
+static_assert(engine::AssemblerLike<MatrixAssembler<float, 3, 4>>);
+
 template <typename T>
 using Matrix6x6 = Matrix<T, 6, 6>;
 template <typename T>

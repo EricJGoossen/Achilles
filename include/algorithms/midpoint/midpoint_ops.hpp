@@ -13,15 +13,16 @@ namespace achilles::algorithms::midpoint {
 struct BeginStepOp {
   using FieldEnum = MidpointField;
   using ArgData = engine::ArgData<FieldEnum>;
+  using ArgIndex = engine::ArgIndex;
 
   static constexpr std::array<ArgData, 2> kInputs = {
-      ArgData{FieldEnum::kJointPosition, true},
-      ArgData{FieldEnum::kJointVelocity, true},
+      ArgData{FieldEnum::kJointPosition, ArgIndex::kTarget},
+      ArgData{FieldEnum::kJointVelocity, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData, 3> kOutputs = {
-      ArgData{FieldEnum::kStartPosition, true},
-      ArgData{FieldEnum::kStartVelocity, true},
-      ArgData{FieldEnum::kNextVelocity, true},
+      ArgData{FieldEnum::kStartPosition, ArgIndex::kTarget},
+      ArgData{FieldEnum::kStartVelocity, ArgIndex::kTarget},
+      ArgData{FieldEnum::kNextVelocity, ArgIndex::kTarget},
   };
 
   void operator()(
@@ -46,18 +47,19 @@ static_assert(
 struct MidpointTrialOp {
   using FieldEnum = MidpointField;
   using ArgData = engine::ArgData<FieldEnum>;
+  using ArgIndex = engine::ArgIndex;
 
   explicit MidpointTrialOp(ScalarOperationT dt) : dt_(dt) {}
 
   static constexpr std::array<ArgData, 4> kInputs = {
-      ArgData{FieldEnum::kJointSubspace, true},
-      ArgData{FieldEnum::kStartPosition, true},
-      ArgData{FieldEnum::kStartVelocity, true},
-      ArgData{FieldEnum::kNextVelocity, true},
+      ArgData{FieldEnum::kJointSubspace, ArgIndex::kTarget},
+      ArgData{FieldEnum::kStartPosition, ArgIndex::kTarget},
+      ArgData{FieldEnum::kStartVelocity, ArgIndex::kTarget},
+      ArgData{FieldEnum::kNextVelocity, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData, 2> kOutputs = {
-      ArgData{FieldEnum::kJointPosition, true},
-      ArgData{FieldEnum::kJointVelocity, true},
+      ArgData{FieldEnum::kJointPosition, ArgIndex::kTarget},
+      ArgData{FieldEnum::kJointVelocity, ArgIndex::kTarget},
   };
 
   void operator()(
@@ -86,15 +88,16 @@ static_assert(
 struct UpdateNextVelocityOp {
   using FieldEnum = MidpointField;
   using ArgData = engine::ArgData<FieldEnum>;
+  using ArgIndex = engine::ArgIndex;
 
   explicit UpdateNextVelocityOp(ScalarOperationT dt) : dt_(dt) {}
 
   static constexpr std::array<ArgData, 2> kInputs = {
-      ArgData{FieldEnum::kStartVelocity, true},
-      ArgData{FieldEnum::kJointAcceleration, true},
+      ArgData{FieldEnum::kStartVelocity, ArgIndex::kTarget},
+      ArgData{FieldEnum::kJointAcceleration, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData, 1> kOutputs = {
-      ArgData{FieldEnum::kNextVelocity, true},
+      ArgData{FieldEnum::kNextVelocity, ArgIndex::kTarget},
   };
 
   void operator()(
@@ -121,18 +124,19 @@ static_assert(
 struct CommitOp {
   using FieldEnum = MidpointField;
   using ArgData = engine::ArgData<FieldEnum>;
+  using ArgIndex = engine::ArgIndex;
 
   explicit CommitOp(ScalarOperationT dt) : dt_(dt) {}
 
   static constexpr std::array<ArgData, 4> kInputs = {
-      ArgData{FieldEnum::kJointSubspace, true},
-      ArgData{FieldEnum::kStartPosition, true},
-      ArgData{FieldEnum::kStartVelocity, true},
-      ArgData{FieldEnum::kNextVelocity, true},
+      ArgData{FieldEnum::kJointSubspace, ArgIndex::kTarget},
+      ArgData{FieldEnum::kStartPosition, ArgIndex::kTarget},
+      ArgData{FieldEnum::kStartVelocity, ArgIndex::kTarget},
+      ArgData{FieldEnum::kNextVelocity, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData, 2> kOutputs = {
-      ArgData{FieldEnum::kJointPosition, true},
-      ArgData{FieldEnum::kJointVelocity, true},
+      ArgData{FieldEnum::kJointPosition, ArgIndex::kTarget},
+      ArgData{FieldEnum::kJointVelocity, ArgIndex::kTarget},
   };
 
   void operator()(

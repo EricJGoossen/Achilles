@@ -143,6 +143,26 @@ class Vector3 {
     return Matrix<T, 3, 3>(T{0}, -Z(), Y(), Z(), T{0}, -X(), -Y(), X(), T{0});
   }
 
+  // Elementwise bounds
+  constexpr Vector3 Min(const Vector3& other) const {
+    return Vector3(data_.Min(other.data_));
+  }
+  constexpr Vector3 Max(const Vector3& other) const {
+    return Vector3(data_.Max(other.data_));
+  }
+  constexpr Vector3 Clamp(const Vector3& lo, const Vector3& hi) const {
+    return Vector3(data_.Clamp(lo.data_, hi.data_));
+  }
+  constexpr Vector3 Abs() const { return Vector3(data_.Abs()); }
+
+  // Per-lane choice between two vectors, elementwise
+  static constexpr Vector3 Select(
+      const Mask& mask, const Vector3& if_true, const Vector3& if_false
+  ) {
+    return Vector3(Matrix<T, 3, 1>::Select(mask, if_true.data_, if_false.data_)
+    );
+  }
+
   // Interpolation
   static constexpr Vector3 Lerp(const Vector3& a, const Vector3& b, T t) {
     return a + (b - a) * t;

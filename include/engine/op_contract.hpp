@@ -3,6 +3,7 @@
 #include <array>
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -13,18 +14,61 @@
 
 namespace achilles::engine {
 
+// Which of the indices a traversal hands an Op an argument is read from (or
+// written to) -- a position, not a flag: OpInvoker packs every index a
+// traversal hands it into one tuple, in this order, and an argument picks
+// its own by std::get<ArgIndex>, never by a branch (see
+// engine/pass/op_invoker.hpp). kTarget is always the row/group the
+// traversal is visiting. kSource is the second index, whatever that
+// traversal makes it -- kParent names the same slot under a TreeTraversal,
+// which is the only place it means "parent"; a LinearTraversal hands the
+// target again, and a PairTraversal hands the broadcast source row
+// (engine/pass/traversals.hpp). kStructure is a third slot only some
+// traversals fill: not an index at all, but a fact the traversal derived
+// from its own topology about this one call (a PairTraversal's
+// PairStructure) -- read through kTraversalInputs, never through a field.
+enum class ArgIndex : uint8_t {
+  kTarget = 0,
+  kSource = 1,
+  kParent = kSource,
+  kStructure = 2,
+};
+
 // One argument to gather (or scatter) for an Op: `field` selects which
-// field to read from (or write to) the View, and `use_target` selects
-// whether the target or parent index is used to do so.
+// field to read from (or write to) the View, and `index` selects which of
+// the traversal's indices to do so at. A field whose own Indexing policy
+// isn't per-row (e.g. topology::PairGroupIndexing) may resolve from every index
+// regardless; see topology/indexing_policy.hpp.
 template <FieldEnumLike EnumT>
 struct ArgData {
   EnumT field;
-  bool use_target;
+  ArgIndex index;
 };
 
+// An Op optionally takes values straight from its traversal rather than
+// from any field: `static constexpr std::array<ArgIndex, K>
+// kTraversalInputs` names which slots of the traversal's index tuple to
+// hand over as-is, as operator()'s parameters right after kInputs' (and
+// before kOutputs'), each declared `const T&` for whatever type that slot
+// holds. It's how structural facts only the traversal knows -- which lanes
+// of a pair call are distinct, non-parent/child pairs, see
+// pass::PairStructure -- reach an Op without being stored per row first.
+// Naming a slot the traversal doesn't fill fails to compile at the call.
+template <typename T>
+inline constexpr size_t kTraversalInputCountV = 0;
+
+template <typename T>
+  requires requires {
+    {
+      T::kTraversalInputs
+    } -> std::same_as<const std::array<ArgIndex, T::kTraversalInputs.size()>&>;
+  }
+inline constexpr size_t kTraversalInputCountV<T> = T::kTraversalInputs.size();
+
 // An Op: operator() takes one `const P&` per kInputs entry (read-only),
-// then one `P*` per kOutputs entry (read/write -- loaded before the call
-// and stored after it, see OpInvokerBase in engine/pass/op_invoker.hpp).
+// then one `const T&` per kTraversalInputs entry (if any), then one `P*`
+// per kOutputs entry (read/write -- loaded before the call and stored after
+// it, see OpInvokerBase in engine/pass/op_invoker.hpp).
 template <typename T>
 concept OpLike = requires(T a) {
   requires std::same_as<util::ReturnTypeOfT<decltype(&T::operator())>, void>;
@@ -40,7 +84,8 @@ concept OpLike = requires(T a) {
 
   // Nested requirement: arbitrary bool constant-expression check
   requires util::kArityOfV<decltype(&T::operator())> ==
-               T::kInputs.size() + T::kOutputs.size();
+               T::kInputs.size() + kTraversalInputCountV<T> +
+                   T::kOutputs.size();
 };
 
 // An Op optionally carries a second, narrower contract: Initialize, called
@@ -102,11 +147,12 @@ consteval bool InputArgMatchesView() {
   }
 }
 
-// Same idea for the J-th output, which is expected to be `P*`.
+// Same idea for the J-th output, which is expected to be `P*` -- after
+// every kInputs and kTraversalInputs parameter.
 template <typename Op, typename View, size_t J>
 consteval bool OutputArgMatchesView() {
   using Declared = std::tuple_element_t<
-      Op::kInputs.size() + J,
+      Op::kInputs.size() + kTraversalInputCountV<Op> + J,
       util::ArgsOfT<decltype(&Op::operator())>>;
   if constexpr (!std::is_pointer_v<Declared>) {
     return false;

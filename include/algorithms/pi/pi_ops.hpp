@@ -21,15 +21,16 @@ namespace achilles::algorithms::pi {
 struct IntegratePositionOp {
   using FieldEnum = PIField;
   using ArgData = engine::ArgData<FieldEnum>;
+  using ArgIndex = engine::ArgIndex;
 
   explicit IntegratePositionOp(ScalarOperationT dt) : dt_(dt) {}
 
   static constexpr std::array<ArgData, 2> kInputs = {
-      ArgData{FieldEnum::kJointSubspace, true},
-      ArgData{FieldEnum::kJointVelocity, true},
+      ArgData{FieldEnum::kJointSubspace, ArgIndex::kTarget},
+      ArgData{FieldEnum::kJointVelocity, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData, 1> kOutputs = {
-      ArgData{FieldEnum::kJointPosition, true},
+      ArgData{FieldEnum::kJointPosition, ArgIndex::kTarget},
   };
 
   void operator()(

@@ -66,17 +66,15 @@ struct ABAStep {
   // TopologicalOrdering-built topology, not its raw rows one at a time
   // (see engine::pass::TreeTraversal's own comment on Stride for why a raw
   // row and a batch group aren't the same index space once more than one
-  // group exists). Stride = util::LaneCountOf<MathematicalT>() is the one
+  // group exists). Stride = kLanes is the one
   // piece of information that was missing before Stride existed: without
   // it, a topology with more than one lane's worth of real+padding rows
   // silently ran the traversal's own loop bound (and every parent lookup)
   // in the wrong units.
-  using ForwardBatched = engine::pass::TreeTraversal<
-      engine::pass::Direction::kForward,
-      util::LaneCountOf<MathematicalT>()>;
-  using BackwardBatched = engine::pass::TreeTraversal<
-      engine::pass::Direction::kBackward,
-      util::LaneCountOf<MathematicalT>()>;
+  using ForwardBatched =
+      engine::pass::TreeTraversal<engine::pass::Direction::kForward, kLanes>;
+  using BackwardBatched =
+      engine::pass::TreeTraversal<engine::pass::Direction::kBackward, kLanes>;
 
   template <engine::pass::SimContextLike SimStateT>
   static void Step(

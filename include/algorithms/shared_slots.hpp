@@ -26,9 +26,21 @@ struct JointPositionSlot;
 struct JointVelocitySlot;
 struct JointAccelerationSlot;
 // ABA's own kWorldTransform (aba_data.hpp) -- shared so a read-only
-// consumer (e.g. algorithms::viz's own kWorldTransform, viz/viz_data.hpp)
-// can see the exact world pose ABA already computes every tick, instead of
-// re-deriving it from kJointPosition/kFixedJointTransform itself.
+// consumer (e.g. algorithms::viz's own kWorldTransform, viz/viz_data.hpp,
+// or algorithms::broad_phase's, broad_phase/broad_phase_data.hpp) can see the
+// exact world pose ABA already computes every tick, instead of re-deriving it
+// from kJointPosition/kFixedJointTransform itself.
 struct WorldTransformSlot;
+// The broad phase's collision shape (broad_phase/broad_phase_data.hpp):
+// its static per-body description, the world pose it derives from it each
+// tick, and the candidate-pair bitmask it ends on -- shared so the narrow
+// phase (narrow_phase/narrow_phase_data.hpp) reads the same shapes, the
+// same pose and only the pairs the broad phase kept, without either phase
+// re-deriving the other's work.
+struct CollisionExtentsSlot;
+struct CollisionRadiusSlot;
+struct CollisionMarginSlot;
+struct WorldShapePoseSlot;
+struct BoundsOverlapSlot;
 
 }  // namespace achilles::algorithms

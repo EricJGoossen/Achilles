@@ -61,9 +61,8 @@ namespace achilles::algorithms::rk4 {
 //
 // Like vi/pi, each pass is independent per row, so it runs as a
 // LinearTraversal over view.Size().
-using ForwardBatched = engine::pass::LinearTraversal<
-    engine::pass::Direction::kForward,
-    util::LaneCountOf<MathematicalT>()>;
+using ForwardBatched =
+    engine::pass::LinearTraversal<engine::pass::Direction::kForward, kLanes>;
 
 using RK4Algorithm = engine::Algorithm<RK4Field, RK4FieldTraits>;
 static_assert(engine::AlgorithmLike<RK4Algorithm>);

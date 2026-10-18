@@ -110,7 +110,8 @@ base_acceleration:
 ```
 include/
   domain/      Math and spatial-algebra value types (Vector3/6, Quaternion,
-               Matrix, spatial Transform/Inertia/Dual), archetypes, joint topology
+               Matrix, spatial Transform/Inertia/Dual), geometry (Box,
+               Rectangle, Segment), archetypes, joint topology
   engine/      The generic runtime: field/op/algorithm contracts, memory
                (arena, allocator, bindings), topology layout and ordering,
                views, and the pass machinery (traversals, op invoker, sim context)
@@ -118,6 +119,12 @@ include/
     aba/         Articulated Body Algorithm -> joint accelerations
     vi/          Velocity integration
     pi/          Position integration
+    verlet/, midpoint/, rk4/  The other integrators' own steps
+    broad_phase/ Collision broad phase: sphere-swept-box shapes -> world
+                 bounds -> filtered candidate-pair bitmask
+    narrow_phase/ Collision narrow phase: candidate pairs -> up to 4 contacts
+                 per pair (normal, per-slot distance/point/active bit),
+                 MuJoCo/MJX-style
     viz/         Render-only state (world transforms, visuals); never stepped
   interface/   Loaders and the Simulation facade
   render/      The OpenGL/GLFW viewer
@@ -136,12 +143,24 @@ The main pieces:
   define `Initialize`.
 - **Traversals** ([include/engine/pass/traversals.hpp](include/engine/pass/traversals.hpp)):
   set the order Ops run in over the joint tree. The options are a forward
-  or backward tree walk, or a flat linear pass.
+  or backward tree walk, a flat linear pass, or an all-pairs walk that
+  checks one row against a whole SIMD lane group at a time. A field holds
+  one value per row by default; naming
+  `Indexing = topology::PairGroupIndexing<Lanes>` in its Traits gives it one
+  value per (row, lane group of rows) pair instead -- e.g. a bitmask of which
+  targets in that group overlap the row -- and
+  `PairGroupIndexing<Lanes, Lanes>` one value per (row, row) pair, read a
+  lane group at a time
+  ([include/engine/topology/indexing_policy.hpp](include/engine/topology/indexing_policy.hpp)).
 - **Registry** ([include/algorithms/registry.hpp](include/algorithms/registry.hpp)):
-  the list of algorithms the simulation hosts, in the order they run.
-  Each step runs ABA, then VI, then PI. Shared fields are aliased from
-  one algorithm to the next, so nothing is copied between them. Adding
-  an algorithm takes one line here.
+  the list of algorithms the simulation hosts -- what memory exists.
+  Shared fields are aliased from one algorithm to the next, so nothing is
+  copied between them. Adding an algorithm takes one line here.
+- **Integrators** ([include/algorithms/integrators.hpp](include/algorithms/integrators.hpp)):
+  what one tick runs, as an ordered list of Steps over the hosted
+  algorithms. Semi-implicit Euler (the default) runs ABA, then VI, then the
+  collision broad and narrow phases, then PI -- so a contact solver can
+  correct VI's velocity before PI integrates it.
 
 ## Development
 

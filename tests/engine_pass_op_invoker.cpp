@@ -10,6 +10,7 @@
 
 using achilles::domain::math::Vector3;
 using achilles::engine::ArgData;
+using achilles::engine::ArgIndex;
 using achilles::engine::OpArgsMatchView;
 using achilles::engine::OpHasInit;
 using achilles::engine::OpLike;
@@ -24,18 +25,18 @@ using achilles::test_support::ToyView;
 namespace {
 
 // Reads kPosition at the target index and kVelocity at the parent index
-// (use_target mixed true/false, per ArgData), writes the elementwise sum
+// (ArgIndex::kTarget/kParent mixed, per ArgData), writes the elementwise sum
 // to kVelocity at the target index -- exercises the (target_index,
 // parent_index) split OpInvoker::operator() implements.
 struct CombineOp {
   using FieldEnum = ToyField;
 
   static constexpr std::array<ArgData<FieldEnum>, 2> kInputs = {
-      ArgData<FieldEnum>{FieldEnum::kPosition, true},
-      ArgData<FieldEnum>{FieldEnum::kVelocity, false},
+      ArgData<FieldEnum>{FieldEnum::kPosition, ArgIndex::kTarget},
+      ArgData<FieldEnum>{FieldEnum::kVelocity, ArgIndex::kParent},
   };
   static constexpr std::array<ArgData<FieldEnum>, 1> kOutputs = {
-      ArgData<FieldEnum>{FieldEnum::kVelocity, true},
+      ArgData<FieldEnum>{FieldEnum::kVelocity, ArgIndex::kTarget},
   };
 
   void operator()(
@@ -57,7 +58,7 @@ struct SeedPositionOp {
 
   static constexpr std::array<ArgData<FieldEnum>, 0> kInputs = {};
   static constexpr std::array<ArgData<FieldEnum>, 1> kOutputs = {
-      ArgData<FieldEnum>{FieldEnum::kPosition, true},
+      ArgData<FieldEnum>{FieldEnum::kPosition, ArgIndex::kTarget},
   };
 
   Vector3<float> value = Vector3<float>(9.0F, 9.0F, 9.0F);
@@ -77,10 +78,10 @@ struct AccumulateIntoParentOp {
   using FieldEnum = ToyField;
 
   static constexpr std::array<ArgData<FieldEnum>, 1> kInputs = {
-      ArgData<FieldEnum>{FieldEnum::kPosition, true},
+      ArgData<FieldEnum>{FieldEnum::kPosition, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData<FieldEnum>, 1> kOutputs = {
-      ArgData<FieldEnum>{FieldEnum::kVelocity, false},
+      ArgData<FieldEnum>{FieldEnum::kVelocity, ArgIndex::kParent},
   };
 
   void operator()(
@@ -93,18 +94,18 @@ static_assert(OpLike<AccumulateIntoParentOp>);
 static_assert(OpArgsMatchView<AccumulateIntoParentOp, ToyView>);
 
 // Same `+=`-onto-the-view shape as AccumulateIntoParentOp, but for
-// SingleOpInvoker's single-index Invoke overload (use_target=true, no
-// parent_index at all) -- that overload has its own separate output-tuple
-// construction in OpInvokerBase::Invoke, so it needed the same
+// SingleOpInvoker's single-index operator() (ArgIndex::kTarget, the
+// target doubling as its own source) -- a separate entry point from
+// OpInvoker::operator(), so it needed the same
 // load-before-store fix and deserves its own regression test.
 struct AccumulateAtTargetOp {
   using FieldEnum = ToyField;
 
   static constexpr std::array<ArgData<FieldEnum>, 1> kInputs = {
-      ArgData<FieldEnum>{FieldEnum::kPosition, true},
+      ArgData<FieldEnum>{FieldEnum::kPosition, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData<FieldEnum>, 1> kOutputs = {
-      ArgData<FieldEnum>{FieldEnum::kVelocity, true},
+      ArgData<FieldEnum>{FieldEnum::kVelocity, ArgIndex::kTarget},
   };
 
   void operator()(
@@ -125,7 +126,7 @@ struct AccumulateOnInitializeOp {
 
   static constexpr std::array<ArgData<FieldEnum>, 0> kInitInputs = {};
   static constexpr std::array<ArgData<FieldEnum>, 1> kInitOutputs = {
-      ArgData<FieldEnum>{FieldEnum::kVelocity, true},
+      ArgData<FieldEnum>{FieldEnum::kVelocity, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData<FieldEnum>, 0> kInputs = {};
   static constexpr std::array<ArgData<FieldEnum>, 0> kOutputs = {};

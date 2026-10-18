@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "domain/joint_topology.hpp"
+#include "engine/topology/indexing_policy.hpp"
 
 namespace achilles::engine::pass {
 
@@ -31,9 +32,11 @@ struct TraversalProbe {
 
 // A traversal op's counterpart to OpLike: default-constructible, exposing
 // the same `kDirection` metadata every traversal op carries, and providing
-// static `Apply`/`ApplyToBase` entry points shaped like the two traversals
-// below -- Apply drives a callable over every (target, parent) index pair
-// (forward or backward), ApplyToBase calls the callable once, with just the
+// static `Apply`/`ApplyToBase` entry points shaped like the traversals
+// below -- Apply drives a callable over every (target, source) index pair
+// (forward or backward; source is a parent group, the target itself, or a
+// topology::BroadcastIndex row, depending on the traversal), ApplyToBase
+// calls the callable once, with just the
 // single base-row index, for whichever Op::Initialize a pass's OpInvoker
 // exposes (see OpHasInit/OpInvoker in engine/op_contract.hpp and
 // engine/op_invoker.hpp -- not every Op has one, so RunPass in
@@ -193,6 +196,130 @@ static_assert(
 static_assert(
     TraversalLike<BackwardLinearTraversal>,
     "BackwardLinearTraversal must satisfy TraversalLike concept"
+);
+
+// What a PairTraversal knows about one (source row, target group) call
+// from its own topology alone, handed to an Op through its tuple's
+// ArgIndex::kStructure slot (see kTraversalInputs, engine/op_contract.hpp):
+// bit t of distinct_lanes is set when lane t's target row is a pair worth
+// testing at all -- above the source row (so each unordered pair appears
+// exactly once, and never a row against itself), and neither row the
+// other's parent (a joint's two bodies always touch where they meet).
+// Everything else about whether the pair matters (geometry, filtering) is
+// the Op's own business.
+struct PairStructure {
+  std::uint64_t distinct_lanes;
+};
+
+// Every source row against every lane group of targets -- the all-pairs
+// walk a broad phase brute-forces. The callable gets (target_group,
+// BroadcastIndex{source_row}, PairStructure): a row-indexed argument
+// naming ArgIndex::kSource reads source_row's own value splatted across
+// every lane, so one call compares that one row against a whole lane group
+// of targets at once; a PairGroupIndexing<Stride> field (see
+// topology/indexing_policy.hpp) addresses the one (source_row,
+// target_group) element summarizing that whole call, and a
+// PairGroupIndexing<Stride, Stride> field that call's own batch of
+// per-pair values, lane for lane with the targets; and kStructure says
+// which of those lanes are real, distinct, non-parent/child pairs.
+//
+// Driven by the topology, like TreeTraversal: it's what PairStructure is
+// computed from (each row's parent), and its Size() -- every real and
+// padding row, but not the reserved base row or lane filler -- is how many
+// rows are walked.
+//
+// Only the upper triangle, by group: source row s is paired with target
+// groups s / Stride onward, never the groups wholly before its own. Within
+// s's own group, the lanes at or below s are still visited, with their
+// PairStructure bits clear. Elements of a PairGroupIndexing output whose
+// target group comes wholly before its source's are never written, so they
+// keep whatever Carve/SeedPadding left there.
+template <Direction Dir, size_t Stride>
+struct PairTraversal {
+  static constexpr Direction kDirection = Dir;
+  static constexpr size_t kStride = Stride;
+
+  template <typename Callable, domain::TopologyLike Topology, typename... Rest>
+    requires(Dir == Direction::kForward)
+  static constexpr void Apply(
+      const Callable& callable, const Topology& joints, const Rest&...
+  ) {
+    size_t size = joints.Size();
+    size_t groups = size / Stride;
+    for (size_t source = 0; source < size; ++source) {
+      for (size_t j = source / Stride; j < groups; ++j) {
+        Visit(callable, joints, source, j);
+      }
+    }
+  }
+
+  template <typename Callable, domain::TopologyLike Topology, typename... Rest>
+    requires(Dir == Direction::kBackward)
+  static constexpr void Apply(
+      const Callable& callable, const Topology& joints, const Rest&...
+  ) {
+    size_t size = joints.Size();
+    size_t groups = size / Stride;
+    for (size_t source = size; source-- > 0;) {
+      for (size_t j = groups; j-- > source / Stride;) {
+        Visit(callable, joints, source, j);
+      }
+    }
+  }
+
+  // Initialize at index 0 if there's anything to walk at all, the same as
+  // LinearTraversal's.
+  template <typename Callable, domain::TopologyLike Topology, typename... Rest>
+  static constexpr void InitOp(
+      const Callable& callable, const Topology& joints, const Rest&...
+  ) {
+    if (joints.Size() / Stride > 0) {
+      callable.Initialize(0);
+    }
+  }
+
+ private:
+  template <typename Callable, domain::TopologyLike Topology>
+  static constexpr void Visit(
+      const Callable& callable,
+      const Topology& joints,
+      size_t source,
+      size_t group
+  ) {
+    callable(
+        group,
+        topology::BroadcastIndex{source},
+        Structure(joints, source, group)
+    );
+  }
+
+  // t > s && parent(t) != s && parent(s) != t, one bit per lane. A padding
+  // row's parent is the reserved base row, which is never a walked row, so
+  // padding never reads as anyone's parent or child.
+  template <domain::TopologyLike Topology>
+  static constexpr PairStructure Structure(
+      const Topology& joints, size_t source, size_t group
+  ) {
+    size_t source_parent = joints[source];
+    std::uint64_t lanes = 0;
+    for (size_t lane = 0; lane < Stride; ++lane) {
+      size_t target = (group * Stride) + lane;
+      bool distinct = target > source && joints[target] != source &&
+                      source_parent != target;
+      lanes |= std::uint64_t{distinct} << lane;
+    }
+    return PairStructure{lanes};
+  }
+};
+using ForwardPairTraversal = PairTraversal<Direction::kForward, 1>;
+using BackwardPairTraversal = PairTraversal<Direction::kBackward, 1>;
+static_assert(
+    TraversalLike<ForwardPairTraversal>,
+    "ForwardPairTraversal must satisfy TraversalLike concept"
+);
+static_assert(
+    TraversalLike<BackwardPairTraversal>,
+    "BackwardPairTraversal must satisfy TraversalLike concept"
 );
 
 }  // namespace achilles::engine::pass

@@ -22,9 +22,8 @@ static_assert(engine::AlgorithmLike<PIAlgorithm>);
 // dependency), so ForwardBatched below is a LinearTraversal driven by
 // view.Size() rather than a TreeTraversal driven by a topology.
 struct PIStep : engine::pass::ViewStep<PIStep, PIAlgorithm> {
-  using ForwardBatched = engine::pass::LinearTraversal<
-      engine::pass::Direction::kForward,
-      util::LaneCountOf<MathematicalT>()>;
+  using ForwardBatched =
+      engine::pass::LinearTraversal<engine::pass::Direction::kForward, kLanes>;
 
   static auto MakeOps(const SimConfig& /*sim_config*/, ScalarOperationT dt) {
     using engine::pass::Pass;

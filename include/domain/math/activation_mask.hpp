@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <tuple>
+#include <type_traits>
 #include <xsimd/xsimd.hpp>
 
 #include "engine/assembler.hpp"
@@ -17,7 +18,15 @@ class ActivationMask {
       util::kIsXsimdBatch<StorageT>,
       xsimd::batch_bool<util::StorageLaneT<StorageT>>,
       bool>;
-  static constexpr util::StorageLaneT<StorageT> kValidMask = (1 << N) - 1;
+  using Lane = util::StorageLaneT<StorageT>;
+  using LaneBits = std::make_unsigned_t<Lane>;
+  static constexpr std::size_t kLaneBits = sizeof(Lane) * 8;
+  // Built in the lane's own unsigned type: a plain `(1 << N) - 1` shifts an
+  // int, which is undefined once N reaches 32 (a full-width int32 mask, e.g.
+  // a 32-wide GPU warp) and wrong for any N past 31 on wider lanes.
+  static constexpr Lane kValidMask = static_cast<Lane>(
+      N == kLaneBits ? LaneBits(~LaneBits{0}) : LaneBits((LaneBits{1} << N) - 1)
+  );
 
  public:
   using ScalarType = StorageT;
@@ -58,7 +67,7 @@ class ActivationMask {
   // Access
   constexpr std::tuple<StorageT> ToTuple() const { return std::make_tuple(m_); }
   constexpr BatchMask operator[](std::size_t i) const {
-    return (m_ & (1 << i)) != 0;
+    return (m_ & static_cast<Lane>(Lane{1} << i)) != 0;
   }
   constexpr StorageT AsStorage() const { return m_; }
   static constexpr std::size_t Size() { return N; }

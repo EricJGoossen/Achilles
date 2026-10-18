@@ -1,7 +1,9 @@
 #pragma once
 
 #include "algorithms/aba/aba_step.hpp"
+#include "algorithms/broad_phase/broad_phase_step.hpp"
 #include "algorithms/midpoint/midpoint_step.hpp"
+#include "algorithms/narrow_phase/narrow_phase_step.hpp"
 #include "algorithms/pi/pi_step.hpp"
 #include "algorithms/rk4/rk4_step.hpp"
 #include "algorithms/verlet/verlet_step.hpp"
@@ -28,9 +30,17 @@ namespace achilles::algorithms {
 // block (SimAllocator::Carve). viz::VizAlgorithm has no Step: it only ever
 // supplies memory (its kWorldTransform aliases ABA's, via
 // WorldTransformSlot) for a renderer to read after a real Step() call.
+//
+// broad_phase::BroadPhaseAlgorithm comes before
+// narrow_phase::NarrowPhaseAlgorithm for the same reason: the narrow phase
+// only reads what the broad phase owns (its shape, world shape pose and
+// candidate bitmask, via their SharedAs slots). When each runs in a tick is
+// the integrator lists' business (integrators.hpp).
 using RegisteredAlgorithms = util::TypeList<
     aba::ABAAlgorithm,
     vi::VIAlgorithm,
+    broad_phase::BroadPhaseAlgorithm,
+    narrow_phase::NarrowPhaseAlgorithm,
     pi::PIAlgorithm,
     verlet::VerletAlgorithm,
     midpoint::MidpointAlgorithm,

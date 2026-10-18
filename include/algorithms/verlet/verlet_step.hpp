@@ -27,9 +27,8 @@ namespace achilles::algorithms::verlet {
 //
 // Like vi/pi, each pass is independent per row, so it runs as a
 // LinearTraversal over view.Size().
-using ForwardBatched = engine::pass::LinearTraversal<
-    engine::pass::Direction::kForward,
-    util::LaneCountOf<MathematicalT>()>;
+using ForwardBatched =
+    engine::pass::LinearTraversal<engine::pass::Direction::kForward, kLanes>;
 
 using VerletAlgorithm = engine::Algorithm<VerletField, VerletFieldTraits>;
 static_assert(engine::AlgorithmLike<VerletAlgorithm>);

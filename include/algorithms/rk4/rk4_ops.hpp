@@ -13,16 +13,17 @@ namespace achilles::algorithms::rk4 {
 struct BeginStepOp {
   using FieldEnum = RK4Field;
   using ArgData = engine::ArgData<FieldEnum>;
+  using ArgIndex = engine::ArgIndex;
 
   static constexpr std::array<ArgData, 2> kInputs = {
-      ArgData{FieldEnum::kJointPosition, true},
-      ArgData{FieldEnum::kJointVelocity, true},
+      ArgData{FieldEnum::kJointPosition, ArgIndex::kTarget},
+      ArgData{FieldEnum::kJointVelocity, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData, 4> kOutputs = {
-      ArgData{FieldEnum::kStartPosition, true},
-      ArgData{FieldEnum::kStartVelocity, true},
-      ArgData{FieldEnum::kVelocitySum, true},
-      ArgData{FieldEnum::kAccelerationSum, true},
+      ArgData{FieldEnum::kStartPosition, ArgIndex::kTarget},
+      ArgData{FieldEnum::kStartVelocity, ArgIndex::kTarget},
+      ArgData{FieldEnum::kVelocitySum, ArgIndex::kTarget},
+      ArgData{FieldEnum::kAccelerationSum, ArgIndex::kTarget},
   };
 
   void operator()(
@@ -49,16 +50,17 @@ static_assert(
 struct AccumulateStageOp {
   using FieldEnum = RK4Field;
   using ArgData = engine::ArgData<FieldEnum>;
+  using ArgIndex = engine::ArgIndex;
 
   explicit AccumulateStageOp(ScalarOperationT weight) : weight_(weight) {}
 
   static constexpr std::array<ArgData, 2> kInputs = {
-      ArgData{FieldEnum::kJointVelocity, true},
-      ArgData{FieldEnum::kJointAcceleration, true},
+      ArgData{FieldEnum::kJointVelocity, ArgIndex::kTarget},
+      ArgData{FieldEnum::kJointAcceleration, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData, 2> kOutputs = {
-      ArgData{FieldEnum::kVelocitySum, true},
-      ArgData{FieldEnum::kAccelerationSum, true},
+      ArgData{FieldEnum::kVelocitySum, ArgIndex::kTarget},
+      ArgData{FieldEnum::kAccelerationSum, ArgIndex::kTarget},
   };
 
   void operator()(
@@ -93,18 +95,19 @@ static_assert(
 struct AdvanceStageOp {
   using FieldEnum = RK4Field;
   using ArgData = engine::ArgData<FieldEnum>;
+  using ArgIndex = engine::ArgIndex;
 
   explicit AdvanceStageOp(ScalarOperationT dt) : dt_(dt) {}
 
   static constexpr std::array<ArgData, 4> kInputs = {
-      ArgData{FieldEnum::kJointSubspace, true},
-      ArgData{FieldEnum::kStartPosition, true},
-      ArgData{FieldEnum::kStartVelocity, true},
-      ArgData{FieldEnum::kJointAcceleration, true},
+      ArgData{FieldEnum::kJointSubspace, ArgIndex::kTarget},
+      ArgData{FieldEnum::kStartPosition, ArgIndex::kTarget},
+      ArgData{FieldEnum::kStartVelocity, ArgIndex::kTarget},
+      ArgData{FieldEnum::kJointAcceleration, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData, 2> kOutputs = {
-      ArgData{FieldEnum::kJointPosition, true},
-      ArgData{FieldEnum::kJointVelocity, true},
+      ArgData{FieldEnum::kJointPosition, ArgIndex::kTarget},
+      ArgData{FieldEnum::kJointVelocity, ArgIndex::kTarget},
   };
 
   void operator()(
@@ -134,19 +137,20 @@ static_assert(
 struct CommitOp {
   using FieldEnum = RK4Field;
   using ArgData = engine::ArgData<FieldEnum>;
+  using ArgIndex = engine::ArgIndex;
 
   explicit CommitOp(ScalarOperationT dt) : dt_(dt) {}
 
   static constexpr std::array<ArgData, 5> kInputs = {
-      ArgData{FieldEnum::kJointSubspace, true},
-      ArgData{FieldEnum::kStartPosition, true},
-      ArgData{FieldEnum::kStartVelocity, true},
-      ArgData{FieldEnum::kVelocitySum, true},
-      ArgData{FieldEnum::kAccelerationSum, true},
+      ArgData{FieldEnum::kJointSubspace, ArgIndex::kTarget},
+      ArgData{FieldEnum::kStartPosition, ArgIndex::kTarget},
+      ArgData{FieldEnum::kStartVelocity, ArgIndex::kTarget},
+      ArgData{FieldEnum::kVelocitySum, ArgIndex::kTarget},
+      ArgData{FieldEnum::kAccelerationSum, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData, 2> kOutputs = {
-      ArgData{FieldEnum::kJointPosition, true},
-      ArgData{FieldEnum::kJointVelocity, true},
+      ArgData{FieldEnum::kJointPosition, ArgIndex::kTarget},
+      ArgData{FieldEnum::kJointVelocity, ArgIndex::kTarget},
   };
 
   void operator()(
