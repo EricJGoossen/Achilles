@@ -743,6 +743,21 @@ class MatrixBlock {
   std::size_t stride_;
   std::size_t row_start_, col_start_;
 };
+// Matrix<T, M, N> takes three template parameters, but Assembler's Target
+// needs a single-scalar-parameter template -- this curries M and N so each
+// shape has its own Assembler, the same way ActivationMaskFor does for a
+// mask's width (activation_mask.hpp).
+template <std::size_t M, std::size_t N>
+struct MatrixFor {
+  template <typename T>
+  using Target = Matrix<T, M, N>;
+};
+
+template <typename T, std::size_t M, std::size_t N>
+using MatrixAssembler = engine::
+    Assembler<MatrixFor<M, N>::template Target, T, engine::RepeatTypes<M * N>>;
+static_assert(engine::AssemblerLike<MatrixAssembler<float, 3, 4>>);
+
 template <typename T>
 using Matrix6x6 = Matrix<T, 6, 6>;
 template <typename T>

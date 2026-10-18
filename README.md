@@ -110,7 +110,8 @@ base_acceleration:
 ```
 include/
   domain/      Math and spatial-algebra value types (Vector3/6, Quaternion,
-               Matrix, spatial Transform/Inertia/Dual), archetypes, joint topology
+               Matrix, spatial Transform/Inertia/Dual), geometry (Box,
+               Rectangle, Segment), archetypes, joint topology
   engine/      The generic runtime: field/op/algorithm contracts, memory
                (arena, allocator, bindings), topology layout and ordering,
                views, and the pass machinery (traversals, op invoker, sim context)
@@ -120,8 +121,9 @@ include/
     pi/          Position integration
     broad_phase/ Collision broad phase: sphere-swept-box shapes -> world
                  bounds -> filtered candidate-pair bitmask
-    narrow_phase/ Collision narrow phase: candidate pairs -> per-pair contact
-                 (signed distance, normal, point, active bit)
+    narrow_phase/ Collision narrow phase: candidate pairs -> up to 4 contacts
+                 per pair (normal, per-slot distance/point/active bit),
+                 MuJoCo/MJX-style
     viz/         Render-only state (world transforms, visuals); never stepped
   interface/   Loaders and the Simulation facade
   render/      The OpenGL/GLFW viewer

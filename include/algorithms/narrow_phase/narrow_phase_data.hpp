@@ -23,13 +23,28 @@ namespace achilles::algorithms::narrow_phase {
 // How many contacts one shape-type pair's contact Op writes per body pair --
 // MJX-style, a fixed count per type pair rather than a variable-length list,
 // so every lane writes the same number of contacts and a consumer reads them
-// all, masked by kContactActive. One for the sphere-swept box pair today: its
-// closest-point solve yields the single closest (or deepest) point, exact for
-// a sphere or a capsule end, but a flat face resting on a face (box on box,
-// a capsule lying on a box) wants a clipped manifold of several. Growing this
-// past 1 is a widening of the per-pair element (topology::PairGroupIndexing's
-// ElementLanes), not a new code path.
-inline constexpr std::size_t kSweptBoxContactSlots = 1;
+// all, masked by kContactActive. Four for the sphere-swept box pair, MJX's
+// own box-box count: a face resting on a face (box on box, a capsule lying
+// on a box) is held by a clipped manifold of up to four points, while a
+// sphere, a capsule end, an edge crossing an edge, or any contact that isn't
+// face-on fills only the first slot.
+inline constexpr std::size_t kSweptBoxContactSlots = 4;
+
+// One per-pair slot's worth of each per-slot contact quantity: slot k is
+// row/column k.
+using ContactDistances = math::Matrix<MathematicalT, kSweptBoxContactSlots, 1>;
+using ContactPoints = math::Matrix<MathematicalT, 3, kSweptBoxContactSlots>;
+
+// One bit per (slot, lane), bit (k * kLanes + t) for slot k of target lane
+// t, packed into one int32 word per (source row, target lane group) the same
+// way kBoundsOverlap packs one bit per lane.
+using ContactActiveMask =
+    math::ActivationMask<std::int32_t, kLanes * kSweptBoxContactSlots>;
+static_assert(
+    kLanes * kSweptBoxContactSlots <= 32,
+    "Every (slot, lane) contact bit must fit in one int32 word -- a wider "
+    "SIMD target needs fewer slots or a wider mask word."
+);
 
 // The narrow phase: the second of the two collision Algorithms, run right
 // after the broad phase (broad_phase/broad_phase_data.hpp). For every pair
@@ -47,25 +62,26 @@ inline constexpr std::size_t kSweptBoxContactSlots = 1;
 // lane ever branches on whether it's a candidate; a GPU grid over (source,
 // target group) does the same work in every thread.
 //
-// One contact per pair today (kSweptBoxContactSlots), as four per-pair
-// fields -- the rows x rows matrix of each, one batch per (source row,
-// target lane group), lane t for target (group * kLanes + t), see
+// Up to kSweptBoxContactSlots contacts per pair, as three per-pair fields
+// -- the rows x rows matrix of each, one batch per (source row, target lane
+// group), lane t for target (group * kLanes + t), see
 // topology::PairGroupIndexing<kLanes, kLanes>:
 //
-//   - kContactDistance: signed distance between the two shapes' surfaces --
-//     positive while separated, negative once interpenetrating, by the
-//     penetration depth.
 //   - kContactNormal: world unit vector from the source body toward the
-//     target body -- the direction pushing them apart moves the target.
-//   - kContactPoint: world point midway between the two surfaces' closest
-//     points, i.e. where a contact force acts on both.
+//     target body -- the direction pushing them apart moves the target. One
+//     per pair, shared by every slot, as in MuJoCo/MJX.
+//   - kContactDistance: per slot, the signed distance between the two
+//     shapes' surfaces there -- positive while separated, negative once
+//     interpenetrating, by the penetration depth.
+//   - kContactPoint: per slot, the world point midway between the two
+//     surfaces along the normal, i.e. where a contact force acts on both.
 //
-// and one per-group word, kContactActive (one LaneMask per (source row,
-// target lane group), the same shape as kBoundsOverlap): bit t set when the
-// pair was a broad-phase candidate and its distance is within the pair's
-// margin, MuJoCo's max(m_s, m_t) -- a contact a solver should consider even
-// though it may not yet touch. Lanes whose bit is clear still hold whatever
-// the Op computed (or the zero-fill) and mean nothing.
+// and one per-group word, kContactActive (see ContactActiveMask): bit
+// (k * kLanes + t) set when lane t's pair was a broad-phase candidate and its
+// slot k is a real contact within the pair's margin, MuJoCo's
+// max(m_s, m_t) -- a contact a solver should consider even though it may not
+// yet touch. Slots whose bit is clear still hold whatever the Op computed (or
+// the zero-fill) and mean nothing.
 //
 // More shape types later each bring their own contact Op per type pair
 // (sphere-swept box x mesh, ...), writing these same four fields: the solver
@@ -81,10 +97,10 @@ enum class NarrowPhaseField : uint8_t {
   kBoundsOverlap,     // per (source row, target lane group) candidate bits
 
   // --- Narrow-phase outputs ---
-  kContactDistance,  // d (signed surface distance)
   kContactNormal,    // n (world, source -> target)
-  kContactPoint,     // p (world)
-  kContactActive,    // per (source row, target lane group) contact bits
+  kContactDistance,  // d_k (signed surface distance, per slot)
+  kContactPoint,     // p_k (world, per slot)
+  kContactActive,    // per (source row, target lane group) (slot, lane) bits
 
   kCount
 };
@@ -143,7 +159,8 @@ struct NarrowPhaseFieldTraits<NarrowPhaseField::kBoundsOverlap> {
 };
 template <>
 struct NarrowPhaseFieldTraits<NarrowPhaseField::kContactDistance> {
-  using Assembler = math::ScalarAssembler<ScalarOperationT>;
+  using Assembler =
+      math::MatrixAssembler<ScalarOperationT, kSweptBoxContactSlots, 1>;
   using Ordering = engine::topology::TopologicalOrdering;
   using Indexing = engine::topology::PairGroupIndexing<kLanes, kLanes>;
   using Layout = engine::topology::PlanarLayout;
@@ -157,14 +174,16 @@ struct NarrowPhaseFieldTraits<NarrowPhaseField::kContactNormal> {
 };
 template <>
 struct NarrowPhaseFieldTraits<NarrowPhaseField::kContactPoint> {
-  using Assembler = math::Vector3Assembler<ScalarOperationT>;
+  using Assembler =
+      math::MatrixAssembler<ScalarOperationT, 3, kSweptBoxContactSlots>;
   using Ordering = engine::topology::TopologicalOrdering;
   using Indexing = engine::topology::PairGroupIndexing<kLanes, kLanes>;
   using Layout = engine::topology::PlanarLayout;
 };
 template <>
 struct NarrowPhaseFieldTraits<NarrowPhaseField::kContactActive> {
-  using Assembler = math::ActivationMaskAssembler<kLanes>;
+  using Assembler =
+      math::ActivationMaskAssembler<kLanes * kSweptBoxContactSlots>;
   using Ordering = engine::topology::TopologicalOrdering;
   using Indexing = engine::topology::PairGroupIndexing<kLanes>;
   using Layout = engine::topology::PlanarLayout;

@@ -4,9 +4,11 @@
 #include <cstdint>
 #include <xsimd/xsimd.hpp>
 
+#include "domain/geometry/box.hpp"
+#include "domain/geometry/rectangle.hpp"
+#include "domain/geometry/segment.hpp"
 #include "domain/math/activation_mask.hpp"
 #include "domain/math/matrix.hpp"
-#include "domain/math/oriented_box.hpp"
 #include "domain/math/quaternion.hpp"
 #include "domain/math/scalar.hpp"
 #include "domain/math/vector3.hpp"
@@ -19,6 +21,7 @@
 namespace achilles::algorithms {
 namespace math = achilles::domain::math;
 namespace spatial = achilles::domain::spatial;
+namespace geometry = achilles::domain::geometry;
 
 using BatchOperationT = xsimd::batch<float>;
 using ScalarOperationT = float;
@@ -36,7 +39,6 @@ using Vector6 = math::Vector6<MathematicalT>;
 using Matrix3x3 = math::Matrix<MathematicalT, 3, 3>;
 using Matrix6x6 = math::Matrix<MathematicalT, 6, 6>;
 using Quaternion = math::Quaternion<MathematicalT>;
-using OrientedBox = math::OrientedBox<MathematicalT>;
 using Mat6Mask = math::ActivationMask<util::MaskStorageFor<MathematicalT>, 6>;
 
 // One bit per lane of a MathematicalT, packed into a plain int32 rather than
@@ -61,6 +63,11 @@ using Inertia = spatial::Inertia<MathematicalT>;
 
 template <bool Inverted>
 using InertiaOperator = spatial::InertiaOperator<MathematicalT, Inverted>;
+
+// Geometry
+using Box = geometry::Box<MathematicalT>;
+using Rectangle = geometry::Rectangle<MathematicalT>;
+using Segment = geometry::Segment<MathematicalT>;
 
 // Additional
 using MotionSubspace = Matrix6x6;

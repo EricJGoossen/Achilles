@@ -11,34 +11,53 @@ namespace achilles::algorithms::narrow_phase {
 // The contact Op for the sphere-swept box x sphere-swept box pair (see
 // broad_phase_data.hpp for the shape) -- one source body (kSource, the same
 // value in every lane) against a whole lane group of target bodies
-// (kTarget) at once, all in the world frame.
+// (kTarget) at once, all in the world frame. It follows MuJoCo's own
+// primitive colliders, merged: a sphere-swept box is a sphere, a capsule or
+// a box depending on its extents, and MuJoCo's sphere-box, capsule-box and
+// box-box routines are the three cases below. Every case is computed in
+// every lane and one is selected per lane, never branched on.
 //
-// A sphere-swept box is its inner box grown by its radius, so two of them
-// are exactly as far apart as their inner boxes are, less both radii. Two
-// disjoint boxes' closest points are always either a vertex of one against
-// the other box, or an edge of each -- so every candidate of both kinds is
-// computed and the closest kept: each of the 16 vertices clamped into the
-// other box (in that box's own frame, a per-axis clamp), and for each of the
-// 9 edge-direction pairs the one edge of each box that supports it along
-// that pair's normal, segment against segment. Every candidate is a real
-// point pair, so their min is exactly the gap -- a fixed count of clamps and
-// selects, no iteration, no branch whatever the geometry. The gap, less the
-// radii, is the signed distance, and its direction the normal: exact for
-// every contact shallower than r_s + r_t, which is every contact a sphere or
-// a capsule ever makes.
+// A sphere-swept box is its inner box grown by its radius, so every
+// distance is measured between the inner boxes and both radii subtracted --
+// exactly how MuJoCo reduces a sphere or a capsule to its center or
+// segment. Three things are computed for every pair:
 //
-// Once the inner boxes themselves intersect, the closest points meet and
-// carry no direction. Those lanes take the separating-axis test's answer
-// instead: the inner boxes' 15 candidate axes (each box's 3 face normals
-// and the 9 edge-edge crosses), the axis of least penetration giving both
-// the depth and the normal, and the source's deepest point along it the
-// contact. The same test's sign is what says which lanes intersect -- SAT
-// is exact for that -- and both answers are computed in every lane and one
-// selected per lane, never branched on.
+//   - The inner boxes' exact closest points, when they're disjoint: every
+//     vertex of each clamped into the other (MuJoCo's sphere-box clamp),
+//     and each edge-direction pair's supporting edges segment against
+//     segment (its capsule-box edge loop). The closest of those 25 real
+//     point pairs is exactly the gap.
+//   - MuJoCo's box-box separating-axis test over the same 15 axes, with its
+//     face preference: an edge axis only wins when it beats the best face
+//     by a relative bias, and even then a face within 0.99 of it wins back
+//     unless the edge is more than 5% better -- so near-ties never flicker
+//     the normal between a face and an edge from one tick to the next.
+//   - When a face wins, its manifold, as MJX's box-box builds it: the face
+//     of the other box most opposed to it, each face's edges clipped to the
+//     other's side planes, and four of the resulting points kept -- the
+//     deepest, the one farthest from it, then the two that widen the patch
+//     most.
 //
-// The contact point is midway between the two surfaces along the normal,
-// and a lane's contact is active when the broad phase kept the pair and the
-// distance is within max(m_s, m_t), MuJoCo's pair margin.
+// Which of them a lane's contact is:
+//
+//   - A face won and the inner boxes intersect, or they're disjoint and
+//     their closest points meet along that face's normal (a box resting on
+//     a box, a capsule lying on one): the face manifold, up to four slots --
+//     its first pick the exact closest pair when they're disjoint, since the
+//     clipped patch can miss it when it sits just past the face's rim.
+//   - The inner boxes are disjoint and that isn't face-on (a sphere, a
+//     capsule end, a corner or an edge approaching): the exact closest
+//     pair, one slot -- exact for every contact shallower than r_s + r_t,
+//     which pure box-box SAT is not for a sphere's or a capsule's
+//     degenerate axes.
+//   - An edge won and the inner boxes intersect: MuJoCo's edge-edge
+//     contact, the winning axis's supporting edges' closest points, one
+//     slot.
+//
+// Each slot's point is midway between the two surfaces along the normal,
+// and a slot is active when the broad phase kept the pair, the slot holds a
+// real point no earlier active slot already holds, and its distance is
+// within max(m_s, m_t), MuJoCo's pair margin.
 struct ComputeSweptBoxContactOp {
   using FieldEnum = NarrowPhaseField;
   using ArgData = engine::ArgData<FieldEnum>;
@@ -56,8 +75,8 @@ struct ComputeSweptBoxContactOp {
       ArgData{FieldEnum::kBoundsOverlap, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData, 4> kOutputs = {
-      ArgData{FieldEnum::kContactDistance, ArgIndex::kTarget},
       ArgData{FieldEnum::kContactNormal, ArgIndex::kTarget},
+      ArgData{FieldEnum::kContactDistance, ArgIndex::kTarget},
       ArgData{FieldEnum::kContactPoint, ArgIndex::kTarget},
       ArgData{FieldEnum::kContactActive, ArgIndex::kTarget},
   };
@@ -72,10 +91,10 @@ struct ComputeSweptBoxContactOp {
       const Scalar& r_source,
       const Scalar& m_source,
       const LaneMask& candidate,
-      Scalar* distance_out,
       Vector3* normal_out,
-      Vector3* point_out,
-      LaneMask* active_out
+      ContactDistances* distance_out,
+      ContactPoints* point_out,
+      ContactActiveMask* active_out
   ) const;
 };
 static_assert(
