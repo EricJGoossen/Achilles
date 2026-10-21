@@ -217,6 +217,39 @@ class Assembler {
     );
   }
 
+  // A value with every leaf TargetScalar(0) -- what an accumulating output
+  // (one stored through Accumulate below) starts from, so an Op adding
+  // onto it adds onto nothing.
+  template <typename TargetScalar>
+  static auto Zero() {
+    static_assert(
+        std::is_same_v<TargetScalar, ScalarType> ||
+            std::is_same_v<TargetScalar, xsimd::batch<ScalarType>>,
+        "Zero<TargetScalar> requires TargetScalar to be this "
+        "Assembler's ScalarType or an xsimd::batch of it."
+    );
+    return ZeroImpl<TargetScalar>(ChildIndices{});
+  }
+
+  // Write's reducing counterpart: adds the sum of every lane of `value`
+  // into the one instance at field0, leaf by leaf (see
+  // util::SimdAccumulate) -- what a View does with an output stored
+  // through a topology::BroadcastIndex (engine/topology/indexing_policy.hpp).
+  template <typename TargetScalar, typename ValueT>
+  static void Accumulate(
+      std::byte* field0, size_t field_stride_bytes, const ValueT& value
+  ) {
+    static_assert(
+        std::is_same_v<TargetScalar, ScalarType> ||
+            std::is_same_v<TargetScalar, xsimd::batch<ScalarType>>,
+        "Accumulate<TargetScalar> requires TargetScalar to be this "
+        "Assembler's ScalarType or an xsimd::batch of it."
+    );
+    AccumulateImpl<TargetScalar>(
+        field0, field_stride_bytes, value.ToTuple(), ChildIndices{}
+    );
+  }
+
  private:
   // Declared, never defined: named only inside decltype() in
   // ExpectedTupleT below, same trick OpInvokerBase uses for its own
@@ -294,6 +327,50 @@ class Assembler {
       std::byte* field0, size_t field_stride_bytes, const ValueT& value
   ) {
     Child::template Write<TargetScalar>(field0, field_stride_bytes, value);
+  }
+
+  template <typename Child, typename TargetScalar>
+    requires(assembler_detail::kIsLeaf<Child>)
+  static auto ZeroChild() {
+    return TargetScalar(0);
+  }
+  template <typename Child, typename TargetScalar>
+    requires(!assembler_detail::kIsLeaf<Child>)
+  static auto ZeroChild() {
+    return Child::template Zero<TargetScalar>();
+  }
+
+  template <typename Child, typename TargetScalar, typename ValueT>
+    requires(assembler_detail::kIsLeaf<Child>)
+  static void AccumulateChild(
+      std::byte* field0, size_t /*field_stride_bytes*/, const ValueT& value
+  ) {
+    util::SimdAccumulate(std::bit_cast<Child*>(field0), value);
+  }
+  template <typename Child, typename TargetScalar, typename ValueT>
+    requires(!assembler_detail::kIsLeaf<Child>)
+  static void AccumulateChild(
+      std::byte* field0, size_t field_stride_bytes, const ValueT& value
+  ) {
+    Child::template Accumulate<TargetScalar>(field0, field_stride_bytes, value);
+  }
+
+  template <typename TargetScalar, size_t... Is>
+  static Target<TargetScalar> ZeroImpl(std::index_sequence<Is...>) {
+    return Target<TargetScalar>(
+        ZeroChild<std::tuple_element_t<Is, ChildTuple>, TargetScalar>()...
+    );
+  }
+
+  template <typename TargetScalar, typename Tuple, size_t... Is>
+  static void
+  AccumulateImpl(std::byte* field0, size_t field_stride_bytes, const Tuple& parts, std::index_sequence<Is...>) {
+    (AccumulateChild<std::tuple_element_t<Is, ChildTuple>, TargetScalar>(
+         field0 + FieldOffset<Is>() * field_stride_bytes,
+         field_stride_bytes,
+         std::get<Is>(parts)
+     ),
+     ...);
   }
 
   template <typename TargetScalar, bool Splat, size_t... Is>

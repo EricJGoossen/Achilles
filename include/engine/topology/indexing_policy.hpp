@@ -20,10 +20,14 @@ namespace achilles::engine::topology {
 // A distinct type rather than a flag, so which load a source argument gets
 // is settled entirely at compile time by which traversal drove it: a field
 // read through a BroadcastIndex resolves to FieldCursor's broadcasting Load
-// overload (engine/view/view.hpp), and one written through it simply has no
-// Store overload to resolve to -- scattering a whole batch back into one
-// row is never meaningful, so it's a compile error rather than a silent
-// last-lane-wins race.
+// overload (engine/view/view.hpp). One written through it is a reduction
+// instead: storing a whole batch into one row has exactly one meaning that
+// isn't a last-lane-wins race -- summing the lanes into it -- so such an
+// output is handed to its Op zeroed and stored as row += (sum of its
+// lanes), FieldCursor's accumulating Store overload. That's how a pair pass
+// adds what each lane group contributes to its broadcast source row, or any
+// pass adds into a GlobalIndexing field below (a lane-group reduction on a
+// CPU, an atomic or segmented one on a GPU).
 struct BroadcastIndex {
   std::size_t row;
 };
@@ -175,5 +179,45 @@ struct PairGroupIndexing {
 };
 static_assert(IndexingPolicyLike<PairGroupIndexing<1>>);
 static_assert(IndexingPolicyLike<PairGroupIndexing<4, 4>>);
+
+// One element for the whole field, whatever the row count -- a quantity the
+// whole sim shares, e.g. a dot product summed over every row, or a step
+// length an iterative solver picks from it. Every index resolves to that
+// one element, by load width:
+//
+//   - a scalar load (LoadLanes = 1) reads/writes it plainly at index 0 --
+//     what an Op driven by a GlobalTraversal (engine/pass/traversals.hpp)
+//     works on, once per pass, to update the value itself;
+//   - a batched load resolves to BroadcastIndex{0}: as an input every lane
+//     reads the one value, and as an output each call's lanes are summed
+//     into it (see BroadcastIndex above) -- how a tree, linear or pair pass
+//     reduces over its rows into it.
+//
+// Nothing here is ever padding: the one element is always real.
+struct GlobalIndexing {
+  static constexpr std::size_t Count(std::size_t /*rows*/) { return 1; }
+
+  template <std::size_t Slot, std::size_t LoadLanes>
+    requires(LoadLanes == 1)
+  static constexpr std::size_t
+  Resolve(const auto& /*indices*/, std::size_t /*rows*/) {
+    return 0;
+  }
+
+  template <std::size_t Slot, std::size_t LoadLanes>
+    requires(LoadLanes > 1)
+  static constexpr BroadcastIndex
+  Resolve(const auto& /*indices*/, std::size_t /*rows*/) {
+    return BroadcastIndex{0};
+  }
+
+  template <typename WriteElement>
+  static void SeedPadding(
+      const WriteElement& /*write*/,
+      const Layout& /*layout*/,
+      std::size_t /*rows*/
+  ) {}
+};
+static_assert(IndexingPolicyLike<GlobalIndexing>);
 
 }  // namespace achilles::engine::topology

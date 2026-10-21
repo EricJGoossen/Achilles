@@ -152,6 +152,11 @@ The main pieces:
   `PairGroupIndexing<Lanes, Lanes>` one value per (row, row) pair, read a
   lane group at a time
   ([include/engine/topology/indexing_policy.hpp](include/engine/topology/indexing_policy.hpp)).
+  `GlobalIndexing` gives a field one value for the whole sim (a dot
+  product, a step length), updated by a `GlobalTraversal` pass. An output
+  that lands on one row for a whole lane group -- a pair walk's source
+  row, or a `GlobalIndexing` field from a batched pass -- is a reduction:
+  each call adds the sum of its lanes into it.
 - **Registry** ([include/algorithms/registry.hpp](include/algorithms/registry.hpp)):
   the list of algorithms the simulation hosts -- what memory exists.
   Shared fields are aliased from one algorithm to the next, so nothing is
