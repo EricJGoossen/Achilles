@@ -32,7 +32,7 @@ class Camera {
  private:
   float yaw_ = 0.7F;
   float pitch_ = 0.5F;
-  float distance_ = 8.0F;
+  float distance_ = 4.5F;
   Vec3 target_ = Vec3::Zero();
 };
 

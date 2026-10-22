@@ -22,6 +22,17 @@ This builds the `achilles` target into `build/` and runs it against
 [examples/sim_config.yaml](examples/sim_config.yaml). In the viewer,
 left-drag to orbit, scroll to zoom, and close the window to stop.
 
+```bash
+scripts/run-robot-demo.sh         # contact demo: a robot toppling onto a plane
+```
+
+The contact demo runs
+[examples/robot_on_plane.arow](examples/robot_on_plane.arow): a passive
+humanoid (no actuators) that falls over and comes to rest on a ground plane.
+It builds an optimized binary into `build-release/` (a debug build is too
+slow for real time with collision on) and uses semi-implicit Euler, the only
+integrator that runs collision and the contact solver so far.
+
 ## Building
 
 ### Dependencies
@@ -125,6 +136,9 @@ include/
     narrow_phase/ Collision narrow phase: candidate pairs -> up to 4 contacts
                  per pair (normal, per-slot distance/point/active bit),
                  MuJoCo/MJX-style
+    contact_solver/ MuJoCo's soft-constraint contact solver (primal CG,
+                 pyramidal condim 3): contacts -> constrained joint
+                 accelerations
     viz/         Render-only state (world transforms, visuals); never stepped
   interface/   Loaders and the Simulation facade
   render/      The OpenGL/GLFW viewer
@@ -163,9 +177,11 @@ The main pieces:
   copied between them. Adding an algorithm takes one line here.
 - **Integrators** ([include/algorithms/integrators.hpp](include/algorithms/integrators.hpp)):
   what one tick runs, as an ordered list of Steps over the hosted
-  algorithms. Semi-implicit Euler (the default) runs ABA, then VI, then the
-  collision broad and narrow phases, then PI -- so a contact solver can
-  correct VI's velocity before PI integrates it.
+  algorithms. Semi-implicit Euler (the default) runs MuJoCo's `mj_step`
+  order: ABA, the collision broad and narrow phases, the contact solver
+  (which replaces ABA's accelerations with constrained ones), then VI and
+  PI. `Setup` runs once when the sim is built, for constants taken from the
+  initial pose.
 
 ## Development
 
