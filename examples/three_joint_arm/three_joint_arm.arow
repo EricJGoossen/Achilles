@@ -1,5 +1,5 @@
 # A three-joint revolute chain (shoulder -> elbow -> wrist), built by
-# extending examples/two_joint_arm.arow's own shoulder/elbow with a third
+# extending examples/two_joint_arm/two_joint_arm.arow's own shoulder/elbow with a third
 # link -- same axis convention (each joint a single DOF about its own
 # local X, perpendicular to sim_config.yaml's Z-axis gravity so the chain
 # actually swings) and the same pivot-referenced inertia parameterization

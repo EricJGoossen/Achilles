@@ -8,11 +8,8 @@
 # produces zero torque about that axis for any mass distribution, so a
 # Z-axis (yaw) joint under Z-axis gravity would never move at all.
 #
-# Build+run (see the root CMakeLists.txt's own comment on
-# ACHILLES_ENABLE_RENDERER for what this needs installed):
-#   cmake -S . -B build -DACHILLES_ENABLE_RENDERER=ON
-#   cmake --build build --target achilles_viewer
-#   ./build/achilles_viewer examples/two_joint_arm.arow examples/sim_config.yaml
+# Build+run: scripts/run-example.sh, or
+#   ./build/achilles examples/two_joint_arm/two_joint_arm.arow examples/two_joint_arm/sim_config.yaml
 archetype: arm
 joints:
   - name: shoulder

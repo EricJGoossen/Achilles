@@ -18,8 +18,8 @@ scripts/run-example.sh --headless # same simulation, no window
 ```
 
 This builds the `achilles` target into `build/` and runs it against
-[examples/two_joint_arm.arow](examples/two_joint_arm.arow) with
-[examples/sim_config.yaml](examples/sim_config.yaml). In the viewer,
+[examples/two_joint_arm/two_joint_arm.arow](examples/two_joint_arm/two_joint_arm.arow) with
+[examples/two_joint_arm/sim_config.yaml](examples/two_joint_arm/sim_config.yaml). In the viewer,
 left-drag to orbit, scroll to zoom, and close the window to stop.
 
 ```bash
@@ -27,7 +27,7 @@ scripts/run-robot-demo.sh         # contact demo: a robot toppling onto a plane
 ```
 
 The contact demo runs
-[examples/robot_on_plane.arow](examples/robot_on_plane.arow): a passive
+[examples/robot_on_plane/robot_on_plane.arow](examples/robot_on_plane/robot_on_plane.arow): a passive
 humanoid (no actuators) that falls over and comes to rest on a ground plane.
 It builds an optimized binary into `build-release/` (a debug build is too
 slow for real time with collision on) and uses semi-implicit Euler, the only

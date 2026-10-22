@@ -1,4 +1,4 @@
-// Validates examples/two_joint_arm.arow + examples/sim_config.yaml -- the
+// Validates examples/two_joint_arm/two_joint_arm.arow + examples/two_joint_arm/sim_config.yaml -- the
 // scene scripts/run-example.sh actually launches -- against an *independent*
 // closed-form model of the same physical system, derived from scratch via
 // Lagrangian mechanics rather than by reading algorithms/aba's own source.
@@ -70,14 +70,14 @@ using B = MathematicalT;
 
 namespace {
 
-// Mirrors examples/two_joint_arm.arow exactly (mass, center-of-mass offset,
+// Mirrors examples/two_joint_arm/two_joint_arm.arow exactly (mass, center-of-mass offset,
 // inertia about each joint, and the 1.0-unit shoulder-to-elbow offset) --
 // see that file's own comments for where each of these numbers comes from
 // (in particular, the parallel-axis-theorem reasoning behind Ixx/Izz).
 // Kept as literal constants here, rather than parsed from the real .arow
 // file, so this test's own reference model and the archetype it builds
 // below are provably built from the same numbers -- a drift between this
-// file and examples/two_joint_arm.arow would just make this test wrong
+// file and examples/two_joint_arm/two_joint_arm.arow would just make this test wrong
 // about which scene it's checking, not silently pass on stale physics.
 struct LinkParams {
   ScalarOperationT mass;
@@ -96,7 +96,7 @@ constexpr LinkParams kElbow{
 constexpr ScalarOperationT kLinkLength =
     1.0F;  // shoulder -> elbow offset (local Y)
 
-// examples/sim_config.yaml's own base_acceleration.linear.z. ABA treats a
+// examples/two_joint_arm/sim_config.yaml's own base_acceleration.linear.z. ABA treats a
 // fixed base's own configured acceleration as *minus* true gravity (see
 // algorithms/sim_config.hpp's own comment on base_acceleration), so the
 // real gravitational acceleration every body actually falls under is
@@ -108,7 +108,7 @@ constexpr ScalarOperationT kGravity = 9.8F;
 constexpr ScalarOperationT kDt = 1.0F / 120.0F;
 
 std::string TwoJointArmYaml() {
-  // Physically identical to examples/two_joint_arm.arow -- same joint
+  // Physically identical to examples/two_joint_arm/two_joint_arm.arow -- same joint
   // axes, offsets, masses, and inertias -- just inlined here (rather than
   // read from disk) so this test doesn't depend on the working directory
   // ctest happens to run in.
@@ -155,7 +155,7 @@ std::string TwoJointArmYaml() {
 }
 
 std::string SimConfigYaml() {
-  // Mirrors examples/sim_config.yaml exactly.
+  // Mirrors examples/two_joint_arm/sim_config.yaml exactly.
   return "base_acceleration:\n"
          "  angular: [0, 0, 0]\n"
          "  linear: [0, 0, -9.8]\n";

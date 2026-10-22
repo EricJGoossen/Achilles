@@ -1,6 +1,6 @@
 # A passive humanoid robot on a ground plane -- the contact solver demo.
 # Run with scripts/run-robot-demo.sh (semi-implicit Euler: the only
-# integrator with collision so far).
+# integrator with collision so far), with this folder's sim_config.yaml.
 #
 # The viewer draws each body's box from its frame outward along local +y,
 # the way a limb hangs off its joint, so every body's frame sits at its
@@ -29,7 +29,7 @@ joints:
       joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
       joint_activation_mask: [0]
       fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
-      rigid_body_inertia: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      rigid_body_inertia: [1, 0, 0, 0, 0.1, 0.1, 0.1, 0, 0, 0]
       joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
       joint_velocity: [0, 0, 0, 0, 0, 0]
       joint_torque: [0, 0, 0, 0, 0, 0]
@@ -47,7 +47,7 @@ joints:
       joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
       joint_activation_mask: [0]
       fixed_joint_transform: {translation: [0, -0.2, 0], rotation: [1, 0, 0, 0]}
-      rigid_body_inertia: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      rigid_body_inertia: [1, 0, 0, 0, 0.1, 0.1, 0.1, 0, 0, 0]
       joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
       joint_velocity: [0, 0, 0, 0, 0, 0]
       joint_torque: [0, 0, 0, 0, 0, 0]
