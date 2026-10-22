@@ -2,6 +2,7 @@
 
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/broad_phase/broad_phase_step.hpp"
+#include "algorithms/contact_solver/contact_solver_step.hpp"
 #include "algorithms/midpoint/midpoint_step.hpp"
 #include "algorithms/narrow_phase/narrow_phase_step.hpp"
 #include "algorithms/pi/pi_step.hpp"
@@ -41,6 +42,7 @@ using RegisteredAlgorithms = util::TypeList<
     vi::VIAlgorithm,
     broad_phase::BroadPhaseAlgorithm,
     narrow_phase::NarrowPhaseAlgorithm,
+    contact_solver::ContactSolverAlgorithm,
     pi::PIAlgorithm,
     verlet::VerletAlgorithm,
     midpoint::MidpointAlgorithm,

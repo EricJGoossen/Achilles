@@ -9,6 +9,7 @@
 
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/broad_phase/broad_phase_step.hpp"
+#include "algorithms/contact_solver/contact_solver_step.hpp"
 #include "algorithms/conventions.hpp"
 #include "algorithms/midpoint/midpoint_step.hpp"
 #include "algorithms/narrow_phase/narrow_phase_step.hpp"
@@ -37,15 +38,16 @@ namespace achilles::algorithms {
 using Collision =
     util::TypeList<broad_phase::BroadPhaseStep, narrow_phase::NarrowPhaseStep>;
 
-// ABA solves for qdd at (q, qd), VI integrates that into qd, PI integrates
-// the updated qd into q for the next tick's ABA to read. Collision runs
-// between VI and PI, on this tick's pose: a contact solver correcting VI's
-// velocity slots in right after it, so PI integrates the corrected velocity
-// instead of one that ignores the contacts.
+// mj_step's order: ABA solves for the unconstrained qdd at (q, qd), the
+// collision pipeline finds this pose's contacts, the contact solver
+// (algorithms/contact_solver) replaces qdd with the constrained qacc, VI
+// integrates that into qd, and PI integrates the updated qd into q for the
+// next tick's ABA to read.
 using SemiImplicitEuler = util::ConcatT<
-    util::TypeList<aba::ABAStep, vi::VIStep>,
+    util::TypeList<aba::ABAStep>,
     Collision,
-    util::TypeList<pi::PIStep>>;
+    contact_solver::Solve,
+    util::TypeList<vi::VIStep, pi::PIStep>>;
 
 // See algorithms/verlet.
 using VelocityVerlet = util::TypeList<
@@ -88,8 +90,9 @@ using ImplicitFast = SemiImplicitEuler;
 // the time (registry.hpp), so this can change between any two ticks. See
 // each algorithm's own *_step.hpp for its derivation and tradeoffs:
 //
-// kSemiImplicitEuler -- ABA, then VI's velocity kick, then PI's position
-// update (algorithms/vi, algorithms/pi). One ABA evaluation per tick.
+// kSemiImplicitEuler -- ABA, collision and the contact solver, then VI's
+// velocity kick, then PI's position update (algorithms/vi, algorithms/pi).
+// One ABA evaluation per tick.
 //
 // kVelocityVerlet (algorithms/verlet) -- ABA -> half kick -> full drift
 // -> ABA -> half kick. Two ABA evaluations; one order better than Euler
@@ -125,6 +128,11 @@ enum class Integrator : std::uint8_t {
 
   kCount
 };
+
+// What runs once, when a sim is built (interface::Simulation::Init), before
+// its first tick -- MuJoCo's mj_setConst: ABA at the initial pose, then the
+// contact solver's body_invweight0 from its factors.
+using Setup = util::TypeList<aba::ABAStep, contact_solver::InvWeightStep>;
 
 // The SimContext every hosted Algorithm lives in, and the shape of one
 // integrator tick over it.

@@ -42,5 +42,22 @@ struct CollisionRadiusSlot;
 struct CollisionMarginSlot;
 struct WorldShapePoseSlot;
 struct BoundsOverlapSlot;
+// ABA's velocity-independent factors and per-body state
+// (aba/aba_data.hpp) -- shared so the contact solver
+// (contact_solver/contact_solver_data.hpp) can apply M and M^-1 to its own
+// vectors with the same x_up, I, U and D^-1 ABA just computed, and read the
+// body velocities its contact rows are evaluated at, without refactoring
+// the mass matrix itself.
+struct RigidBodyInertiaSlot;
+struct ParentToBodyTransformSlot;
+struct SpatialVelocitySlot;
+struct UTermSlot;
+struct DInvTermSlot;
+// The narrow phase's contacts (narrow_phase/narrow_phase_data.hpp) -- shared
+// so the contact solver reads them as written.
+struct ContactNormalSlot;
+struct ContactDistanceSlot;
+struct ContactPointSlot;
+struct ContactActiveSlot;
 
 }  // namespace achilles::algorithms
