@@ -134,6 +134,92 @@ MathematicalT Impedance(
   );
 }
 
+// A constraint's solref/solimp, as mj_referenceConstraint and
+// mj_makeImpedance use them: getsolparam's clamps, refsafe's
+// timeconst >= 2 dt, and K = 1 / (dw^2 tc^2 dr^2), B = 2 / (dw tc).
+struct SoftConstraint {
+  MathematicalT d0;
+  MathematicalT dwidth;
+  MathematicalT width;
+  MathematicalT midpoint;
+  MathematicalT power;
+  MathematicalT stiffness;
+  MathematicalT damping;
+
+  SoftConstraint(const Solref& solref, const Solimp& solimp, float dt)
+      : d0(ClampImpedance(solimp(0, 0))),
+        dwidth(ClampImpedance(solimp(1, 0))),
+        width(xsimd::max(solimp(2, 0), MathematicalT(0))),
+        midpoint(ClampImpedance(solimp(3, 0))),
+        power(xsimd::max(solimp(4, 0), MathematicalT(1))) {
+    MathematicalT timeconst =
+        xsimd::max(solref(0, 0), MathematicalT(2.0F * dt));
+    MathematicalT dampratio = solref(1, 0);
+    MathematicalT dw_tc = dwidth * timeconst;
+    stiffness = MathematicalT(1) / xsimd::max(
+                                       MathematicalT(kMinVal),
+                                       dw_tc * dw_tc * dampratio * dampratio
+                                   );
+    damping = MathematicalT(2) / xsimd::max(MathematicalT(kMinVal), dw_tc);
+  }
+
+  MathematicalT ImpedanceAt(const MathematicalT& r) const {
+    return Impedance(r, d0, dwidth, width, midpoint, power);
+  }
+};
+
+// The rows' cost 1/2 D x^2 over x < 0, at the residual (qacc_smooth) and at
+// residual + search (the warmstart), for any rows matrix.
+template <typename Rows>
+void AddWarmstartCost(
+    const Rows& residual,
+    const Rows& search,
+    const Rows& weight,
+    Scalar* smooth_out,
+    Scalar* warm_out
+) {
+  MathematicalT zero(0);
+  MathematicalT half(0.5F);
+  MathematicalT smooth(0);
+  MathematicalT warm(0);
+  for (std::size_t i = 0; i < residual.Rows() * residual.Cols(); ++i) {
+    MathematicalT at_smooth = residual[i];
+    MathematicalT at_warm = residual[i] + search[i];
+    smooth += util::Select(
+        at_smooth < zero, half * weight[i] * at_smooth * at_smooth, zero
+    );
+    warm += util::Select(
+        at_warm < zero, half * weight[i] * at_warm * at_warm, zero
+    );
+  }
+  *smooth_out += Scalar(smooth);
+  *warm_out += Scalar(warm);
+}
+
+// The rows' slope and curvature along search at alpha, PrimalEval's.
+template <typename Rows>
+void AddLineSearchTerms(
+    const Scalar& alpha,
+    const Rows& residual,
+    const Rows& search,
+    const Rows& weight,
+    Scalar* slope_out,
+    Scalar* curvature_out
+) {
+  MathematicalT zero(0);
+  MathematicalT slope(0);
+  MathematicalT curvature(0);
+  for (std::size_t i = 0; i < residual.Rows() * residual.Cols(); ++i) {
+    MathematicalT x = residual[i] + alpha.Value() * search[i];
+    Mask on = x < zero;
+    MathematicalT d_search = weight[i] * search[i];
+    slope += util::Select(on, d_search * x, zero);
+    curvature += util::Select(on, d_search * search[i], zero);
+  }
+  *slope_out += Scalar(slope);
+  *curvature_out += Scalar(curvature);
+}
+
 }  // namespace
 
 void ComputeInverseInertiaOp::Initialize(Matrix6x6* omega_base_out) const {
@@ -148,7 +234,8 @@ void ComputeInverseInertiaOp::operator()(
     const Inertia& I,
     const Matrix6x6& omega_parent,
     Matrix6x6* omega_out,
-    InvWeight* invweight_out
+    InvWeight* invweight_out,
+    JointCoordinates* dof_invweight_out
 ) const {
   // S D^-1 S^T, and K = 1 - U D^-1 S^T
   Matrix6x6 d_inv_s = D_inv.AsMatrix() * S.Transpose();
@@ -176,6 +263,13 @@ void ComputeInverseInertiaOp::operator()(
 
   MathematicalT third(1.0F / 3.0F);
   *invweight_out = InvWeight(lambda.Trace() * third, a.Trace() * third);
+
+  // M^-1's diagonal block D^-1 + G^T Omega_parent G, G = X U D^-1
+  Matrix6x6 g = ForceTransform(x_up) * (U.AsMatrix() * D_inv.AsMatrix());
+  Matrix6x6 block = D_inv.AsMatrix() + g.Transpose() * omega_parent * g;
+  for (std::size_t k = 0; k < 6; ++k) {
+    (*dof_invweight_out)[k] = block(k, k);
+  }
 }
 
 void SetupRowsOp::operator()(
@@ -226,22 +320,7 @@ void SetupRowsOp::operator()(
       MathematicalT(0.5F);
   MathematicalT margin = margin_target.Value() + margin_source.Value();
 
-  // getsolparam's clamps, and refsafe's timeconst >= 2 dt
-  MathematicalT d0 = ClampImpedance(solimp(0, 0));
-  MathematicalT dwidth = ClampImpedance(solimp(1, 0));
-  MathematicalT width = xsimd::max(solimp(2, 0), MathematicalT(0));
-  MathematicalT midpoint = ClampImpedance(solimp(3, 0));
-  MathematicalT power = xsimd::max(solimp(4, 0), MathematicalT(1));
-  MathematicalT timeconst = xsimd::max(solref(0, 0), MathematicalT(2.0F * dt_));
-  MathematicalT dampratio = solref(1, 0);
-
-  // K = 1 / (dw^2 tc^2 dr^2), B = 2 / (dw tc)
-  MathematicalT dw_tc = dwidth * timeconst;
-  MathematicalT stiffness =
-      MathematicalT(1) /
-      xsimd::max(MathematicalT(kMinVal), dw_tc * dw_tc * dampratio * dampratio);
-  MathematicalT damping =
-      MathematicalT(2) / xsimd::max(MathematicalT(kMinVal), dw_tc);
+  SoftConstraint soft(solref, solimp, dt_);
 
   // mju_makeFrame: t1 from +y (or +z when n is near y), made orthogonal to
   // n; t2 = n x t1. An inactive lane's normal is replaced first, so its
@@ -276,7 +355,7 @@ void SetupRowsOp::operator()(
 
     MathematicalT r = distance(k, 0) - margin;
     Mask row_active = slot_active[k] & (r < MathematicalT(0));
-    MathematicalT imp = Impedance(r, d0, dwidth, width, midpoint, power);
+    MathematicalT imp = soft.ImpedanceAt(r);
 
     // R = (1 - d) / d A_ii, then every pyramidal row's R = 2 mu^2 R
     // (mj_makeImpedance, impratio 1), and D = 1 / R
@@ -294,7 +373,7 @@ void SetupRowsOp::operator()(
     for (std::size_t e = 0; e < kPyramidEdges; ++e) {
       // aref = -B (J v) - K d r
       MathematicalT reference =
-          -damping * edges[e].Dot(dv) - stiffness * imp * r;
+          -soft.damping * edges[e].Dot(dv) - soft.stiffness * imp * r;
       MathematicalT zero(0);
       (*reference_out)(e, k) = util::Select(row_active, reference, zero);
       (*weight_out)(e, k) = util::Select(row_active, weight, zero);
@@ -364,22 +443,7 @@ void WarmstartCostOp::operator()(
     Scalar* smooth_out,
     Scalar* warm_out
 ) const {
-  MathematicalT zero(0);
-  MathematicalT half(0.5F);
-  MathematicalT smooth(0);
-  MathematicalT warm(0);
-  for (std::size_t i = 0; i < kPyramidEdges * kSweptBoxContactSlots; ++i) {
-    MathematicalT at_smooth = residual[i];
-    MathematicalT at_warm = residual[i] + search[i];
-    smooth += util::Select(
-        at_smooth < zero, half * weight[i] * at_smooth * at_smooth, zero
-    );
-    warm += util::Select(
-        at_warm < zero, half * weight[i] * at_warm * at_warm, zero
-    );
-  }
-  *smooth_out += Scalar(smooth);
-  *warm_out += Scalar(warm);
+  AddWarmstartCost(residual, search, weight, smooth_out, warm_out);
 }
 
 void LineSearchRowsOp::operator()(
@@ -390,18 +454,93 @@ void LineSearchRowsOp::operator()(
     Scalar* slope_out,
     Scalar* curvature_out
 ) const {
+  AddLineSearchTerms(alpha, residual, search, weight, slope_out, curvature_out);
+}
+
+void SetupLimitRowsOp::operator()(
+    const JointCoordinates& distance,
+    const JointCoordinates& side,
+    const Mat6Mask& active,
+    const Scalar& margin,
+    const Solref& solref,
+    const Solimp& solimp,
+    const JointCoordinates& dof_invweight,
+    const Velocity& qd,
+    const Acceleration& qacc_smooth,
+    JointCoordinates* weight_out,
+    JointCoordinates* residual_out
+) const {
+  SoftConstraint soft(DefaultSolref(solref), DefaultSolimp(solimp), dt_);
   MathematicalT zero(0);
-  MathematicalT slope(0);
-  MathematicalT curvature(0);
-  for (std::size_t i = 0; i < kPyramidEdges * kSweptBoxContactSlots; ++i) {
-    MathematicalT x = residual[i] + alpha.Value() * search[i];
-    Mask on = x < zero;
-    MathematicalT d_search = weight[i] * search[i];
-    slope += util::Select(on, d_search * x, zero);
-    curvature += util::Select(on, d_search * search[i], zero);
+  for (std::size_t k = 0; k < 6; ++k) {
+    Mask row_active =
+        util::Select(active[k], MathematicalT(1), MathematicalT(0)) != zero;
+    MathematicalT r = distance[k] - margin.Value();
+    MathematicalT imp = soft.ImpedanceAt(r);
+
+    // R = (1 - d) / d A_ii, A_ii = dof_invweight0, and D = 1 / R
+    MathematicalT weight =
+        MathematicalT(1) / xsimd::max(
+                               MathematicalT(kMinVal),
+                               (MathematicalT(1) - imp) / imp * dof_invweight[k]
+                           );
+
+    // aref = -B (J v) - K d r, J = side e_k
+    MathematicalT reference =
+        -soft.damping * side[k] * qd[k] - soft.stiffness * imp * r;
+    (*weight_out)[k] = util::Select(row_active, weight, zero);
+    (*residual_out)[k] =
+        util::Select(row_active, side[k] * qacc_smooth[k] - reference, zero);
   }
-  *slope_out += Scalar(slope);
-  *curvature_out += Scalar(curvature);
+}
+
+void LimitForceOp::operator()(
+    const Scalar& alpha,
+    const JointCoordinates& search,
+    const JointCoordinates& weight,
+    const JointCoordinates& side,
+    JointCoordinates* residual_out,
+    Force* constraint_force_out
+) const {
+  std::array<MathematicalT, 6> joint_force{};
+  for (std::size_t k = 0; k < 6; ++k) {
+    MathematicalT residual = (*residual_out)[k] + alpha.Value() * search[k];
+    (*residual_out)[k] = residual;
+    // f = -D (J qacc - aref) while negative, J^T f = side f e_k
+    MathematicalT f = util::Select(
+        residual < MathematicalT(0), -weight[k] * residual, MathematicalT(0)
+    );
+    joint_force[k] = side[k] * f;
+  }
+  *constraint_force_out += Force(
+      joint_force[0],
+      joint_force[1],
+      joint_force[2],
+      joint_force[3],
+      joint_force[4],
+      joint_force[5]
+  );
+}
+
+void WarmstartLimitCostOp::operator()(
+    const JointCoordinates& residual,
+    const JointCoordinates& search,
+    const JointCoordinates& weight,
+    Scalar* smooth_out,
+    Scalar* warm_out
+) const {
+  AddWarmstartCost(residual, search, weight, smooth_out, warm_out);
+}
+
+void LineSearchLimitsOp::operator()(
+    const Scalar& alpha,
+    const JointCoordinates& residual,
+    const JointCoordinates& search,
+    const JointCoordinates& weight,
+    Scalar* slope_out,
+    Scalar* curvature_out
+) const {
+  AddLineSearchTerms(alpha, residual, search, weight, slope_out, curvature_out);
 }
 
 void ConjugacyTermsOp::operator()(

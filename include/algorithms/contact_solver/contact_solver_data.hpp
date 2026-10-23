@@ -5,6 +5,7 @@
 #include <string_view>
 
 #include "algorithms/conventions.hpp"
+#include "algorithms/joint_limit/joint_limit_data.hpp"
 #include "algorithms/narrow_phase/narrow_phase_data.hpp"
 #include "algorithms/shared_slots.hpp"
 #include "domain/joint_topology.hpp"
@@ -41,6 +42,13 @@ namespace achilles::algorithms::contact_solver {
 // two tangents (mju_makeFrame's), every row sharing its contact's distance,
 // so its impedance and aref position term. A row is active while its
 // contact is (kContactActive) and r = distance - margin < 0.
+//
+// Joint limits (algorithms/joint_limit) are rows in the same cost, one per
+// DOF, mj_instantiateLimit's: J = side e_k on the joint's own DOF k, so
+// J x is side x_k and J^T f is side f on that DOF alone -- every limit pass
+// is a linear one, never a tree pass. A limit row is active while the
+// detector says so (kLimitActive: limited, and r = distance - margin < 0),
+// and its R is mj_makeImpedance's (1 - d) / d dof_invweight0.
 //
 // M is never formed. CG needs M x, M^-1 y, J x and J^T f, and each of those
 // is an O(rows) pass over the tree reusing ABA's velocity-independent
@@ -81,6 +89,7 @@ enum class ContactSolverField : uint8_t {
   kSpatialVelocity,        // v (body frame)
   kUTerm,                  // U
   kDInvTerm,               // D^-1
+  kJointVelocity,          // qd
   kJointAcceleration,      // qdd: qacc_smooth in, constrained qacc out
 
   // --- Narrow-phase contacts (shared, read-only here) ---
@@ -90,14 +99,25 @@ enum class ContactSolverField : uint8_t {
   kContactPoint,     // per slot (world)
   kContactActive,    // per (slot, lane)
 
+  // --- Joint-limit rows (shared, read-only here) ---
+  kJointLimitMargin,  // m
+  kLimitDistance,     // per DOF
+  kLimitSide,         // per DOF, +1 lower / -1 upper
+  kLimitActive,       // per DOF bits
+
   // --- Per-body contact parameters (loaded) ---
   kContactFriction,  // sliding mu
   kContactSolref,    // (timeconst, dampratio)
   kContactSolimp,    // (d0, dwidth, width, midpoint, power)
 
+  // --- Per-joint limit parameters (loaded) ---
+  kJointLimitSolref,  // (timeconst, dampratio)
+  kJointLimitSolimp,  // (d0, dwidth, width, midpoint, power)
+
   // --- Set up once per sim (mj_setConst) ---
   kInverseInertia,  // Omega: body acceleration per unit body wrench (body)
   kInvWeight,       // body_invweight0 (translational, rotational)
+  kDofInvWeight,    // dof_invweight0, per DOF
 
   // --- Joint-space CG state ---
   kQaccSmooth,       // qacc_smooth
@@ -126,6 +146,11 @@ enum class ContactSolverField : uint8_t {
   kRowWeight,       // D = 1/R, zero where inactive
   kRowResidual,     // J qacc - aref
   kRowSearch,       // J search
+
+  // --- Per-joint limit rows, one per DOF ---
+  kLimitWeight,    // D = 1/R, zero where inactive
+  kLimitResidual,  // J qacc - aref
+  kLimitSearch,    // J search
 
   // --- Whole-sim scalars ---
   kStep,           // line-search alpha
@@ -232,6 +257,13 @@ struct ContactSolverFieldTraits<ContactSolverField::kDInvTerm>
           spatial::InvertedInertiaOperatorAssembler<ScalarOperationT>,
           DInvTermSlot> {};
 template <>
+struct ContactSolverFieldTraits<ContactSolverField::kJointVelocity>
+    : SharedRowField<
+          spatial::SpatialVelocityAssembler<ScalarOperationT>,
+          JointVelocitySlot> {
+  static constexpr std::string_view kName = "joint_velocity";
+};
+template <>
 struct ContactSolverFieldTraits<ContactSolverField::kJointAcceleration>
     : SharedRowField<AccelerationAssembler, JointAccelerationSlot> {};
 
@@ -270,6 +302,24 @@ struct ContactSolverFieldTraits<ContactSolverField::kContactActive>
   using Indexing = engine::topology::PairGroupIndexing<kLanes>;
 };
 
+// --- Joint limits (shared) ---
+template <>
+struct ContactSolverFieldTraits<ContactSolverField::kJointLimitMargin>
+    : SharedRowField<ScalarAssembler, JointLimitMarginSlot> {
+  static constexpr std::string_view kName = "joint_limit_margin";
+};
+template <>
+struct ContactSolverFieldTraits<ContactSolverField::kLimitDistance>
+    : SharedRowField<
+          joint_limit::CoordinatesAssembler,
+          JointLimitDistanceSlot> {};
+template <>
+struct ContactSolverFieldTraits<ContactSolverField::kLimitSide>
+    : SharedRowField<joint_limit::CoordinatesAssembler, JointLimitSideSlot> {};
+template <>
+struct ContactSolverFieldTraits<ContactSolverField::kLimitActive>
+    : SharedRowField<joint_limit::MaskAssembler, JointLimitActiveSlot> {};
+
 // --- Per-body contact parameters ---
 // MuJoCo's geom friction (sliding), solref and solimp. A body that gives
 // none reads the zero-fill, taken as MuJoCo's defaults: friction 1, solref
@@ -290,6 +340,20 @@ struct ContactSolverFieldTraits<ContactSolverField::kContactSolimp>
   static constexpr std::string_view kName = "contact_solimp";
 };
 
+// --- Per-joint limit parameters ---
+// MuJoCo's jnt_solref and jnt_solimp, read the same way: a joint that gives
+// none reads the zero-fill, taken as the same defaults as a contact's.
+template <>
+struct ContactSolverFieldTraits<ContactSolverField::kJointLimitSolref>
+    : RowField<math::MatrixAssembler<ScalarOperationT, 2, 1>> {
+  static constexpr std::string_view kName = "joint_limit_solref";
+};
+template <>
+struct ContactSolverFieldTraits<ContactSolverField::kJointLimitSolimp>
+    : RowField<math::MatrixAssembler<ScalarOperationT, 5, 1>> {
+  static constexpr std::string_view kName = "joint_limit_solimp";
+};
+
 // --- Set up once ---
 template <>
 struct ContactSolverFieldTraits<ContactSolverField::kInverseInertia>
@@ -297,6 +361,9 @@ struct ContactSolverFieldTraits<ContactSolverField::kInverseInertia>
 template <>
 struct ContactSolverFieldTraits<ContactSolverField::kInvWeight>
     : RowField<math::MatrixAssembler<ScalarOperationT, 2, 1>> {};
+template <>
+struct ContactSolverFieldTraits<ContactSolverField::kDofInvWeight>
+    : RowField<joint_limit::CoordinatesAssembler> {};
 
 // --- Joint-space CG state ---
 template <>
@@ -372,6 +439,17 @@ struct ContactSolverFieldTraits<ContactSolverField::kRowResidual>
 template <>
 struct ContactSolverFieldTraits<ContactSolverField::kRowSearch>
     : PairField<RowsAssembler> {};
+
+// --- Per-joint limit rows ---
+template <>
+struct ContactSolverFieldTraits<ContactSolverField::kLimitWeight>
+    : RowField<joint_limit::CoordinatesAssembler> {};
+template <>
+struct ContactSolverFieldTraits<ContactSolverField::kLimitResidual>
+    : RowField<joint_limit::CoordinatesAssembler> {};
+template <>
+struct ContactSolverFieldTraits<ContactSolverField::kLimitSearch>
+    : RowField<joint_limit::CoordinatesAssembler> {};
 
 // --- Whole-sim scalars ---
 template <>

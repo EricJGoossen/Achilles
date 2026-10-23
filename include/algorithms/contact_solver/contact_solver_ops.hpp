@@ -4,6 +4,7 @@
 
 #include "algorithms/contact_solver/contact_solver_data.hpp"
 #include "algorithms/conventions.hpp"
+#include "algorithms/joint_limit/joint_limit_data.hpp"
 #include "algorithms/narrow_phase/narrow_phase_data.hpp"
 #include "engine/op_contract.hpp"
 
@@ -22,6 +23,9 @@ struct SolverOp {
 // as a Scalar, splatted, and adds into it as a lane reduction.
 using GlobalScalar = math::Scalar<ScalarOperationT>;
 
+// One value per joint DOF (see joint_limit_data.hpp).
+using JointCoordinates = joint_limit::JointCoordinates;
+
 // ---------------------------------------------------------------------------
 // Once per sim
 // ---------------------------------------------------------------------------
@@ -38,6 +42,12 @@ using GlobalScalar = math::Scalar<ScalarOperationT>;
 // body_invweight0 (setInertia0): the mean diagonal of J_com M^-1 J_com^T,
 // the translational block at the body's center of mass and the rotational
 // block, from Omega_i directly instead of one M^-1 solve per body.
+//
+// And dof_invweight0, M^-1's diagonal: a unit generalized force at joint i
+// alone gives qdd_i = D^-1 tau + G^T Omega_parent G tau, G = X U D^-1 --
+// the joint's own response, plus its parent's to the reaction X U D^-1 tau
+// it passes up -- so M^-1's diagonal block for joint i is
+// D^-1 + G^T Omega_parent G, and dof_invweight0 its diagonal.
 struct ComputeInverseInertiaOp : SolverOp {
   static constexpr std::array<ArgData, 0> kInitInputs = {};
   static constexpr std::array<ArgData, 1> kInitOutputs = {
@@ -53,9 +63,10 @@ struct ComputeInverseInertiaOp : SolverOp {
       ArgData{FieldEnum::kRigidBodyInertia, ArgIndex::kTarget},
       ArgData{FieldEnum::kInverseInertia, ArgIndex::kParent},
   };
-  static constexpr std::array<ArgData, 2> kOutputs = {
+  static constexpr std::array<ArgData, 3> kOutputs = {
       ArgData{FieldEnum::kInverseInertia, ArgIndex::kTarget},
       ArgData{FieldEnum::kInvWeight, ArgIndex::kTarget},
+      ArgData{FieldEnum::kDofInvWeight, ArgIndex::kTarget},
   };
   void operator()(
       const MotionSubspace& S,
@@ -65,7 +76,8 @@ struct ComputeInverseInertiaOp : SolverOp {
       const Inertia& I,
       const Matrix6x6& omega_parent,
       Matrix6x6* omega_out,
-      InvWeight* invweight_out
+      InvWeight* invweight_out,
+      JointCoordinates* dof_invweight_out
   ) const;
 };
 
@@ -481,6 +493,144 @@ struct LineSearchRowsOp : SolverOp {
       const ContactRows& residual,
       const ContactRows& search,
       const ContactRows& weight,
+      Scalar* slope_out,
+      Scalar* curvature_out
+  ) const;
+};
+
+// ---------------------------------------------------------------------------
+// Joint-limit rows
+// ---------------------------------------------------------------------------
+//
+// The contact rows' Ops above, for a joint's limit rows: J = side e_k reads
+// and writes the joint's own DOF k, so each is a per-joint linear pass and
+// adds into the same kConstraintForce and whole-sim sums the contact rows
+// do -- each runs after its contact counterpart, which starts those sums.
+
+// Everything per limit row that holds for the whole solve
+// (mj_instantiateLimit, mj_makeImpedance, mj_referenceConstraint): the
+// joint's solref/solimp (unset values read as MuJoCo's defaults), and per
+// DOF, r = distance - margin, the impedance d(r), aref = -B (J v) - K d r,
+// R = (1 - d) / d dof_invweight0 and D = 1 / R, and the residual
+// J qacc_smooth - aref. An inactive row gets D = 0 and a zero residual.
+struct SetupLimitRowsOp : SolverOp {
+  explicit SetupLimitRowsOp(ScalarOperationT dt) : dt_(dt) {}
+
+  static constexpr std::array<ArgData, 9> kInputs = {
+      ArgData{FieldEnum::kLimitDistance, ArgIndex::kTarget},
+      ArgData{FieldEnum::kLimitSide, ArgIndex::kTarget},
+      ArgData{FieldEnum::kLimitActive, ArgIndex::kTarget},
+      ArgData{FieldEnum::kJointLimitMargin, ArgIndex::kTarget},
+      ArgData{FieldEnum::kJointLimitSolref, ArgIndex::kTarget},
+      ArgData{FieldEnum::kJointLimitSolimp, ArgIndex::kTarget},
+      ArgData{FieldEnum::kDofInvWeight, ArgIndex::kTarget},
+      ArgData{FieldEnum::kJointVelocity, ArgIndex::kTarget},
+      ArgData{FieldEnum::kQaccSmooth, ArgIndex::kTarget},
+  };
+  static constexpr std::array<ArgData, 2> kOutputs = {
+      ArgData{FieldEnum::kLimitWeight, ArgIndex::kTarget},
+      ArgData{FieldEnum::kLimitResidual, ArgIndex::kTarget},
+  };
+  void operator()(
+      const JointCoordinates& distance,
+      const JointCoordinates& side,
+      const Mat6Mask& active,
+      const Scalar& margin,
+      const Solref& solref,
+      const Solimp& solimp,
+      const JointCoordinates& dof_invweight,
+      const Velocity& qd,
+      const Acceleration& qacc_smooth,
+      JointCoordinates* weight_out,
+      JointCoordinates* residual_out
+  ) const;
+
+ private:
+  ScalarOperationT dt_;
+};
+
+// J search per limit row: side search_k.
+struct ProjectLimitSearchOp : SolverOp {
+  static constexpr std::array<ArgData, 2> kInputs = {
+      ArgData{FieldEnum::kLimitSide, ArgIndex::kTarget},
+      ArgData{FieldEnum::kSearch, ArgIndex::kTarget},
+  };
+  static constexpr std::array<ArgData, 1> kOutputs = {
+      ArgData{FieldEnum::kLimitSearch, ArgIndex::kTarget},
+  };
+  void operator()(
+      const JointCoordinates& side,
+      const Acceleration& search,
+      JointCoordinates* search_out
+  ) const {
+    for (std::size_t k = 0; k < 6; ++k) {
+      (*search_out)[k] = side[k] * search[k];
+    }
+  }
+};
+
+// ContactForceOp's limit half: steps each row's residual to alpha, its
+// force f = -D (J qacc - aref) while that's negative, and J^T f = side f
+// added onto the joint's own DOF of kConstraintForce -- so it runs after
+// ConstraintForceOp, which sets kConstraintForce from the contacts.
+struct LimitForceOp : SolverOp {
+  static constexpr std::array<ArgData, 4> kInputs = {
+      ArgData{FieldEnum::kStep, ArgIndex::kTarget},
+      ArgData{FieldEnum::kLimitSearch, ArgIndex::kTarget},
+      ArgData{FieldEnum::kLimitWeight, ArgIndex::kTarget},
+      ArgData{FieldEnum::kLimitSide, ArgIndex::kTarget},
+  };
+  static constexpr std::array<ArgData, 2> kOutputs = {
+      ArgData{FieldEnum::kLimitResidual, ArgIndex::kTarget},
+      ArgData{FieldEnum::kConstraintForce, ArgIndex::kTarget},
+  };
+  void operator()(
+      const Scalar& alpha,
+      const JointCoordinates& search,
+      const JointCoordinates& weight,
+      const JointCoordinates& side,
+      JointCoordinates* residual_out,
+      Force* constraint_force_out
+  ) const;
+};
+
+// WarmstartCostOp's limit half, added into the same two sums.
+struct WarmstartLimitCostOp : SolverOp {
+  static constexpr std::array<ArgData, 3> kInputs = {
+      ArgData{FieldEnum::kLimitResidual, ArgIndex::kTarget},
+      ArgData{FieldEnum::kLimitSearch, ArgIndex::kTarget},
+      ArgData{FieldEnum::kLimitWeight, ArgIndex::kTarget},
+  };
+  static constexpr std::array<ArgData, 2> kOutputs = {
+      ArgData{FieldEnum::kRowCostSmooth, ArgIndex::kTarget},
+      ArgData{FieldEnum::kRowCostWarm, ArgIndex::kTarget},
+  };
+  void operator()(
+      const JointCoordinates& residual,
+      const JointCoordinates& search,
+      const JointCoordinates& weight,
+      Scalar* smooth_out,
+      Scalar* warm_out
+  ) const;
+};
+
+// LineSearchRowsOp's limit half, added into the same two sums.
+struct LineSearchLimitsOp : SolverOp {
+  static constexpr std::array<ArgData, 4> kInputs = {
+      ArgData{FieldEnum::kStep, ArgIndex::kTarget},
+      ArgData{FieldEnum::kLimitResidual, ArgIndex::kTarget},
+      ArgData{FieldEnum::kLimitSearch, ArgIndex::kTarget},
+      ArgData{FieldEnum::kLimitWeight, ArgIndex::kTarget},
+  };
+  static constexpr std::array<ArgData, 2> kOutputs = {
+      ArgData{FieldEnum::kRowSlope, ArgIndex::kTarget},
+      ArgData{FieldEnum::kRowCurvature, ArgIndex::kTarget},
+  };
+  void operator()(
+      const Scalar& alpha,
+      const JointCoordinates& residual,
+      const JointCoordinates& search,
+      const JointCoordinates& weight,
       Scalar* slope_out,
       Scalar* curvature_out
   ) const;

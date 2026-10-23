@@ -49,7 +49,8 @@ struct SolverStep {
 using engine::pass::Pass;
 
 // Once per sim, after an ABAStep at the initial pose (mj_setConst's
-// setInertia0): every body's inverse inertia and body_invweight0.
+// setInertia0): every body's inverse inertia, body_invweight0 and
+// dof_invweight0.
 struct InvWeightStep : SolverStep<InvWeightStep> {
   static auto
   MakeOps(const SimConfig& /*sim_config*/, ScalarOperationT /*dt*/) {
@@ -59,8 +60,9 @@ struct InvWeightStep : SolverStep<InvWeightStep> {
   }
 };
 
-// Starts a tick's solve, after the narrow phase: qacc = qacc_smooth, every
-// contact row's aref, D and residual, and the warmstart choice -- the cost
+// Starts a tick's solve, after the collision pipeline: qacc = qacc_smooth,
+// every contact and limit row's aref, D and residual, and the warmstart
+// choice -- the cost
 // at the previous tick's qacc against the cost at qacc_smooth, along
 // search = qacc_warm - qacc_smooth, for the UpdateStep that follows to step
 // to.
@@ -72,22 +74,28 @@ struct SetupStep : SolverStep<SetupStep> {
             ApplyInertiaForwardOp<ContactSolverField::kQaccSmooth>,
             ForwardBatched>,
         Pass<SetupRowsOp, PairBatched>,
+        Pass<SetupLimitRowsOp, LinearBatched>,
         Pass<
             ApplyInertiaForwardOp<ContactSolverField::kSearch>,
             ForwardBatched>,
         Pass<ApplyInertiaBackwardOp, BackwardBatched>,
         Pass<ProjectSearchOp, PairBatched>,
+        Pass<ProjectLimitSearchOp, LinearBatched>,
         Pass<GaussTermsOp, LinearBatched>,
         Pass<WarmstartCostOp, PairBatched>,
+        Pass<WarmstartLimitCostOp, LinearBatched>,
         Pass<ChooseWarmstartOp, Global>>{
         BeginSolveOp{},
         ApplyInertiaForwardOp<ContactSolverField::kQaccSmooth>{},
         SetupRowsOp(dt),
+        SetupLimitRowsOp(dt),
         ApplyInertiaForwardOp<ContactSolverField::kSearch>{},
         ApplyInertiaBackwardOp{},
         ProjectSearchOp{},
+        ProjectLimitSearchOp{},
         GaussTermsOp{},
         WarmstartCostOp{},
+        WarmstartLimitCostOp{},
         ChooseWarmstartOp{},
     };
   }
@@ -104,11 +112,13 @@ struct DirectionStep : SolverStep<DirectionStep> {
             ForwardBatched>,
         Pass<ApplyInertiaBackwardOp, BackwardBatched>,
         Pass<ProjectSearchOp, PairBatched>,
+        Pass<ProjectLimitSearchOp, LinearBatched>,
         Pass<GaussTermsOp, LinearBatched>,
         Pass<BeginLineSearchOp, Global>>{
         ApplyInertiaForwardOp<ContactSolverField::kSearch>{},
         ApplyInertiaBackwardOp{},
         ProjectSearchOp{},
+        ProjectLimitSearchOp{},
         GaussTermsOp{},
         BeginLineSearchOp{},
     };
@@ -120,15 +130,18 @@ struct DirectionStep : SolverStep<DirectionStep> {
 struct LineSearchStep : SolverStep<LineSearchStep> {
   static auto
   MakeOps(const SimConfig& /*sim_config*/, ScalarOperationT /*dt*/) {
-    return engine::pass::
-        Ops<Pass<LineSearchRowsOp, PairBatched>, Pass<NewtonStepOp, Global>>{
-            LineSearchRowsOp{}, NewtonStepOp{}
-        };
+    return engine::pass::Ops<
+        Pass<LineSearchRowsOp, PairBatched>,
+        Pass<LineSearchLimitsOp, LinearBatched>,
+        Pass<NewtonStepOp, Global>>{
+        LineSearchRowsOp{}, LineSearchLimitsOp{}, NewtonStepOp{}
+    };
   }
 };
 
 // Steps qacc to alpha, then everything the next direction needs: each
-// row's force and the wrench it puts on both bodies, J^T f, the gradient,
+// contact row's force and the wrench it puts on both bodies, J^T f of
+// those, then each limit row's force added onto it, the gradient,
 // M^-1 of it, and the conjugate direction (steepest descent right after
 // SetupStep).
 struct UpdateStep : SolverStep<UpdateStep> {
@@ -138,6 +151,7 @@ struct UpdateStep : SolverStep<UpdateStep> {
         Pass<StepJointOp, LinearBatched>,
         Pass<ContactForceOp, PairBatched>,
         Pass<ConstraintForceOp, BackwardBatched>,
+        Pass<LimitForceOp, LinearBatched>,
         Pass<GradientOp, LinearBatched>,
         Pass<InverseInertiaBackwardOp, BackwardBatched>,
         Pass<InverseInertiaForwardOp, ForwardBatched>,
@@ -147,6 +161,7 @@ struct UpdateStep : SolverStep<UpdateStep> {
         StepJointOp{},
         ContactForceOp{},
         ConstraintForceOp{},
+        LimitForceOp{},
         GradientOp{},
         InverseInertiaBackwardOp{},
         InverseInertiaForwardOp{},
