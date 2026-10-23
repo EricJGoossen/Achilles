@@ -149,6 +149,120 @@ TEST(AssemblerRoundTrip, CompositeAssemblerWithNestedAndRepeatedChildren) {
   EXPECT_TRUE(read_back.IsApprox(value));
 }
 
+// Zero<T>() is what an accumulating output starts from (View::LoadOutput at
+// a BroadcastIndex): every leaf exactly zero, scalar and batched alike.
+TEST(AssemblerZero, EveryLeafIsZeroScalarAndBatched) {
+  using A = Vector3Assembler<float>;
+  using Batch = xsimd::batch<float>;
+
+  EXPECT_TRUE(A::Zero<float>().IsZero());
+  Vector3<Batch> batched = A::Zero<Batch>();
+  for (std::size_t lane = 0; lane < Batch::size; ++lane) {
+    EXPECT_FLOAT_EQ(batched.X().get(lane), 0.0F);
+    EXPECT_FLOAT_EQ(batched.Y().get(lane), 0.0F);
+    EXPECT_FLOAT_EQ(batched.Z().get(lane), 0.0F);
+  }
+}
+
+// Regression test: Zero() used to build every Target from zero children,
+// which for Inertia meant its constructor's physical-validity assert firing
+// on an all-zero body -- any reduced Inertia output (View::LoadOutput at a
+// BroadcastIndex) would abort. A Target with its own Zero() now builds it
+// that way.
+TEST(AssemblerZero, TargetWithAValidatingConstructorUsesItsOwnZero) {
+  using A = InertiaAssembler<float>;
+  Inertia<float> zero = A::Zero<float>();
+
+  EXPECT_FLOAT_EQ(zero.Mass(), 0.0F);
+  EXPECT_TRUE(zero.H().IsZero());
+  EXPECT_TRUE(zero.IsApprox(Inertia<float>::Zero()));
+}
+
+
+// Accumulate<float> is one plain += per leaf onto what the buffer holds.
+TEST(AssemblerAccumulate, ScalarAddsOntoTheStoredValue) {
+  using A = Vector3Assembler<float>;
+  std::size_t n = 4;
+  Buffer buf = MakeAssemblerBuffer<A>(n);
+  std::size_t stride = StrideFor<A>(n);
+
+  A::Write<float>(buf.Get(), stride, Vector3<float>(1.0F, 2.0F, 3.0F));
+  A::Accumulate<float>(buf.Get(), stride, Vector3<float>(0.5F, -1.0F, 4.0F));
+
+  EXPECT_TRUE(A::Read<float>(buf.Get(), stride)
+                  .IsApprox(Vector3<float>(1.5F, 1.0F, 7.0F)));
+}
+
+// Accumulate<batch> folds every lane of each leaf into that leaf's one
+// stored instance, and only that instance: instance 1 (the next element
+// of each leaf's run) must be untouched.
+TEST(AssemblerAccumulate, BatchSumsEveryLaneIntoTheOneInstance) {
+  using A = Vector3Assembler<float>;
+  using Batch = xsimd::batch<float>;
+  std::size_t n = 2 * Batch::size;
+  Buffer buf = MakeAssemblerBuffer<A>(n);
+  std::size_t stride = StrideFor<A>(n);
+  auto lanes = static_cast<float>(Batch::size);
+
+  A::Write<float>(buf.Get(), stride, Vector3<float>(10.0F, 20.0F, 30.0F));
+  A::Write<float>(
+      buf.Get() + sizeof(float), stride, Vector3<float>(7.0F, 7.0F, 7.0F)
+  );
+  A::Accumulate<Batch>(
+      buf.Get(), stride, Vector3<Batch>(Batch(1.0F), Batch(2.0F), Batch(-3.0F))
+  );
+
+  EXPECT_TRUE(A::Read<float>(buf.Get(), stride)
+                  .IsApprox(Vector3<float>(
+                      10.0F + lanes, 20.0F + (2.0F * lanes), 30.0F - (3.0F * lanes)
+                  )));
+  EXPECT_TRUE(A::Read<float>(buf.Get() + sizeof(float), stride)
+                  .IsApprox(Vector3<float>(7.0F, 7.0F, 7.0F)));
+}
+
+// The nested-Assembler half of AccumulateChild's dispatch: every leaf of a
+// composite, nested ones included, lands at its own field offset. Every
+// lane holds the stored body itself, so the result is that body scaled by
+// (1 + lanes) -- still physically valid for Inertia's constructor to read
+// back, and still distinct per leaf.
+TEST(AssemblerAccumulate, CompositeAssemblerAccumulatesEveryLeaf) {
+  using A = InertiaAssembler<float>;
+  using Batch = xsimd::batch<float>;
+  std::size_t n = Batch::size;
+  Buffer buf = MakeAssemblerBuffer<A>(n);
+  std::size_t stride = StrideFor<A>(n);
+  float scale = 1.0F + static_cast<float>(Batch::size);
+
+  Inertia<float> stored(
+      2.0F, Vector3<float>(0.1F, -0.2F, 0.3F), 2.0F, 3.0F, 4.0F, 0.1F, 0.2F, 0.3F
+  );
+  A::Write<float>(buf.Get(), stride, stored);
+  A::Accumulate<Batch>(
+      buf.Get(),
+      stride,
+      Inertia<Batch>(
+          Batch(2.0F),
+          Vector3<Batch>(Batch(0.1F), Batch(-0.2F), Batch(0.3F)),
+          Batch(2.0F),
+          Batch(3.0F),
+          Batch(4.0F),
+          Batch(0.1F),
+          Batch(0.2F),
+          Batch(0.3F)
+      )
+  );
+
+  Inertia<float> read_back = A::Read<float>(buf.Get(), stride);
+  EXPECT_FLOAT_EQ(read_back.Mass(), 2.0F * scale);
+  EXPECT_TRUE(read_back.H().IsApprox(Vector3<float>(0.1F, -0.2F, 0.3F) * scale));
+  EXPECT_FLOAT_EQ(read_back.Ixx(), 2.0F * scale);
+  EXPECT_FLOAT_EQ(read_back.Iyy(), 3.0F * scale);
+  EXPECT_FLOAT_EQ(read_back.Izz(), 4.0F * scale);
+  EXPECT_FLOAT_EQ(read_back.Ixy(), 0.1F * scale);
+  EXPECT_FLOAT_EQ(read_back.Ixz(), 0.2F * scale);
+  EXPECT_FLOAT_EQ(read_back.Iyz(), 0.3F * scale);
+}
+
 TEST(AssemblerKNumFields, CountsLeavesNotChildren) {
   // Vector3Assembler: 3 leaves from one RepeatTypes<3>.
   EXPECT_EQ(Vector3Assembler<float>::kNumFields, 3U);
@@ -196,6 +310,15 @@ using TwoVector3sAssembler =
 static_assert(AssemblerLike<TwoVector3sAssembler>);
 
 }  // namespace
+
+// The fallback for a Target with no Zero() of its own: built from each
+// child's zero, recursing into the nested Vector3Assemblers -- TwoVector3s
+// declares no Zero().
+TEST(AssemblerZero, TargetWithoutItsOwnZeroIsBuiltFromZeroChildren) {
+  TwoVector3s<float> zero = TwoVector3sAssembler::Zero<float>();
+  EXPECT_TRUE(zero.a.IsZero());
+  EXPECT_TRUE(zero.b.IsZero());
+}
 
 TEST(AssemblerRepeatTypesExplicitChildType, RoundTrips) {
   using A = TwoVector3sAssembler;

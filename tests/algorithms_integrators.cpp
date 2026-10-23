@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <filesystem>
@@ -8,16 +9,22 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
 #include "algorithms/aba/aba_data.hpp"
 #include "algorithms/aba/aba_step.hpp"
+#include "algorithms/broad_phase/broad_phase_step.hpp"
+#include "algorithms/contact_solver/contact_solver_step.hpp"
 #include "algorithms/conventions.hpp"
 #include "algorithms/integrators.hpp"
+#include "algorithms/joint_limit/joint_limit_step.hpp"
+#include "algorithms/narrow_phase/narrow_phase_step.hpp"
 #include "algorithms/registry.hpp"
 #include "algorithms/sim_config.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "interface/archetype_loader.hpp"
+#include "support/registered_sim.hpp"
 #include "support/temp_dir.hpp"
 #include "util/tmp.hpp"
 
@@ -408,4 +415,64 @@ TEST(IntegratorPendulum, ImplicitFastIsBitIdenticalToSemiImplicitEuler) {
       PendulumAngle(Integrator::kImplicitFast, 0.0625F, 1.0F),
       PendulumAngle(Integrator::kSemiImplicitEuler, 0.0625F, 1.0F)
   );
+}
+
+// ---------------------------------------------------------------------------
+// The collision pipeline, the one-time Setup list, and the solve inside
+// semi-implicit Euler's tick.
+// ---------------------------------------------------------------------------
+
+// Collision is the broad phase, then the narrow phase over its pairs, then
+// the joint-limit detector -- the three Steps that leave contacts and limit
+// rows for the solver.
+static_assert(std::is_same_v<
+              achilles::algorithms::Collision,
+              TypeList<
+                  achilles::algorithms::broad_phase::BroadPhaseStep,
+                  achilles::algorithms::narrow_phase::NarrowPhaseStep,
+                  achilles::algorithms::joint_limit::JointLimitStep>>);
+
+// Setup is mj_setConst: ABA at the initial pose, then the solver's inverse
+// weights from its factors.
+static_assert(std::is_same_v<
+              achilles::algorithms::Setup,
+              TypeList<
+                  ABAStep,
+                  achilles::algorithms::contact_solver::InvWeightStep>>);
+
+// A pendulum dropped from horizontal swings far past 0.5 rad free (see
+// IntegratorPendulum above); with an upper limit at 0.5 rad, semi-implicit
+// Euler's tick -- ABA, collision, the solve, then VI/PI integrating the
+// constrained qacc -- holds it there: it may sink into the soft limit
+// briefly on impact, but comes to rest at it.
+TEST(IntegratorJointLimit, SemiImplicitEulerHoldsAPendulumAtItsLimit) {
+  using achilles::test_support::Dof0LimitFields;
+  using achilles::test_support::MakeRegisteredSim;
+  using achilles::test_support::RegisteredSim;
+  using achilles::test_support::RevoluteZJointArow;
+  constexpr ScalarOperationT kDt = 0.002F;
+
+  TempDir dir;
+  RegisteredSim sim = MakeRegisteredSim(
+      dir,
+      RevoluteZJointArow(
+          "joint", "", kPendulumInertia, 0.0F, 0.0F,
+          Dof0LimitFields(-0.5F, 0.5F)
+      )
+  );
+  SimConfig config = PendulumConfig();
+  sim.SimContext().Step<achilles::algorithms::Setup>(0.0F, config);
+
+  double max_angle = 0.0;
+  ScalarOperationT angle = 0.0F;
+  for (int tick = 0; tick < 1000; ++tick) {
+    StepFnFor(Integrator::kSemiImplicitEuler)(sim.SimContext(), config, kDt);
+    auto q = sim.ViewFor<ABAAlgorithm>()
+                 .Load<ABAField::kJointPosition, ScalarOperationT>(0);
+    angle = 2.0F * std::atan2(q.Rotation().Z(), q.Rotation().W());
+    max_angle = std::max(max_angle, static_cast<double>(angle));
+  }
+
+  EXPECT_LT(max_angle, 0.6);
+  EXPECT_NEAR(angle, 0.5F, 0.01F);
 }

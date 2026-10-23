@@ -355,6 +355,15 @@ class Assembler {
     Child::template Accumulate<TargetScalar>(field0, field_stride_bytes, value);
   }
 
+  // A Target with its own Zero() builds it that way: a type whose
+  // constructor validates its parts (Inertia's physical-validity assert)
+  // rejects all-zero parts, but its own Zero() is exactly every leaf zero,
+  // built without that check. Anything else is built from zero children.
+  template <typename TargetScalar, size_t... Is>
+    requires requires { Target<TargetScalar>::Zero(); }
+  static Target<TargetScalar> ZeroImpl(std::index_sequence<Is...>) {
+    return Target<TargetScalar>::Zero();
+  }
   template <typename TargetScalar, size_t... Is>
   static Target<TargetScalar> ZeroImpl(std::index_sequence<Is...>) {
     return Target<TargetScalar>(

@@ -367,3 +367,54 @@ TEST(LinearTraversalStride, ForwardDividesSizeIntoGroups) {
       calls, (std::vector<std::pair<size_t, size_t>>{{0, 0}, {1, 1}, {2, 2}})
   );
 }
+
+// ---------------------------------------------------------------------------
+// GlobalTraversal: one call at index 0, for an Op over GlobalIndexing
+// fields. It takes whatever the Step call's other traversals take and
+// ignores it, so it can sit in the same Ops list as tree/linear/pair passes.
+// Always Stride 1 -- there's only the one element -- so TESTING.md 9.4's
+// lane sizes don't apply to it.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+using achilles::engine::pass::GlobalTraversal;
+
+static_assert(TraversalLike<GlobalTraversal>);
+static_assert(GlobalTraversal::kStride == 1);
+static_assert(GlobalTraversal::kDirection == Direction::kForward);
+
+}  // namespace
+
+// Exactly one call, (0, 0) -- whatever the topology it's handed holds,
+// including nothing at all. A sim's global scalars still need updating on a
+// tick with no rows to reduce over.
+TEST(GlobalTraversalApply, CallsOnceAtZeroWhateverTheTopology) {
+  for (std::size_t size : {0U, 1U, 7U}) {
+    std::vector<std::pair<size_t, size_t>> visits;
+    TopologyArchetype topology{std::vector<size_t>(size, 0)};
+    GlobalTraversal::Apply(
+        [&](size_t target, size_t source) { visits.emplace_back(target, source); },
+        topology
+    );
+    ASSERT_EQ(visits.size(), 1U);
+    EXPECT_EQ(visits[0].first, 0U);
+    EXPECT_EQ(visits[0].second, 0U);
+  }
+}
+
+// Any further arguments (a Step call's topology, or none) are ignored.
+TEST(GlobalTraversalApply, AcceptsNoTopologyArgument) {
+  std::size_t calls = 0;
+  GlobalTraversal::Apply([&](size_t, size_t) { ++calls; });
+  EXPECT_EQ(calls, 1U);
+}
+
+// Initialize runs at that same index 0, unconditionally -- unlike the
+// tree/linear traversals, which skip it for an empty topology, since the
+// one global element always exists.
+TEST(GlobalTraversalInitOp, AlwaysInitializesAtZero) {
+  size_t seen = 999;
+  GlobalTraversal::InitOp(RecordingInitOp{&seen}, TopologyArchetype{{}});
+  EXPECT_EQ(seen, 0U);
+}

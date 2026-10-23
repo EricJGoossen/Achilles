@@ -9,6 +9,8 @@
 
 #include "algorithms/aba/aba_data.hpp"
 #include "algorithms/aba/aba_step.hpp"
+#include "algorithms/contact_solver/contact_solver_data.hpp"
+#include "algorithms/contact_solver/contact_solver_step.hpp"
 #include "algorithms/conventions.hpp"
 #include "algorithms/sim_config.hpp"
 #include "domain/archetype.hpp"
@@ -759,4 +761,49 @@ TEST(Simulation, SetIntegratorAfterInitTakesEffectOnTheNextStep) {
   ASSERT_TRUE(sim.Step(kOneTickDt));
 
   EXPECT_NEAR(JointAngleZ(sim), kExactOneTickAngle, 1e-6F);
+}
+
+// Init runs algorithms::Setup (mj_setConst) once, before any Step: the
+// contact solver's inverse weights exist straight after Init. The joint's
+// Izz = 4 on a fixed base, so dof_invweight0 = 1 / 4 and body_invweight0's
+// rotational mean is (1 / 4) / 3.
+TEST(Simulation, InitRunsTheSetupListBeforeAnyStep) {
+  using achilles::algorithms::contact_solver::ContactSolverAlgorithm;
+  using achilles::algorithms::contact_solver::ContactSolverField;
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.3F);
+
+  auto view = sim.ViewFor<ContactSolverAlgorithm>();
+  EXPECT_NEAR(
+      (view.Load<ContactSolverField::kDofInvWeight, float>(0)[0]), 0.25F, 1e-6F
+  );
+  EXPECT_NEAR(
+      (view.Load<ContactSolverField::kInvWeight, float>(0)(1, 0)),
+      0.25F / 3.0F,
+      1e-6F
+  );
+}
+
+// End to end from an .arow file: a constant torque spins a joint up
+// without bound (qdd = tau / Izz), but a joint_range_upper of 0.5 stops it
+// there, through Simulation::Step's default tick.
+TEST(Simulation, JointLimitFromArowStopsTheJoint) {
+  TempDir dir;
+  std::filesystem::path file = dir.Write(
+      "base.arow",
+      MakeRevoluteZArow(0.0F, 0.0F, 4.0F) +
+          "      joint_limited: [1]\n"
+          "      joint_range_lower: [-0.5, 0,0,0,0,0]\n"
+          "      joint_range_upper: [0.5, 0,0,0,0,0]\n"
+          "      joint_limit_margin: [0]\n"
+  );
+  Simulation sim;
+  ASSERT_TRUE(sim.LoadArowFile(file.string()));
+  ASSERT_TRUE(sim.Init());
+
+  for (int tick = 0; tick < 1000; ++tick) {
+    ASSERT_TRUE(sim.Step(0.002F));
+  }
+
+  EXPECT_NEAR(JointAngleZ(sim), 0.5F, 0.01F);
 }

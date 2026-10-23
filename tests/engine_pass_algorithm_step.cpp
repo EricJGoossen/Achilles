@@ -3,14 +3,17 @@
 #include <array>
 #include <cstddef>
 #include <vector>
+#include <xsimd/xsimd.hpp>
 
 #include "domain/joint_topology.hpp"
+#include "domain/math/scalar.hpp"
 #include "domain/math/vector3.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/op_contract.hpp"
 #include "engine/pass/algorithm_step.hpp"
 #include "engine/pass/traversals.hpp"
 #include "support/toy_field.hpp"
+#include "support/toy_reduce_field.hpp"
 
 using achilles::domain::math::Vector3;
 using achilles::engine::ArgData;
@@ -378,4 +381,115 @@ TEST(StepTest, OpWithoutInitStillWorks) {
   EXPECT_TRUE((view.Load<ToyField::kVelocity, float>(0).IsApprox(
       Vector3<float>(1.0F, 0.0F, 0.0F)
   )));
+}
+
+// ---------------------------------------------------------------------------
+// Reductions across one Ops list: the contact solver's pattern (e.g.
+// WarmstartCostOp then WarmstartLimitCostOp, then ChooseWarmstartOp) -- a
+// batched pass whose Initialize zeroes a GlobalIndexing sum and reduces
+// into it, a second batched pass with no Initialize adding onto that, and a
+// GlobalTraversal Op reading the result.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+using achilles::domain::math::Scalar;
+using achilles::engine::pass::GlobalTraversal;
+using achilles::engine::pass::LinearTraversal;
+using achilles::test_support::MakeToyReduceSim;
+using achilles::test_support::ToyReduceAlgorithm;
+using achilles::test_support::ToyReduceField;
+using achilles::test_support::ToyReduceView;
+using ReduceBatch = xsimd::batch<float>;
+using BatchedLinear = LinearTraversal<
+    achilles::engine::pass::Direction::kForward,
+    ReduceBatch::size>;
+
+// total = 0 at the start of the pass (a scalar Initialize, so a plain
+// write), then total += sum of every row's value.
+struct StartSumOp {
+  using FieldEnum = ToyReduceField;
+  static constexpr std::array<ArgData<FieldEnum>, 0> kInitInputs = {};
+  static constexpr std::array<ArgData<FieldEnum>, 1> kInitOutputs = {
+      ArgData<FieldEnum>{FieldEnum::kTotal, ArgIndex::kTarget},
+  };
+  void Initialize(Scalar<float>* total_out) const {
+    *total_out = Scalar<float>(0.0F);
+  }
+
+  static constexpr std::array<ArgData<FieldEnum>, 1> kInputs = {
+      ArgData<FieldEnum>{FieldEnum::kValue, ArgIndex::kTarget},
+  };
+  static constexpr std::array<ArgData<FieldEnum>, 1> kOutputs = {
+      ArgData<FieldEnum>{FieldEnum::kTotal, ArgIndex::kTarget},
+  };
+  void operator()(
+      const Scalar<ReduceBatch>& value, Scalar<ReduceBatch>* total_out
+  ) const {
+    *total_out += value;
+  }
+};
+static_assert(OpHasInit<StartSumOp>);
+
+// total += sum of 10 * every row's value, onto whatever StartSumOp left.
+struct AddToSumOp {
+  using FieldEnum = ToyReduceField;
+  static constexpr std::array<ArgData<FieldEnum>, 1> kInputs = {
+      ArgData<FieldEnum>{FieldEnum::kValue, ArgIndex::kTarget},
+  };
+  static constexpr std::array<ArgData<FieldEnum>, 1> kOutputs = {
+      ArgData<FieldEnum>{FieldEnum::kTotal, ArgIndex::kTarget},
+  };
+  void operator()(
+      const Scalar<ReduceBatch>& value, Scalar<ReduceBatch>* total_out
+  ) const {
+    *total_out += value * Scalar<ReduceBatch>(ReduceBatch(10.0F));
+  }
+};
+static_assert(!OpHasInit<AddToSumOp>);
+
+// total = total + 1, once -- a whole-sim update reading both reductions.
+struct FinishSumOp {
+  using FieldEnum = ToyReduceField;
+  static constexpr std::array<ArgData<FieldEnum>, 0> kInputs = {};
+  static constexpr std::array<ArgData<FieldEnum>, 1> kOutputs = {
+      ArgData<FieldEnum>{FieldEnum::kTotal, ArgIndex::kTarget},
+  };
+  void operator()(Scalar<float>* total_out) const {
+    *total_out = Scalar<float>(total_out->Value() + 1.0F);
+  }
+};
+
+}  // namespace
+
+// A stale total from the previous Step is reset by StartSumOp's Initialize,
+// both batched reductions land (the second on top of the first), and the
+// GlobalTraversal Op runs once, after both, on their sum.
+TEST(StepTest, ReductionsAcrossPassesFeedAGlobalTraversalOp) {
+  std::size_t rows = 2 * ReduceBatch::size;
+  SimAllocator<ToyReduceAlgorithm> sim = MakeToyReduceSim(rows);
+  ToyReduceView view = sim.ViewFor<ToyReduceAlgorithm>();
+  for (std::size_t row = 0; row < rows; ++row) {
+    view.Store<ToyReduceField::kValue, float>(
+        row, Scalar<float>(static_cast<float>(row + 1))
+    );
+  }
+  view.Store<ToyReduceField::kTotal, float>(0, Scalar<float>(999.0F));
+
+  Step(
+      Ops<Pass<StartSumOp, BatchedLinear>,
+          Pass<AddToSumOp, BatchedLinear>,
+          Pass<FinishSumOp, GlobalTraversal>>(
+          StartSumOp{}, AddToSumOp{}, FinishSumOp{}
+      ),
+      view,
+      std::size_t{rows}
+  );
+
+  auto n = static_cast<float>(rows);
+  float sum = n * (n + 1.0F) * 0.5F;
+  EXPECT_FLOAT_EQ(
+      (view.Load<ToyReduceField::kTotal, float>(0).Value()),
+      (11.0F * sum) + 1.0F
+  );
 }
