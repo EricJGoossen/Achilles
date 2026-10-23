@@ -6,6 +6,7 @@
 #include "engine/topology/indexing_policy.hpp"
 #include "engine/topology/layout_policy.hpp"
 #include "engine/topology/ordering_policy.hpp"
+#include "util/tmp.hpp"
 
 namespace achilles::engine::memory {
 
@@ -50,51 +51,40 @@ constexpr const void* SlotId() noexcept {
 template <typename EnumT, template <EnumT> class Traits, EnumT F>
 concept FieldIsShared = requires { typename Traits<F>::SharedAs; };
 
-template <typename EnumT, template <EnumT> class Traits, EnumT F>
-concept FieldHasOrdering = requires { typename Traits<F>::Ordering; };
+namespace detail {
+
+// Each optional policy a Traits<F> may declare, as the util::DetectedOrT
+// probe for it (util/tmp.hpp).
+template <typename T>
+using DeclaredOrdering = typename T::Ordering;
+template <typename T>
+using DeclaredIndexing = typename T::Indexing;
+
+// Identity aliases whose constraint rejects a declared policy that doesn't
+// satisfy its concept, naming that concept in the error.
+template <topology::OrderingPolicyLike P>
+using CheckedOrdering = P;
+template <topology::IndexingPolicyLike P>
+using CheckedIndexing = P;
+
+}  // namespace detail
 
 template <typename EnumT, template <EnumT> class Traits, EnumT F>
-struct ResolvedFieldOrdering {
-  using Type = topology::LinearOrdering;
-};
-
-template <typename EnumT, template <EnumT> class Traits, EnumT F>
-  requires FieldHasOrdering<EnumT, Traits, F>
-struct ResolvedFieldOrdering<EnumT, Traits, F> {
-  using Type = typename Traits<F>::Ordering;
-  static_assert(
-      topology::OrderingPolicyLike<Type>,
-      "Traits<F>::Ordering, if declared, must satisfy OrderingPolicyLike."
-  );
-};
-
-template <typename EnumT, template <EnumT> class Traits, EnumT F>
-using FieldOrderingT = typename ResolvedFieldOrdering<EnumT, Traits, F>::Type;
+using FieldOrderingT = detail::CheckedOrdering<util::DetectedOrT<
+    topology::LinearOrdering,
+    detail::DeclaredOrdering,
+    Traits<F>>>;
 
 // Optional, like Ordering: no Indexing -> topology::RowIndexing (one value
 // per row, every field's shape before index spaces existed). A field that
 // holds one value per pair of rows (e.g. a broad phase's overlap result)
 // names topology::PairGroupIndexing instead -- see indexing_policy.hpp.
 template <typename EnumT, template <EnumT> class Traits, EnumT F>
-concept FieldHasIndexing = requires { typename Traits<F>::Indexing; };
+using FieldIndexingT = detail::CheckedIndexing<util::DetectedOrT<
+    topology::RowIndexing,
+    detail::DeclaredIndexing,
+    Traits<F>>>;
 
-template <typename EnumT, template <EnumT> class Traits, EnumT F>
-struct ResolvedFieldIndexing {
-  using Type = topology::RowIndexing;
-};
-
-template <typename EnumT, template <EnumT> class Traits, EnumT F>
-  requires FieldHasIndexing<EnumT, Traits, F>
-struct ResolvedFieldIndexing<EnumT, Traits, F> {
-  using Type = typename Traits<F>::Indexing;
-  static_assert(
-      topology::IndexingPolicyLike<Type>,
-      "Traits<F>::Indexing, if declared, must satisfy IndexingPolicyLike."
-  );
-};
-
-template <typename EnumT, template <EnumT> class Traits, EnumT F>
-using FieldIndexingT = typename ResolvedFieldIndexing<EnumT, Traits, F>::Type;
 
 template <typename EnumT, template <EnumT> class Traits, EnumT F>
 concept FieldHasLayout = requires { typename Traits<F>::Layout; };

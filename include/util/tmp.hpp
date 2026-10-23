@@ -143,6 +143,25 @@ struct Transform<F, TypeList<Ts...>> {
 template <template <typename> class F, typename List>
 using TransformT = typename Transform<F, List>::Type;
 
+// Op<Args...> if that names a valid type, Default otherwise -- an optional
+// member type with a fallback (std::experimental::detected_or). Op is usually
+// an alias template naming one member, e.g.
+//   template <typename T> using OrderingOf = typename T::Ordering;
+//   DetectedOrT<LinearOrdering, OrderingOf, Traits<F>>
+template <typename Default, template <typename...> class Op, typename... Args>
+struct DetectedOr {
+  using Type = Default;
+};
+
+template <typename Default, template <typename...> class Op, typename... Args>
+  requires requires { typename Op<Args...>; }
+struct DetectedOr<Default, Op, Args...> {
+  using Type = Op<Args...>;
+};
+
+template <typename Default, template <typename...> class Op, typename... Args>
+using DetectedOrT = typename DetectedOr<Default, Op, Args...>::Type;
+
 // True when T is one of Ts....
 template <typename T, typename... Ts>
 inline constexpr bool kIsOneOfV = (std::is_same_v<T, Ts> || ...);
