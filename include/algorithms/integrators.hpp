@@ -11,6 +11,7 @@
 #include "algorithms/broad_phase/broad_phase_step.hpp"
 #include "algorithms/contact_solver/contact_solver_step.hpp"
 #include "algorithms/conventions.hpp"
+#include "algorithms/joint_limit/joint_limit_step.hpp"
 #include "algorithms/midpoint/midpoint_step.hpp"
 #include "algorithms/narrow_phase/narrow_phase_step.hpp"
 #include "algorithms/pi/pi_step.hpp"
@@ -33,10 +34,14 @@ namespace achilles::algorithms {
 
 // The collision pipeline: the broad phase's candidate pairs, then the
 // narrow phase's contacts for them (algorithms/broad_phase,
-// algorithms/narrow_phase). Both read only the world pose ABA last wrote,
-// so it runs anywhere after an ABAStep and sees that evaluation's pose.
-using Collision =
-    util::TypeList<broad_phase::BroadPhaseStep, narrow_phase::NarrowPhaseStep>;
+// algorithms/narrow_phase), and every joint's limit rows
+// (algorithms/joint_limit). The two phases read only the world pose ABA
+// last wrote and the limit detector only q, so it runs anywhere after an
+// ABAStep and sees that evaluation's pose.
+using Collision = util::TypeList<
+    broad_phase::BroadPhaseStep,
+    narrow_phase::NarrowPhaseStep,
+    joint_limit::JointLimitStep>;
 
 // mj_step's order: ABA solves for the unconstrained qdd at (q, qd), the
 // collision pipeline finds this pose's contacts, the contact solver

@@ -37,6 +37,13 @@ class Transform {
   }
   static constexpr Transform<T> PaddingSeed() { return Identity(); }
 
+  // Exp's inverse: the rotation's rotation vector and the translation as
+  // is, (angular, linear) -- so Exp(Log(x)) == x, and a joint's coordinate
+  // along a subspace column s is s . Log(x).
+  constexpr SpatialPosition<T> Log() const {
+    return {rotation_.Log(), translation_};
+  }
+
   // Access
   constexpr const Vector3& Translation() const { return translation_; }
   constexpr const Quaternion& Rotation() const { return rotation_; }

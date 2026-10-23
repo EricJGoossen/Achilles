@@ -59,5 +59,12 @@ struct ContactNormalSlot;
 struct ContactDistanceSlot;
 struct ContactPointSlot;
 struct ContactActiveSlot;
+// The joint-limit detector's rows (joint_limit/joint_limit_data.hpp) and the
+// margin they were detected within -- shared so a solver reads them as
+// written, the same way it reads the narrow phase's contacts.
+struct JointLimitMarginSlot;
+struct JointLimitDistanceSlot;
+struct JointLimitSideSlot;
+struct JointLimitActiveSlot;
 
 }  // namespace achilles::algorithms
