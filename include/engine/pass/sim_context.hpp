@@ -1,14 +1,17 @@
 #pragma once
 
+#include <cassert>
 #include <cstddef>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 
 #include "algorithms/conventions.hpp"
+#include "domain/joint_layout.hpp"
 #include "domain/joint_topology.hpp"
 #include "engine/algorithm_contract.hpp"
 #include "engine/memory/binding.hpp"
+#include "engine/memory/buffering_policy.hpp"
 #include "engine/topology/layout_policy.hpp"
 #include "engine/view/view_contract.hpp"
 #include "util/tmp.hpp"
@@ -63,9 +66,15 @@ using UsedOrderingsFor = util::UniqueT<
 // needed a wrapper like this: ViewFactory<EnumT, Traits> already produces a
 // distinct type per Algorithm, so std::tuple<Algorithms::View...> has no
 // such collision to begin with.
+//
+// Also carries the policy's JointLayout -- which real (instance, joint)
+// each row holds, and which rows are padding -- for anything that
+// addresses a specific joint after construction. Both are views into the
+// Arena, so the slot stays trivially copyable.
 template <typename Policy>
 struct TopologySlot {
   domain::JointTopology topology;
+  domain::JointLayout layout;
 };
 
 // The concrete tuple type SimContext<Algorithms...> stores its topologies
@@ -97,11 +106,18 @@ using TopologyTupleFor = util::ToTupleT<
 template <AlgorithmLike... Algorithms>
 class SimContext {
  public:
+  // `parity` is the sim-wide memory::BufferParity every View in `views` was
+  // built over (see memory/buffering_policy.hpp) -- only needed by
+  // SwapBuffers, so a context hosting no double-buffered field may leave it
+  // null.
   SimContext(
       TopologyTupleFor<Algorithms...> topologies,
-      std::tuple<typename Algorithms::View...> views
+      std::tuple<typename Algorithms::View...> views,
+      memory::BufferParity* parity = nullptr
   )
-      : topologies_(std::move(topologies)), views_(std::move(views)) {}
+      : topologies_(std::move(topologies)),
+        views_(std::move(views)),
+        parity_(parity) {}
 
   // Keyed by the Policy type itself, via std::get on topologies_ -- a Step
   // function names its own ordering policy the same way it names its own
@@ -110,6 +126,12 @@ class SimContext {
   template <topology::LayoutPolicyLike Policy>
   const domain::JointTopology& TopologyFor() const {
     return std::get<TopologySlot<Policy>>(topologies_).topology;
+  }
+
+  // Where the same ordering policy placed each joint -- see TopologySlot.
+  template <topology::LayoutPolicyLike Policy>
+  const domain::JointLayout& LayoutFor() const {
+    return std::get<TopologySlot<Policy>>(topologies_).layout;
   }
 
   // The original, Algorithm-keyed overload -- kept for existing external
@@ -135,6 +157,30 @@ class SimContext {
     requires(!AlgorithmLike<ViewT>)
   ViewT ViewFor() const {
     return std::get<ViewT>(views_);
+  }
+
+  // Swaps every double-buffered field's halves (memory::DoubleBuffered):
+  // what outside writers accumulated since the last swap becomes what every
+  // View reads, and the half the sim was reading -- including anything it
+  // wrote there as scratch -- is reset to the field's rest contents and
+  // handed back to the writers. One flip of the shared parity covers every
+  // View, including copies of this context or of its Views taken earlier,
+  // since they all read that same parity. A shared field visited through
+  // several Views is reset once per View, which is harmless (the same
+  // copy, repeated).
+  //
+  // Not part of Step: a tick swaps once, at its start, however many times
+  // its step list reads the field -- interface::Simulation::Step owns that.
+  void SwapBuffers() {
+    assert(
+        parity_ != nullptr &&
+        "SimContext::SwapBuffers: this context was built without a "
+        "BufferParity."
+    );
+    parity_->value ^= 1U;
+    std::apply(
+        [](const auto&... views) { (views.ResetWriteBuffers(), ...); }, views_
+    );
   }
 
   // Runs every Step in StepList (a util::TypeList of StepLike types, see
@@ -175,6 +221,7 @@ class SimContext {
  private:
   TopologyTupleFor<Algorithms...> topologies_;
   std::tuple<typename Algorithms::View...> views_;
+  memory::BufferParity* parity_;
 };
 
 // Nominal (not duck-typed) check that SimStateT is actually some

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cassert>
 #include <concepts>
 #include <cstddef>
 #include <tuple>
@@ -11,28 +12,32 @@
 #include "engine/assembler.hpp"
 #include "engine/field_contract.hpp"
 #include "engine/memory/binding.hpp"
+#include "engine/memory/buffering_policy.hpp"
 #include "engine/topology/indexing_policy.hpp"
 #include "engine/topology/layout_policy.hpp"
 #include "util/simd_ops.hpp"
 
 namespace achilles::engine::view {
 
-// One field's (memory-style, packing, index-space) triple. Bundled rather
-// than kept as parallel template packs, because a View's fields are
+// One field's (memory-style, packing, index-space, buffering) tuple. Bundled
+// rather than kept as parallel template packs, because a View's fields are
 // heterogeneous per-field, not uniform: there is no way to zip an
 // independent Policies... pack against an Assemblers... pack and know
 // Policies[i] belongs to Assemblers[i] specifically. ViewFactory builds this
 // pack from Traits (see view_factory.hpp); nothing else needs to construct
-// one by hand. IndexingT defaults to topology::RowIndexing, the same default
-// memory::FieldIndexingT resolves a Traits<F> with no Indexing to.
+// one by hand. IndexingT defaults to topology::RowIndexing and BufferingT to
+// memory::SingleBuffered, the same defaults memory::FieldIndexingT/
+// FieldBufferingT resolve a Traits<F> naming neither to.
 template <
     topology::LayoutPolicyLike PolicyT,
     AssemblerLike AssemblerT,
-    topology::IndexingPolicyLike IndexingT = topology::RowIndexing>
+    topology::IndexingPolicyLike IndexingT = topology::RowIndexing,
+    memory::BufferingPolicyLike BufferingT = memory::SingleBuffered>
 struct FieldBinding {
   using Layout = PolicyT;
   using Assembler = AssemblerT;
   using Indexing = IndexingT;
+  using Buffering = BufferingT;
 };
 
 template <typename T>
@@ -41,9 +46,11 @@ concept FieldBindingLike =
       typename T::Layout;
       typename T::Assembler;
       typename T::Indexing;
+      typename T::Buffering;
     } && topology::LayoutPolicyLike<typename T::Layout> &&
     AssemblerLike<typename T::Assembler> &&
-    topology::IndexingPolicyLike<typename T::Indexing>;
+    topology::IndexingPolicyLike<typename T::Indexing> &&
+    memory::BufferingPolicyLike<typename T::Buffering>;
 
 // A field-indexed view over externally-owned memory: every field's own
 // (memory-style Layout policy, Assembler) pair is resolved independently
@@ -69,8 +76,19 @@ class View {
   // elements, i.e. num_instances for an ordinary row-indexed field --
   // independently placed by the allocator regardless of which Layout policy
   // it uses -- there is no shared arena to compute cross-field offsets into.
-  View(std::array<std::byte*, kNumTypes> type_bases, size_t num_instances)
-      : type_bases_(type_bases), num_instances_(num_instances) {}
+  // A double-buffered field's base is the start of its whole
+  // [rest | half 0 | half 1] region (see memory::DoubleBuffered), and
+  // `parity` is the sim-wide flag saying which half is read this tick --
+  // only ever dereferenced for such a field, so a View with none may leave
+  // it null.
+  View(
+      std::array<std::byte*, kNumTypes> type_bases,
+      size_t num_instances,
+      const memory::BufferParity* parity = nullptr
+  )
+      : type_bases_(type_bases),
+        num_instances_(num_instances),
+        parity_(parity) {}
 
   template <EnumT F>
   using Binding = std::tuple_element_t<static_cast<size_t>(F), BindingTuple>;
@@ -89,6 +107,11 @@ class View {
   // (target, source) pair resolves to one of them.
   template <EnumT F>
   using FieldIndexing = typename Binding<F>::Indexing;
+
+  // Field F's own buffering policy (see memory/buffering_policy.hpp): how
+  // many copies of its block exist and which one Load/Store/Field reach.
+  template <EnumT F>
+  using FieldBuffering = typename Binding<F>::Buffering;
 
   template <EnumT F>
   using Scalar = typename Assembler<F>::ScalarType;
@@ -221,6 +244,29 @@ class View {
     );
   }
 
+  // A handle to (row, leaf) of double-buffered field F's write half -- the
+  // half the sim is not reading this tick (see memory::BufferedScalar).
+  // `leaf` is the scalar's position in F's Assembler flattening order.
+  template <EnumT F>
+    requires std::same_as<FieldBuffering<F>, memory::DoubleBuffered>
+  memory::BufferedScalar<Scalar<F>> WriteSlot(size_t row, size_t leaf) const {
+    assert(row < FieldIndexing<F>::Count(num_instances_));
+    assert(leaf < Assembler<F>::kNumFields);
+    std::byte* rest_element =
+        type_bases_[static_cast<size_t>(F)] + (leaf * FieldStrideBytes<F>()) +
+        (row * FieldLayout<F>::template ElementStrideBytes<Assembler<F>>());
+    return memory::BufferedScalar<Scalar<F>>(
+        rest_element, FieldBlockBytes<F>(), parity_
+    );
+  }
+
+  // Resets every double-buffered field's write half to its rest contents
+  // (memory::DoubleBuffered::ResetWrite); a no-op for every other field.
+  // Called by pass::SimContext::SwapBuffers right after the parity flips.
+  void ResetWriteBuffers() const {
+    ResetWriteBuffers(std::make_index_sequence<kNumTypes>{});
+  }
+
  private:
   // Byte distance between field F's own sub-fields -- entirely owned by F's
   // own Layout policy, never a formula this class inlines itself, so each
@@ -238,15 +284,37 @@ class View {
   // policy-dependent (e.g. topology::PlanarLayout's ElementStrideBytes<A>()
   // is one scalar wide, sizeof(Scalar<F>), but a different policy answers
   // this however its own storage shape requires).
+  // For a double-buffered field, offset into whichever half the sim reads
+  // this tick (FieldBuffering<F>::ReadOffset -- always 0 for any other
+  // field).
   template <EnumT F>
   std::byte* FieldZero(size_t instance) const {
     return type_bases_[static_cast<size_t>(F)] +
+           FieldBuffering<F>::ReadOffset(parity_, FieldBlockBytes<F>()) +
            instance *
                FieldLayout<F>::template ElementStrideBytes<Assembler<F>>();
   }
 
+  // Bytes of ONE copy of field F's block -- the distance between a
+  // double-buffered field's rest block and each of its halves.
+  template <EnumT F>
+  size_t FieldBlockBytes() const {
+    return FieldLayout<F>::template BlockBytes<Assembler<F>>(
+        FieldIndexing<F>::Count(num_instances_)
+    );
+  }
+
+  template <size_t... Is>
+  void ResetWriteBuffers(std::index_sequence<Is...> /*fields*/) const {
+    (FieldBuffering<static_cast<EnumT>(Is)>::ResetWrite(
+         type_bases_[Is], parity_, FieldBlockBytes<static_cast<EnumT>(Is)>()
+     ),
+     ...);
+  }
+
   std::array<std::byte*, kNumTypes> type_bases_;
   size_t num_instances_;
+  const memory::BufferParity* parity_;
 };
 
 }  // namespace achilles::engine::view

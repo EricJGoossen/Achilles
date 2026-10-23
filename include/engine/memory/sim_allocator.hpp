@@ -6,6 +6,7 @@
 #include <cassert>
 #include <cstddef>
 #include <initializer_list>
+#include <memory>
 #include <span>
 #include <string_view>
 #include <tuple>
@@ -16,14 +17,16 @@
 #include <vector>
 
 #include "domain/archetype.hpp"
+#include "domain/joint_layout.hpp"
 #include "domain/joint_topology.hpp"
 #include "engine/algorithm_contract.hpp"
 #include "engine/field_contract.hpp"
 #include "engine/memory/arena.hpp"
 #include "engine/memory/binding.hpp"
 #include "engine/pass/sim_context.hpp"
-#include "engine/topology/layout.hpp"
 #include "engine/topology/layout_policy.hpp"
+#include "engine/topology/ordering_plan.hpp"
+#include "engine/topology/ordering_policy.hpp"
 #include "engine/view/view.hpp"
 #include "engine/view/view_factory.hpp"
 #include "util/tmp.hpp"
@@ -37,15 +40,17 @@ using domain::ArchetypeTreeStructure;
 
 namespace detail {
 
-// One Layout per distinct ordering policy actually named by some field of
-// some hosted Algorithm, keyed by SlotId<Policy>() -- the same "distinct
-// link-time address per type" trick SlotId already uses for SharedAs tags,
-// reused here since an ordering policy is just another type identity that
-// needs a runtime-comparable key. There is no single program-wide Layout:
-// a field's own row order is entirely a function of its own
-// Traits<F>::Ordering (default topology::LinearOrdering), never of what
-// any other field in the sim happens to want.
-using LayoutMap = std::unordered_map<const void*, topology::Layout>;
+// One OrderingPlan per distinct ordering policy actually named by some
+// field of some hosted Algorithm, keyed by SlotId<Policy>() -- the same
+// "distinct link-time address per type" trick SlotId already uses for
+// SharedAs tags, reused here since an ordering policy is just another type
+// identity that needs a runtime-comparable key. There is no single
+// program-wide row order: a field's own row order is entirely a function
+// of its own Traits<F>::Ordering (default topology::LinearOrdering), never
+// of what any other field in the sim happens to want. Scratch: the plans
+// die with the SimAllocator, after BuildTopologies has copied what persists
+// into the Arena.
+using PlanMap = std::unordered_map<const void*, topology::OrderingPlan>;
 
 struct SlotRecord {
   std::byte* base = nullptr;
@@ -54,6 +59,7 @@ struct SlotRecord {
   std::size_t lane_count = 0;
   const void* ordering_id = nullptr;
   const void* indexing_id = nullptr;
+  const void* buffering_id = nullptr;
 };
 using SlotMap = std::unordered_map<const void*, SlotRecord>;
 
@@ -66,6 +72,7 @@ struct FieldVisitor {
   using FieldLayout = FieldLayoutT<EnumT, Traits, F>;
   using FieldOrdering = FieldOrderingT<EnumT, Traits, F>;
   using FieldIndexing = FieldIndexingT<EnumT, Traits, F>;
+  using FieldBuffering = FieldBufferingT<EnumT, Traits, F>;
 
   static constexpr std::size_t LaneCount() {
     return FieldLayout::template LaneCount<FieldAssembler>();
@@ -86,14 +93,21 @@ struct FieldVisitor {
         Elements(padded_instances)
     );
   }
+  // Every copy of the block this field's Buffering policy keeps (one for a
+  // single-buffered field, see memory/buffering_policy.hpp) -- what Carve
+  // actually allocates. SeedPadding/Populate only ever fill the first copy;
+  // Replicate fans it out to the rest.
+  static std::size_t RegionBytes(std::size_t padded_instances) {
+    return BlockBytes(padded_instances) * FieldBuffering::kBlockCount;
+  }
 
-  // This field's own row order -- built once per distinct policy by
-  // SimAllocator (see LayoutMap above), looked up here by the policy type
+  // This field's own row order -- planned once per distinct policy by
+  // SimAllocator (see PlanMap above), looked up here by the policy type
   // Traits<F>::Ordering itself resolves to. Every field sharing that same
-  // policy type shares this exact Layout; two fields with different
+  // policy type shares this exact row order; two fields with different
   // policies never do, even within the same algorithm.
-  static const topology::Layout& FieldLayoutFor(const LayoutMap& layouts) {
-    return layouts.at(SlotId<FieldOrdering>());
+  static domain::JointLayout RowsFor(const PlanMap& plans) {
+    return plans.at(SlotId<FieldOrdering>()).Layout();
   }
 
   // Carves (or, for a shared field already carved by an earlier algorithm,
@@ -104,11 +118,12 @@ struct FieldVisitor {
   static std::byte* Carve(
       Arena& arena, SlotMap& slots, std::size_t padded_instances
   ) {
-    std::size_t bytes = BlockBytes(padded_instances);
+    std::size_t bytes = RegionBytes(padded_instances);
     std::size_t alignment = Alignment();
     std::size_t lanes = LaneCount();
     const void* ordering_id = SlotId<FieldOrdering>();
     const void* indexing_id = SlotId<FieldIndexing>();
+    const void* buffering_id = SlotId<FieldBuffering>();
 
     if constexpr (FieldIsShared<EnumT, Traits, F>) {
       using Tag = typename FieldTraits::SharedAs;
@@ -120,8 +135,10 @@ struct FieldVisitor {
             rec.block_bytes == bytes && rec.alignment == alignment &&
             rec.lane_count == lanes && rec.ordering_id == ordering_id &&
             rec.indexing_id == indexing_id &&
+            rec.buffering_id == buffering_id &&
             "Two algorithms name the same SharedAs tag with incompatible "
-            "field shapes (bytes/alignment/lane count/ordering/indexing) -- "
+            "field shapes (bytes/alignment/lane count/ordering/indexing/"
+            "buffering) -- "
             "sharing "
             "an array two algorithms disagree about the layout of is "
             "unsound."
@@ -132,7 +149,15 @@ struct FieldVisitor {
       arena.ZeroFill(base, bytes);
       slots.emplace(
           id,
-          SlotRecord{base, bytes, alignment, lanes, ordering_id, indexing_id}
+          SlotRecord{
+              base,
+              bytes,
+              alignment,
+              lanes,
+              ordering_id,
+              indexing_id,
+              buffering_id
+          }
       );
       return base;
     } else {
@@ -144,21 +169,21 @@ struct FieldVisitor {
 
   // Writes AssembledType::PaddingSeed() into every element of this field's
   // block that doesn't belong to a real (instance, joint) under its OWN
-  // Layout (FieldLayoutFor). *Which* elements those are is this field's own
+  // row order (RowsFor). *Which* elements those are is this field's own
   // Indexing policy's call (topology/indexing_policy.hpp) -- for a row-
-  // indexed field, every padding row up to that Layout's own BaseRowIndex(),
+  // indexed field, every padding row up to that order's own BaseRowIndex(),
   // then everything past it up to padded_instances (the global max over
-  // every hosted field's own Layout -- see SimAllocator::padded_instances_),
-  // which covers both this field's own lane-rounding tail and the gap
-  // between its own row count and whatever wider Layout some other field in
-  // the sim needed. No ordering-specific branch here: every ordering policy
-  // can produce padding rows (even LinearOrdering, from lane-rounding an
-  // archetype's own instance count), so every field gets seeded the same
-  // way regardless of which policy it named.
+  // every ordering's own ViewInstanceCount -- see
+  // SimAllocator::padded_instances_), which covers both this field's own
+  // lane-rounding tail and the gap between its own row count and whatever
+  // wider row count some other field in the sim needed. No ordering-specific
+  // branch here: every ordering policy can produce padding rows (even
+  // LinearOrdering, from lane-rounding an archetype's own instance count), so
+  // every field gets seeded the same way regardless of which policy it named.
   static void SeedPadding(
       std::byte* base,
       std::size_t padded_instances,
-      const topology::Layout& field_layout
+      const domain::JointLayout& rows
   ) {
     using ScalarType = typename FieldAssembler::ScalarType;
     using AssembledScalar = decltype(FieldAssembler::template Read<ScalarType>(
@@ -177,12 +202,12 @@ struct FieldVisitor {
       FieldAssembler::template Write<ScalarType>(element_ptr, stride, seed);
     };
 
-    FieldIndexing::SeedPadding(write_element, field_layout, padded_instances);
+    FieldIndexing::SeedPadding(write_element, rows, padded_instances);
   }
 
   // Copies this field's data out of whichever of `archetypes` declares a
   // field named Traits<F>::kName, into the sorted rows this field's own
-  // Layout (FieldLayoutFor) assigned that archetype's instances -- a field
+  // row order (RowsFor) assigned that archetype's instances -- a field
   // with no kName (an algorithm-internal scratch or output field, e.g.
   // ABA's kJointAcceleration) is never user-supplied, so this is a no-op
   // for it: Carve's own ZeroFill already leaves it deterministically zero,
@@ -200,7 +225,7 @@ struct FieldVisitor {
   static void Populate(
       std::byte* base,
       std::size_t padded_instances,
-      const topology::Layout& field_layout,
+      const domain::JointLayout& rows,
       std::span<const domain::Archetype> archetypes
   ) {
     if constexpr (FieldHasName<EnumT, Traits, F>) {
@@ -218,10 +243,14 @@ struct FieldVisitor {
       const std::size_t element_stride =
           FieldLayout::template ElementStrideBytes<FieldAssembler>();
 
-      for (std::size_t a = 0; a < archetypes.size(); ++a) {
-        const domain::Archetype& archetype = archetypes[a];
+      // Global index of each archetype's first instance -- archetypes'
+      // instances are numbered end to end, in archetype order.
+      std::size_t first_instance = 0;
+      for (const domain::Archetype& archetype : archetypes) {
+        const std::size_t instance_count = archetype.InstanceCount();
         const domain::ArchetypeField* field = archetype.FindField(kFieldName);
         if (field == nullptr) {
+          first_instance += instance_count;
           continue;
         }
         assert(
@@ -233,11 +262,9 @@ struct FieldVisitor {
         );
 
         std::size_t joint_count = archetype.JointCount();
-        std::size_t instance_count = archetype.InstanceCount();
         for (std::size_t i = 0; i < instance_count; ++i) {
           for (std::size_t j = 0; j < joint_count; ++j) {
-            std::size_t sorted_row =
-                field_layout.ToSorted(a, i * joint_count + j);
+            std::size_t sorted_row = rows.ToSorted({first_instance + i, j});
             for (std::size_t leaf = 0; leaf < kLeafCount; ++leaf) {
               std::byte* leaf_ptr =
                   base + (leaf * stride) + (sorted_row * element_stride);
@@ -247,8 +274,15 @@ struct FieldVisitor {
             }
           }
         }
+        first_instance += instance_count;
       }
     }
+  }
+
+  // Copies the seeded+populated first block into every other copy this
+  // field's Buffering policy keeps -- a no-op for a single-buffered field.
+  static void Replicate(std::byte* base, std::size_t padded_instances) {
+    FieldBuffering::Replicate(base, BlockBytes(padded_instances));
   }
 };
 
@@ -267,7 +301,7 @@ std::size_t MeasureField(
     MeasureSlotSet& counted, std::size_t padded_instances
 ) {
   using V = FieldVisitor<EnumT, Traits, F>;
-  std::size_t bytes = V::BlockBytes(padded_instances);
+  std::size_t bytes = V::RegionBytes(padded_instances);
   std::size_t alignment = V::Alignment();
 
   if constexpr (FieldIsShared<EnumT, Traits, F>) {
@@ -299,13 +333,13 @@ std::size_t MeasureAlgorithm(
   );
 }
 
-// Builds one Layout per distinct ordering policy in `List`, keyed the same
-// way FieldVisitor::FieldLayoutFor looks them back up (SlotId<Policy>()).
+// Plans one row order per distinct ordering policy in `List`, keyed the
+// same way FieldVisitor::RowsFor looks them back up (SlotId<Policy>()).
 template <typename List>
-struct BuildLayoutMap;
+struct BuildPlanMap;
 
 template <typename... Policies>
-struct BuildLayoutMap<util::TypeList<Policies...>> {
+struct BuildPlanMap<util::TypeList<Policies...>> {
   static_assert(
       sizeof...(Policies) > 0,
       "SimAllocator: no ordering policy found across any hosted "
@@ -313,49 +347,55 @@ struct BuildLayoutMap<util::TypeList<Policies...>> {
       "topology::LinearOrdering (the default)."
   );
 
-  static LayoutMap Build(
+  static PlanMap Build(
       std::span<domain::ArchetypeTreeStructure> tree, std::size_t lane_size
   ) {
-    LayoutMap layouts;
-    (layouts.emplace(SlotId<Policies>(), Policies::Build(tree, lane_size)),
-     ...);
-    return layouts;
+    PlanMap plans;
+    (plans.emplace(SlotId<Policies>(), Policies::Build(tree, lane_size)), ...);
+    return plans;
   }
 };
 
-// Allocates one JointTopology per distinct ordering policy in `List` (the
-// same List BuildLayoutMap above was built from), wrapped into the exact
-// tuple shape SimContext<Algorithms...> expects (pass::TopologyTupleFor,
-// engine/pass/sim_context.hpp) rather than a second, independently-shaped
-// tuple this file would otherwise have to keep hand-in-sync with it.
+// Allocates one JointTopology and JointLayout per distinct ordering policy
+// in `List` (the same List BuildPlanMap above was built from), wrapped into
+// the exact tuple shape SimContext<Algorithms...> expects
+// (pass::TopologyTupleFor, engine/pass/sim_context.hpp) rather than a second,
+// independently-shaped tuple this file would otherwise have to keep
+// hand-in-sync with it.
 template <typename List>
 struct BuildTopologyTuple;
 
 template <typename... Policies>
 struct BuildTopologyTuple<util::TypeList<Policies...>> {
   static std::tuple<pass::TopologySlot<Policies>...> Build(
-      LayoutMap& layouts, Arena& arena
+      const PlanMap& plans, Arena& arena
   ) {
     return std::tuple<pass::TopologySlot<Policies>...>{
-        pass::TopologySlot<Policies>{
-            layouts.at(SlotId<Policies>()).AllocateTopology(arena)
-        }...
+        MakeSlot<Policies>(plans.at(SlotId<Policies>()).Allocate(arena))...
     };
+  }
+
+ private:
+  template <typename Policy>
+  static pass::TopologySlot<Policy> MakeSlot(
+      topology::OrderingPlan::Allocated allocated
+  ) {
+    return {allocated.topology, allocated.layout};
   }
 };
 
 // The one place every hosted field's block size still agrees. Each field's
-// own Layout may (in principle -- see Ordering::Consolidate for why every
+// own ordering may (in principle -- see Ordering::Consolidate for why every
 // policy actually produces the same row count against the same
 // archetypes/lane_size today) disagree on row order, but View still
 // needs one uniform instance count for a whole View's array length. Taking
-// the max over every distinct policy's own Layout is always safe: a field
-// whose own Layout needs fewer rows than this just has its own excess rows
+// the max over every distinct policy's own plan is always safe: a field
+// whose own ordering needs fewer rows than this just has its own excess rows
 // treated the same as any other padding/filler (see SeedPadding).
-inline std::size_t MaxViewInstanceCount(const LayoutMap& layouts) {
+inline std::size_t MaxViewInstanceCount(const PlanMap& plans) {
   std::size_t result = 0;
-  for (const auto& [id, layout] : layouts) {
-    result = std::max(result, layout.ViewInstanceCount());
+  for (const auto& [id, plan] : plans) {
+    result = std::max(result, plan.ViewInstanceCount());
   }
   return result;
 }
@@ -420,8 +460,9 @@ struct AlgorithmVisitor<Algorithm<EnumT, Traits>> {
       Arena& arena,
       SlotMap& slots,
       std::size_t padded_instances,
-      const LayoutMap& layouts,
-      std::span<const domain::Archetype> archetypes
+      const PlanMap& plans,
+      std::span<const domain::Archetype> archetypes,
+      const BufferParity* parity
   ) {
     std::array<std::byte*, sizeof...(Is)> type_bases{
         FieldVisitor<EnumT, Traits, static_cast<EnumT>(Is)>::Carve(
@@ -436,9 +477,7 @@ struct AlgorithmVisitor<Algorithm<EnumT, Traits>> {
     (FieldVisitor<EnumT, Traits, static_cast<EnumT>(Is)>::SeedPadding(
          type_bases[Is],
          padded_instances,
-         FieldVisitor<EnumT, Traits, static_cast<EnumT>(Is)>::FieldLayoutFor(
-             layouts
-         )
+         FieldVisitor<EnumT, Traits, static_cast<EnumT>(Is)>::RowsFor(plans)
      ),
      ...);
     // Populate after seeding, so real archetype data always wins over a
@@ -449,36 +488,41 @@ struct AlgorithmVisitor<Algorithm<EnumT, Traits>> {
     (FieldVisitor<EnumT, Traits, static_cast<EnumT>(Is)>::Populate(
          type_bases[Is],
          padded_instances,
-         FieldVisitor<EnumT, Traits, static_cast<EnumT>(Is)>::FieldLayoutFor(
-             layouts
-         ),
+         FieldVisitor<EnumT, Traits, static_cast<EnumT>(Is)>::RowsFor(plans),
          archetypes
      ),
      ...);
-    return View(type_bases, padded_instances);
+    // Last, once the first block holds its final initial contents.
+    (FieldVisitor<EnumT, Traits, static_cast<EnumT>(Is)>::Replicate(
+         type_bases[Is], padded_instances
+     ),
+     ...);
+    return View(type_bases, padded_instances, parity);
   }
 
   static View Carve(
       Arena& arena,
       SlotMap& slots,
       std::size_t padded_instances,
-      const LayoutMap& layouts,
-      std::span<const domain::Archetype> archetypes
+      const PlanMap& plans,
+      std::span<const domain::Archetype> archetypes,
+      const BufferParity* parity
   ) {
     return CarveView(
         std::make_index_sequence<static_cast<std::size_t>(EnumT::kCount)>{},
         arena,
         slots,
         padded_instances,
-        layouts,
-        archetypes
+        plans,
+        archetypes,
+        parity
     );
   }
 };
 
 }  // namespace detail
 
-// Owns the Arena for one sim. One Layout/JointTopology per distinct
+// Owns the Arena for one sim. One JointTopology/JointLayout per distinct
 // ordering policy any hosted field names; one View per hosted algorithm.
 // Archetypes are runtime, supplied once at construction; to resize,
 // destroy this SimAllocator and build a new one -- there's no in-place
@@ -487,7 +531,7 @@ template <AlgorithmLike... Algorithms>
 class SimAllocator {
   // Reuses SimContext's own computation (engine/pass/sim_context.hpp)
   // rather than keeping a second, independent copy here that this file's
-  // BuildLayoutMap/BuildTopologyTuple and SimContext's own topology tuple
+  // BuildPlanMap/BuildTopologyTuple and SimContext's own topology tuple
   // could silently drift out of sync against.
   using UsedOrderings = pass::UsedOrderingsFor<Algorithms...>;
 
@@ -497,17 +541,12 @@ class SimAllocator {
     pass::SimContext<Algorithms...> context;
   };
 
-  // Builds every Layout/View from archetypes; archetypes need not outlive this
-  // call.
+  // Builds every topology/layout/View from archetypes; archetypes need not
+  // outlive this call.
   explicit SimAllocator(std::span<const domain::Archetype> archetypes)
-      : layouts_(BuildLayouts(archetypes)),
-        padded_instances_(detail::MaxViewInstanceCount(layouts_)),
-        state_(
-            {{MeasureBytes(), RequiredAlignment()},
-             {BuildTopologies(),
-              BuildViews(
-                  archetypes, std::make_index_sequence<sizeof...(Algorithms)>{}
-              )}}
+      : plans_(BuildPlans(archetypes)),
+        padded_instances_(detail::MaxViewInstanceCount(plans_)),
+        state_({{MeasureBytes(), RequiredAlignment()}, BuildContext(archetypes)}
         ) {}
 
   // Constructs and immediately extracts -- convenience for the common case.
@@ -521,10 +560,10 @@ class SimAllocator {
   // Rvalue-qualified: can't Extract() a SimAllocator still meant for use.
   State Extract() && { return std::move(state_); }
 
-  // Kept queryable past construction for tests (row placement checks).
+  // Forwards to the built SimContext's own LayoutFor.
   template <topology::LayoutPolicyLike PolicyT>
-  topology::Layout LayoutFor() const {
-    return layouts_.at(SlotId<PolicyT>());
+  domain::JointLayout LayoutFor() const {
+    return state_.context.template LayoutFor<PolicyT>();
   }
 
   // Forwards to the built SimContext's own TopologyFor.
@@ -556,17 +595,16 @@ class SimAllocator {
   }
 
  private:
-  // Builds one Layout per distinct ordering policy named by any hosted field.
-  static detail::LayoutMap BuildLayouts(
+  // Plans one row order per distinct ordering policy named by any hosted
+  // field.
+  static detail::PlanMap BuildPlans(
       std::span<const domain::Archetype> archetypes
   ) {
     std::vector<domain::ArchetypeTreeStructure> tree(archetypes.size());
     for (std::size_t i = 0; i < archetypes.size(); ++i) {
       tree[i] = archetypes[i].TreeStructure();
     }
-    return detail::BuildLayoutMap<UsedOrderings>::Build(
-        tree, RequiredLaneSize()
-    );
+    return detail::BuildPlanMap<UsedOrderings>::Build(tree, RequiredLaneSize());
   }
 
   // Exact byte cost per field, deduped across shared slots.
@@ -577,33 +615,63 @@ class SimAllocator {
              counted, padded_instances_
          ) +
          ...);
-    for (const auto& [id, layout] : layouts_) {
-      total += layout.TopologyBytes() + (alignof(std::size_t) - 1);
+    for (const auto& [id, plan] : plans_) {
+      total += plan.AllocatedBytes();
     }
+    total += sizeof(BufferParity) + (alignof(BufferParity) - 1);
     return total;
   }
 
-  // Allocates one JointTopology per distinct ordering policy in the Arena,
-  // wrapped into the exact tuple shape SimContext<Algorithms...> expects.
+  // Everything SimContext holds, carved out of state_.arena (already
+  // constructed by the time state_'s second member is -- see the
+  // constructor): the topologies, the one sim-wide BufferParity, then every
+  // View, each handed that same parity.
+  pass::SimContext<Algorithms...> BuildContext(
+      std::span<const domain::Archetype> archetypes
+  ) {
+    auto topologies = BuildTopologies();
+    BufferParity* parity = CarveParity();
+    auto views = BuildViews(
+        archetypes, parity, std::make_index_sequence<sizeof...(Algorithms)>{}
+    );
+    return pass::SimContext<Algorithms...>(
+        std::move(topologies), std::move(views), parity
+    );
+  }
+
+  // Value-initialized, so the sim starts out reading half 0 of every
+  // double-buffered field.
+  BufferParity* CarveParity() {
+    std::byte* bytes =
+        state_.arena.Allocate(sizeof(BufferParity), alignof(BufferParity));
+    return std::construct_at(std::bit_cast<BufferParity*>(bytes));
+  }
+
+  // Allocates one JointTopology and JointLayout per distinct ordering
+  // policy in the Arena, wrapped into the exact tuple shape
+  // SimContext<Algorithms...> expects.
   pass::TopologyTupleFor<Algorithms...> BuildTopologies() {
     return detail::BuildTopologyTuple<UsedOrderings>::Build(
-        layouts_, state_.arena
+        plans_, state_.arena
     );
   }
 
   // Pack order is left-to-right: first algorithm naming a SharedAs tag owns it.
   template <std::size_t... Is>
-  std::tuple<typename Algorithms::View...>
-  BuildViews(std::span<const domain::Archetype> archetypes, std::index_sequence<Is...>) {
+  std::tuple<typename Algorithms::View...> BuildViews(
+      std::span<const domain::Archetype> archetypes,
+      const BufferParity* parity,
+      std::index_sequence<Is...> /*algorithms*/
+  ) {
     detail::SlotMap slots;
     return std::tuple<typename Algorithms::View...>(
         detail::AlgorithmVisitor<Algorithms>::Carve(
-            state_.arena, slots, padded_instances_, layouts_, archetypes
+            state_.arena, slots, padded_instances_, plans_, archetypes, parity
         )...
     );
   }
 
-  detail::LayoutMap layouts_;
+  detail::PlanMap plans_;
   std::size_t padded_instances_;
   State state_;
 };
