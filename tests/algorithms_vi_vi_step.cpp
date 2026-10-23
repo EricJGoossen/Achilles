@@ -12,7 +12,7 @@
 #include "algorithms/vi/vi_step.hpp"
 #include "domain/archetype.hpp"
 #include "engine/memory/sim_allocator.hpp"
-#include "engine/topology/layout.hpp"
+#include "domain/joint_layout.hpp"
 #include "engine/topology/ordering_policy.hpp"
 #include "util/simd_ops.hpp"
 
@@ -85,9 +85,9 @@ SimAllocator<VIAlgorithm> MakeSim(std::size_t instance_count) {
 }
 
 std::size_t BatchGroup(
-    const achilles::engine::topology::Layout& layout, std::size_t joint
+    const achilles::domain::JointLayout& layout, std::size_t instance
 ) {
-  return layout.ToSorted(0, joint) / Lane();
+  return layout.ToSorted({instance, 0}) / Lane();
 }
 
 void PopulateJoint(

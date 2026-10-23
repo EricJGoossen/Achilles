@@ -51,7 +51,7 @@ struct LimitRow {
 
 // DOF 0's row for joint `joint` of the one archetype.
 LimitRow Dof0Row(const RegisteredSim& sim, std::size_t joint) {
-  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted(0, joint);
+  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted({0, joint});
   auto view = sim.ViewFor<JointLimitAlgorithm>();
   return {
       view.Load<JointLimitField::kLimitDistance, ScalarOperationT>(row)[0],
@@ -123,7 +123,7 @@ TEST(JointLimitStep, ReadsThePoseAtTheTimeItRuns) {
   RunDetector(sim);
   ASSERT_TRUE(Dof0Row(sim, 0).active);
 
-  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted(0, 0);
+  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted({0, 0});
   sim.ViewFor<aba::ABAAlgorithm>()
       .Store<aba::ABAField::kJointPosition, ScalarOperationT>(
           row, spatial::Transform<ScalarOperationT>::Identity()

@@ -27,19 +27,32 @@ using achilles::test_support::ToyReduceView;
 using achilles::test_support::ToyView;
 using Batch = xsimd::batch<float>;
 
+namespace {
+
+// Every padded row plus the reserved base row, rounded up to the lane
+// width -- what OrderingPlan::ViewInstanceCount() sized the View to.
+std::size_t ExpectedViewSize(const SimAllocator<ToyAlgorithm>& sim) {
+  std::size_t lane = SimAllocator<ToyAlgorithm>::RequiredLaneSize();
+  std::size_t needed = sim.LayoutFor<LinearOrdering>().BaseRowIndex() + 1;
+  return (needed + lane - 1) / lane * lane;
+}
+
+}  // namespace
+
 // ToyField never names an Ordering (see toy_field.hpp), so it resolves to
-// the default topology::LinearOrdering -- the real Layout SimAllocator
+// the default topology::LinearOrdering -- the real row placement SimAllocator
 // built is the one source of truth these tests compare View::Size()/
 // NumBatches() against, rather than assuming a requested instance count
 // passes through unchanged: a real View always carries the ordering
 // policy's own lane padding plus one reserved base row on top of whatever
-// instance count was asked for (see topology::Layout::ViewInstanceCount()).
+// instance count was asked for (see
+// topology::OrderingPlan::ViewInstanceCount()).
 
 TEST(ViewSize, SizeAndLaneSize) {
   SimAllocator<ToyAlgorithm> sim = MakeToySim(8);
   ToyView view = sim.ViewFor<ToyAlgorithm>();
 
-  EXPECT_EQ(view.Size(), sim.LayoutFor<LinearOrdering>().ViewInstanceCount());
+  EXPECT_EQ(view.Size(), ExpectedViewSize(sim));
   EXPECT_EQ((view.LaneSize<float>()), 1U);
   EXPECT_EQ((view.LaneSize<xsimd::batch<float>>()), xsimd::batch<float>::size);
 }
@@ -48,7 +61,7 @@ TEST(ViewSize, NumBatchesDividesSizeByLaneSize) {
   std::size_t lane = xsimd::batch<float>::size;
   SimAllocator<ToyAlgorithm> sim = MakeToySim(4 * lane);
   ToyView view = sim.ViewFor<ToyAlgorithm>();
-  std::size_t size = sim.LayoutFor<LinearOrdering>().ViewInstanceCount();
+  std::size_t size = ExpectedViewSize(sim);
 
   EXPECT_EQ((view.NumBatches<ToyField::kPosition, float>()), size);
   EXPECT_EQ(

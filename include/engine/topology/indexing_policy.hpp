@@ -5,7 +5,7 @@
 #include <tuple>
 #include <type_traits>
 
-#include "engine/topology/layout.hpp"
+#include "domain/joint_layout.hpp"
 
 namespace achilles::engine::topology {
 
@@ -49,7 +49,7 @@ struct BroadcastIndex {
 //     Lanes); the source is whatever the traversal handed in its place.
 //   - SeedPadding(write, layout, rows): calls write(element) for every
 //     element that doesn't belong to a real (instance, joint) under the
-//     field's own Layout -- see SimAllocator's padding-seed pass
+//     field's own JointLayout -- see SimAllocator's padding-seed pass
 //     (engine/memory/sim_allocator.hpp), which owns everything about the
 //     write itself but defers *which* elements are padding to here.
 template <typename P>
@@ -71,14 +71,16 @@ struct RowIndexing {
     return std::get<Slot>(indices);
   }
 
-  // Every padding row up to the Layout's own BaseRowIndex(), then every
+  // Every padding row up to the JointLayout's own BaseRowIndex(), then every
   // filler row past it. The reserved base row itself is deliberately left
   // alone: it's seeded by the hosting algorithm's own Op::Initialize with
   // real, physically meaningful state (gravity, world velocity, ...), not a
   // generic safe-neutral value.
   template <typename WriteElement>
   static void SeedPadding(
-      const WriteElement& write, const Layout& layout, std::size_t rows
+      const WriteElement& write,
+      const domain::JointLayout& layout,
+      std::size_t rows
   ) {
     for (std::size_t sorted = 0; sorted < layout.PaddedSize(); ++sorted) {
       if (layout.IsPadding(sorted)) {
@@ -152,7 +154,9 @@ struct PairGroupIndexing {
   // that group are that pass's to mask out.
   template <typename WriteElement>
   static void SeedPadding(
-      const WriteElement& write, const Layout& layout, std::size_t rows
+      const WriteElement& write,
+      const domain::JointLayout& layout,
+      std::size_t rows
   ) {
     auto is_real = [&](std::size_t row) {
       return row < layout.PaddedSize() && !layout.IsPadding(row);
@@ -214,7 +218,7 @@ struct GlobalIndexing {
   template <typename WriteElement>
   static void SeedPadding(
       const WriteElement& /*write*/,
-      const Layout& /*layout*/,
+      const domain::JointLayout& /*layout*/,
       std::size_t /*rows*/
   ) {}
 };

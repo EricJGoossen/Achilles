@@ -580,12 +580,19 @@ std::vector<Archetype> LoadArchetypesImpl(const std::filesystem::path& root_file
       }
     }
 
+    std::vector<std::string> joint_names;
+    joint_names.reserve(archetype.joints.size());
+    for (const ParsedJoint& joint : archetype.joints) {
+      joint_names.push_back(joint.name);
+    }
+
     result.emplace_back(
         archetype.name,
         std::move(tree_structure),
         std::move(root_parents),
         is_root,
-        std::move(fields)
+        std::move(fields),
+        std::move(joint_names)
     );
   }
   return result;

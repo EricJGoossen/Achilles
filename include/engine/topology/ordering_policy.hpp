@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "domain/archetype.hpp"
-#include "engine/topology/layout.hpp"
+#include "engine/topology/ordering_plan.hpp"
 
 namespace achilles::engine::topology {
 
@@ -41,7 +41,7 @@ template <typename P>
 concept OrderingPolicyLike =
     std::is_empty_v<P> &&
     requires(std::span<ArchetypeTreeStructure> tree, std::size_t lane_size) {
-      { P::Build(tree, lane_size) } -> std::same_as<Layout>;
+      { P::Build(tree, lane_size) } -> std::same_as<OrderingPlan>;
     };
 
 class Ordering {
@@ -94,7 +94,7 @@ class Ordering {
   // Padding rows also default to the base row -- nothing ever resolves a
   // parent into the padded tail of an archetype's instance range (see the
   // .cpp), so there's no need for a separate scratch/sink row to protect.
-  static Layout BuildFromLocalOrders(
+  static OrderingPlan BuildFromLocalOrders(
       std::span<ArchetypeTreeStructure> tree,
       std::span<const std::vector<std::size_t>> local_topo_orders,
       std::span<const std::size_t> placement_order,
@@ -108,7 +108,7 @@ class Ordering {
 //
 struct TopologicalOrdering : public Ordering {
  public:
-  static Layout Build(
+  static OrderingPlan Build(
       std::span<ArchetypeTreeStructure> tree, std::size_t lane_size
   );
 
@@ -152,7 +152,7 @@ struct TopologicalOrdering : public Ordering {
 // and lane-padded), just fed identity LocalOrders instead of sorted ones.
 //
 struct LinearOrdering : public Ordering {
-  static Layout Build(
+  static OrderingPlan Build(
       std::span<ArchetypeTreeStructure> tree, std::size_t lane_size
   );
 };

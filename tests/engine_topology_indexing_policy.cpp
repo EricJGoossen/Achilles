@@ -1,12 +1,13 @@
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstddef>
 #include <tuple>
 #include <type_traits>
 #include <vector>
 
+#include "domain/joint_layout.hpp"
 #include "engine/topology/indexing_policy.hpp"
-#include "engine/topology/layout.hpp"
 
 // Covers topology::GlobalIndexing: one element for the whole field, read
 // plainly by a scalar load and as a BroadcastIndex by a batched one -- the
@@ -85,8 +86,9 @@ TEST(
 // solver's line-search state).
 TEST(GlobalIndexingSeedPadding, WritesNothing) {
   std::vector<std::size_t> written;
-  // Empty, but well-formed: just the reserved base row.
-  achilles::engine::topology::Layout layout({}, {}, {0}, 4);
+  // Empty, but well-formed: no instances, no rows.
+  const std::array<std::size_t, 1> instance_offsets = {0};
+  achilles::domain::JointLayout layout(instance_offsets, {}, {});
   GlobalIndexing::SeedPadding(
       [&](std::size_t element) { written.push_back(element); }, layout, 16
   );
