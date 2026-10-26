@@ -62,9 +62,22 @@ TEST(JointLayoutConstructorPrecondition, DiesWhenOffsetsDontEndAtRowCount) {
   );
 }
 
+// Instance 1 has one joint, so joint 1 of it would read instance 2's rows.
 TEST(JointLayoutAccessPrecondition, DiesOnJointPastItsInstance) {
   TwoInstanceLayout data;
   JointLayout layout = data.View();
 
-  EXPECT_DEATH({ (void)layout.ToSorted({1, 1}); }, "");
+  EXPECT_DEATH(
+      { (void)layout.ToSorted({1, 1}); }, "first \\+ joint.joint_index <"
+  );
+}
+
+// Only two instances: instance 2 has no offsets entry to start from.
+TEST(JointLayoutAccessPrecondition, DiesOnInstancePastTheLast) {
+  TwoInstanceLayout data;
+  JointLayout layout = data.View();
+
+  EXPECT_DEATH(
+      { (void)layout.ToSorted({2, 0}); }, "joint.instance_index \\+ 1 <"
+  );
 }

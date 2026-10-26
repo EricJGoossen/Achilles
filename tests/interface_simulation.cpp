@@ -41,6 +41,7 @@ using achilles::algorithms::aba::ABAStep;
 using achilles::domain::Archetype;
 using achilles::engine::memory::SimAllocator;
 using achilles::engine::topology::TopologicalOrdering;
+using achilles::interface::ActuatorLike;
 using achilles::interface::AngularActuator;
 using achilles::interface::LinearActuator;
 using achilles::interface::LoadArchetypes;
@@ -836,6 +837,15 @@ class GearedMotor : public AngularActuator {
   float ratio_;
 };
 
+// Exactly what ActuatorLike and AttachActuator require: derived from a base
+// handle, built from it alone -- no members, no extra arguments.
+class ActuatorArchetype : public AngularActuator {
+ public:
+  explicit ActuatorArchetype(AngularActuator base)
+      : AngularActuator(std::move(base)) {}
+};
+static_assert(ActuatorLike<ActuatorArchetype>);
+
 }  // namespace
 
 // The end-to-end contract: an effort Apply()ed before Step drives that
@@ -911,6 +921,18 @@ TEST(SimulationActuator, AttachActuatorReturnsTheCallersOwnType) {
   auto motor =
       sim.AttachActuator<GearedMotor>({"base", "joint"}, {0, 0, 1}, 8.0F);
   motor.Command(0.5F);
+  ASSERT_TRUE(sim.Step(0.0F));
+  EXPECT_FLOAT_EQ(JointAccelerationZ(sim), 1.0F);
+}
+
+// AttachActuator relies only on what ActuatorLike promises: a derived type
+// with nothing but a constructor from its base handle (an empty Args pack).
+TEST(SimulationActuator, AttachActuatorBuildsTheMinimalActuatorLikeType) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.0F);
+  ActuatorArchetype actuator =
+      sim.AttachActuator<ActuatorArchetype>({"base", "joint"}, {0, 0, 1});
+  actuator.Apply(4.0F);
   ASSERT_TRUE(sim.Step(0.0F));
   EXPECT_FLOAT_EQ(JointAccelerationZ(sim), 1.0F);
 }

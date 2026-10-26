@@ -386,6 +386,26 @@ TEST(AssemblerTemplatedMarker, RoundTrips) {
   EXPECT_TRUE(read_back.offset.IsApprox(value.offset));
 }
 
+// The zero-children fallback with a leaf child, not only nested ones --
+// the leaf ZeroChild overload TwoVector3s never reaches -- scalar and
+// batched alike.
+TEST(AssemblerZero, TargetWithoutItsOwnZeroZeroesLeafChildrenToo) {
+  using A = LeafAndVectorAssembler;
+  using Batch = xsimd::batch<float>;
+
+  LeafAndVector<float> zero = A::Zero<float>();
+  EXPECT_FLOAT_EQ(zero.scale, 0.0F);
+  EXPECT_TRUE(zero.offset.IsZero());
+
+  LeafAndVector<Batch> batched = A::Zero<Batch>();
+  for (std::size_t lane = 0; lane < Batch::size; ++lane) {
+    EXPECT_FLOAT_EQ(batched.scale.get(lane), 0.0F);
+    EXPECT_FLOAT_EQ(batched.offset.X().get(lane), 0.0F);
+    EXPECT_FLOAT_EQ(batched.offset.Y().get(lane), 0.0F);
+    EXPECT_FLOAT_EQ(batched.offset.Z().get(lane), 0.0F);
+  }
+}
+
 namespace {
 
 // A ToTuple() with the wrong shape -- here, an extra unused field folded
