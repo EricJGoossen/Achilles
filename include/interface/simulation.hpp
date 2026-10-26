@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -10,6 +11,7 @@
 #include "algorithms/sim_config.hpp"
 #include "algorithms/viz/viz_step.hpp"
 #include "domain/archetype.hpp"
+#include "domain/joint_layout.hpp"
 #include "domain/joint_topology.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/layout_policy.hpp"
@@ -200,6 +202,26 @@ class Simulation {
       );
     }
     return state_->context.template TopologyFor<PolicyT>();
+  }
+
+  // The row `joint` lives at in every View whose fields PolicyT orders --
+  // e.g. RowFor<TopologicalOrdering>() for ABA's -- once Init() has run.
+  // Resolved against the archetypes Init() was built from and the
+  // JointLayout the context already keeps, so a caller never re-loads the
+  // scene or rebuilds an ordering plan to find a joint. Throws
+  // std::invalid_argument for an unknown archetype or joint, or an
+  // out-of-range instance (see domain::ResolveJoint).
+  template <engine::topology::LayoutPolicyLike PolicyT>
+  std::size_t RowFor(const JointAddress& joint) const {
+    if (!state_.has_value()) {
+      throw std::runtime_error(
+          "Simulation::RowFor() called before Simulation::Init() -- "
+          "the sim is not yet initialized."
+      );
+    }
+    return state_->context.template LayoutFor<PolicyT>().ToSorted(
+        domain::ResolveJoint(archetypes_, joint)
+    );
   }
 
  private:

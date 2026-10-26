@@ -25,21 +25,15 @@
 #include "algorithms/aba/aba_data.hpp"
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
-#include "algorithms/registry.hpp"
-#include "domain/archetype.hpp"
-#include "engine/memory/sim_allocator.hpp"
-#include "engine/topology/ordering_plan.hpp"
 #include "engine/topology/ordering_policy.hpp"
 #include "interface/actuator.hpp"
-#include "interface/archetype_loader.hpp"
 #include "interface/simulation.hpp"
 #include "support/temp_dir.hpp"
 
 using achilles::algorithms::ScalarOperationT;
 using achilles::algorithms::aba::ABAAlgorithm;
 using achilles::algorithms::aba::ABAField;
-using achilles::domain::Archetype;
-using achilles::domain::ArchetypeTreeStructure;
+using achilles::engine::topology::TopologicalOrdering;
 using achilles::interface::AngularActuator;
 using achilles::interface::JointAddress;
 using achilles::interface::Simulation;
@@ -63,40 +57,11 @@ std::string ReadFile(const std::filesystem::path& path) {
   return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
 }
 
-// Joint rows in ABA's Views. Simulation doesn't hand rows out, so this
-// rebuilds the TopologicalOrdering plan over the same archetypes and lane
-// width the sim's allocator uses -- the same way balancers.cpp does.
-class JointRows {
- public:
-  explicit JointRows(const std::filesystem::path& arow_path)
-      : archetypes_(achilles::interface::LoadArchetypes(arow_path)),
-        plan_(Plan(archetypes_)) {}
-
-  std::size_t Row(const JointAddress& joint) const {
-    return plan_.Layout().ToSorted(
-        achilles::domain::ResolveJoint(archetypes_, joint)
-    );
-  }
-
- private:
-  static achilles::engine::topology::OrderingPlan Plan(
-      const std::vector<Archetype>& archetypes
-  ) {
-    using Allocator = achilles::engine::memory::SimAllocatorForT<
-        achilles::algorithms::RegisteredAlgorithms>;
-    std::vector<ArchetypeTreeStructure> tree;
-    tree.reserve(archetypes.size());
-    for (const Archetype& archetype : archetypes) {
-      tree.push_back(archetype.TreeStructure());
-    }
-    return achilles::engine::topology::TopologicalOrdering::Build(
-        tree, Allocator::RequiredLaneSize()
-    );
-  }
-
-  std::vector<Archetype> archetypes_;
-  achilles::engine::topology::OrderingPlan plan_;
-};
+// The row each joint lives at in ABA's Views, which TopologicalOrdering
+// orders.
+std::size_t Row(const Simulation& sim, const JointAddress& joint) {
+  return sim.RowFor<TopologicalOrdering>(joint);
+}
 
 // One copy's rows and wheel actuators.
 struct Robot {
@@ -107,18 +72,16 @@ struct Robot {
   AngularActuator right;
 };
 
-Robot AttachRobot(
-    const Simulation& sim, const JointRows& rows, std::size_t instance
-) {
+Robot AttachRobot(const Simulation& sim, std::size_t instance) {
   auto attach = [&](const char* wheel) {
     return sim.AttachActuator<AngularActuator>(
         {"balancer", wheel, instance}, {1, 0, 0}
     );
   };
   return {
-      rows.Row({"balancer", "body", instance}),
-      rows.Row({"balancer", "left_wheel", instance}),
-      rows.Row({"balancer", "right_wheel", instance}),
+      Row(sim, {"balancer", "body", instance}),
+      Row(sim, {"balancer", "left_wheel", instance}),
+      Row(sim, {"balancer", "right_wheel", instance}),
       attach("left_wheel"),
       attach("right_wheel")
   };
@@ -188,9 +151,8 @@ class BalancersScene : public ::testing::Test {
     ASSERT_TRUE(sim_.Init());
     // The integrator balancers.cpp runs with.
     sim_.SetIntegrator(Simulation::Integrator::kSemiImplicitEuler);
-    const JointRows rows(arow);
     for (std::size_t i = 0; i < kRobotCount; ++i) {
-      robots_.push_back(AttachRobot(sim_, rows, i));
+      robots_.push_back(AttachRobot(sim_, i));
     }
   }
 

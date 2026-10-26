@@ -12,29 +12,21 @@
 #include <cmath>
 #include <cstddef>
 #include <filesystem>
-#include <span>
 #include <string>
 #include <vector>
 
 #include "algorithms/aba/aba_data.hpp"
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
-#include "algorithms/registry.hpp"
-#include "domain/archetype.hpp"
-#include "engine/memory/sim_allocator.hpp"
-#include "engine/topology/ordering_plan.hpp"
 #include "engine/topology/ordering_policy.hpp"
 #include "interface/actuator.hpp"
-#include "interface/archetype_loader.hpp"
 #include "interface/simulation.hpp"
 
 using achilles::algorithms::ScalarOperationT;
 using achilles::algorithms::aba::ABAAlgorithm;
 using achilles::algorithms::aba::ABAField;
-using achilles::domain::Archetype;
-using achilles::domain::ArchetypeTreeStructure;
+using achilles::engine::topology::TopologicalOrdering;
 using achilles::interface::AngularActuator;
-using achilles::interface::JointAddress;
 using achilles::interface::Simulation;
 
 namespace {
@@ -52,28 +44,6 @@ std::filesystem::path ExampleDir() {
 }
 
 std::string ArowPath() { return (ExampleDir() / "box_robot.arow").string(); }
-
-// The chassis's row in ABA's Views. Simulation doesn't hand rows out, so
-// this rebuilds the TopologicalOrdering plan over the same archetypes and
-// lane width the sim's allocator uses -- the same way box_robot.cpp does.
-std::size_t ChassisRow() {
-  using Allocator = achilles::engine::memory::SimAllocatorForT<
-      achilles::algorithms::RegisteredAlgorithms>;
-  std::vector<Archetype> archetypes =
-      achilles::interface::LoadArchetypes(ArowPath());
-  std::vector<ArchetypeTreeStructure> tree;
-  tree.reserve(archetypes.size());
-  for (const Archetype& archetype : archetypes) {
-    tree.push_back(archetype.TreeStructure());
-  }
-  achilles::engine::topology::OrderingPlan plan =
-      achilles::engine::topology::TopologicalOrdering::Build(
-          tree, Allocator::RequiredLaneSize()
-      );
-  return plan.Layout().ToSorted(
-      achilles::domain::ResolveJoint(archetypes, {"box_robot", "chassis"})
-  );
-}
 
 struct Pose {
   float x;
@@ -141,13 +111,12 @@ class BoxRobotScene : public ::testing::Test {
  protected:
   void SetUp() override {
     ASSERT_TRUE(sim_.LoadArowFile(ArowPath()));
-    ASSERT_TRUE(
-        sim_.LoadConfigFile((ExampleDir() / "sim_config.yaml").string())
+    ASSERT_TRUE(sim_.LoadConfigFile((ExampleDir() / "sim_config.yaml").string())
     );
     ASSERT_TRUE(sim_.Init());
     // The integrator box_robot.cpp runs with.
     sim_.SetIntegrator(Simulation::Integrator::kSemiImplicitEuler);
-    chassis_ = ChassisRow();
+    chassis_ = sim_.RowFor<TopologicalOrdering>({"box_robot", "chassis"});
   }
 
   Simulation sim_;

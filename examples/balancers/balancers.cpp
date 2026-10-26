@@ -24,19 +24,13 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <utility>
 #include <vector>
 
 #include "algorithms/aba/aba_data.hpp"
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
-#include "algorithms/registry.hpp"
-#include "domain/archetype.hpp"
-#include "engine/memory/sim_allocator.hpp"
-#include "engine/topology/ordering_plan.hpp"
 #include "engine/topology/ordering_policy.hpp"
 #include "interface/actuator.hpp"
-#include "interface/archetype_loader.hpp"
 #include "interface/simulation.hpp"
 
 namespace {
@@ -44,6 +38,7 @@ namespace {
 using achilles::algorithms::ScalarOperationT;
 using achilles::algorithms::aba::ABAAlgorithm;
 using achilles::algorithms::aba::ABAField;
+using achilles::engine::topology::TopologicalOrdering;
 using achilles::interface::AngularActuator;
 using achilles::interface::JointAddress;
 using achilles::interface::Simulation;
@@ -102,41 +97,11 @@ constexpr std::array<float, 2> kThrowSpeed = {1.5F, 4.0F};
 
 constexpr ScalarOperationT kDt = 0.004F;
 
-// Which row of the sim's Views each joint lives at. Simulation doesn't hand
-// that out, so the example rebuilds the same row order ABA's fields use:
-// the TopologicalOrdering plan over the same archetypes and lane width the
-// sim's allocator was built with (SimAllocator::BuildPlans does exactly
-// this).
-class JointRows {
- public:
-  explicit JointRows(std::vector<achilles::domain::Archetype> archetypes)
-      : archetypes_(std::move(archetypes)), plan_(Plan(archetypes_)) {}
-
-  std::size_t Row(const JointAddress& joint) const {
-    return plan_.Layout().ToSorted(
-        achilles::domain::ResolveJoint(archetypes_, joint)
-    );
-  }
-
- private:
-  static achilles::engine::topology::OrderingPlan Plan(
-      std::span<const achilles::domain::Archetype> archetypes
-  ) {
-    using Allocator = achilles::engine::memory::SimAllocatorForT<
-        achilles::algorithms::RegisteredAlgorithms>;
-    std::vector<achilles::domain::ArchetypeTreeStructure> tree;
-    tree.reserve(archetypes.size());
-    for (const achilles::domain::Archetype& archetype : archetypes) {
-      tree.push_back(archetype.TreeStructure());
-    }
-    return achilles::engine::topology::TopologicalOrdering::Build(
-        tree, Allocator::RequiredLaneSize()
-    );
-  }
-
-  std::vector<achilles::domain::Archetype> archetypes_;
-  achilles::engine::topology::OrderingPlan plan_;
-};
+// The row each joint lives at in ABA's Views, which TopologicalOrdering
+// orders.
+std::size_t Row(const Simulation& sim, const JointAddress& joint) {
+  return sim.RowFor<TopologicalOrdering>(joint);
+}
 
 // Moves a free joint's body to `position` (world, since every free joint
 // here hangs off the world root), keeping its rotation, and stops it.
@@ -155,11 +120,11 @@ void Place(const Simulation& sim, std::size_t row, float x, float y, float z) {
 // One robot: its body's row, its two wheel motors, and its PD loop.
 class Balancer {
  public:
-  Balancer(const Simulation& sim, const JointRows& rows, std::size_t index)
+  Balancer(const Simulation& sim, std::size_t index)
       : gains_(kGains[index]),
-        body_(rows.Row({"balancer", "body", index})),
-        left_row_(rows.Row({"balancer", "left_wheel", index})),
-        right_row_(rows.Row({"balancer", "right_wheel", index})),
+        body_(Row(sim, {"balancer", "body", index})),
+        left_row_(Row(sim, {"balancer", "left_wheel", index})),
+        right_row_(Row(sim, {"balancer", "right_wheel", index})),
         left_(Attach(sim, "left_wheel", index)),
         right_(Attach(sim, "right_wheel", index)) {}
 
@@ -289,11 +254,10 @@ int Run(const Args& args) {
   // Semi-implicit Euler: the integrator with collision.
   sim.SetIntegrator(Simulation::Integrator::kSemiImplicitEuler);
 
-  const JointRows rows(achilles::interface::LoadArchetypes(args.arow_path));
   std::vector<Balancer> robots;
   robots.reserve(kRobotCount);
   for (std::size_t i = 0; i < kRobotCount; ++i) {
-    robots.emplace_back(sim, rows, i);
+    robots.emplace_back(sim, i);
     float y = sim.ViewFor<ABAAlgorithm>()
                   .Load<ABAField::kJointPosition, ScalarOperationT>(
                       robots.back().Body()
@@ -302,7 +266,7 @@ int Run(const Args& args) {
                   .Y();
     Place(sim, robots.back().Body(), RobotX(i), y, 0.0F);
   }
-  const std::size_t box = rows.Row({"box", "box"});
+  const std::size_t box = Row(sim, {"box", "box"});
 
   std::ofstream csv;
   if (!args.csv_path.empty()) {

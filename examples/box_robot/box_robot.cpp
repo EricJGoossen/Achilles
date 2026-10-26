@@ -21,18 +21,12 @@
 #include <string>
 #include <string_view>
 #include <utility>
-#include <vector>
 
 #include "algorithms/aba/aba_data.hpp"
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
-#include "algorithms/registry.hpp"
-#include "domain/archetype.hpp"
-#include "engine/memory/sim_allocator.hpp"
-#include "engine/topology/ordering_plan.hpp"
 #include "engine/topology/ordering_policy.hpp"
 #include "interface/actuator.hpp"
-#include "interface/archetype_loader.hpp"
 #include "interface/simulation.hpp"
 
 namespace {
@@ -40,6 +34,7 @@ namespace {
 using achilles::algorithms::ScalarOperationT;
 using achilles::algorithms::aba::ABAAlgorithm;
 using achilles::algorithms::aba::ABAField;
+using achilles::engine::topology::TopologicalOrdering;
 using achilles::interface::AngularActuator;
 using achilles::interface::JointAddress;
 using achilles::interface::Simulation;
@@ -70,42 +65,6 @@ constexpr std::array<std::array<float, 2>, 8> kWaypoints = {{
     {-2.4F, 1.5F},
     {-1.2F, 0.4F},
 }};
-
-// Which row of the sim's Views each joint lives at. Simulation doesn't hand
-// that out, so the example rebuilds the same row order ABA's fields use:
-// the TopologicalOrdering plan over the same archetypes and lane width the
-// sim's allocator was built with (SimAllocator::BuildPlans does exactly
-// this).
-class JointRows {
- public:
-  explicit JointRows(std::vector<achilles::domain::Archetype> archetypes)
-      : archetypes_(std::move(archetypes)), plan_(Plan(archetypes_)) {}
-
-  std::size_t Row(const JointAddress& joint) const {
-    return plan_.Layout().ToSorted(
-        achilles::domain::ResolveJoint(archetypes_, joint)
-    );
-  }
-
- private:
-  static achilles::engine::topology::OrderingPlan Plan(
-      std::span<const achilles::domain::Archetype> archetypes
-  ) {
-    using Allocator = achilles::engine::memory::SimAllocatorForT<
-        achilles::algorithms::RegisteredAlgorithms>;
-    std::vector<achilles::domain::ArchetypeTreeStructure> tree;
-    tree.reserve(archetypes.size());
-    for (const achilles::domain::Archetype& archetype : archetypes) {
-      tree.push_back(archetype.TreeStructure());
-    }
-    return achilles::engine::topology::TopologicalOrdering::Build(
-        tree, Allocator::RequiredLaneSize()
-    );
-  }
-
-  std::vector<achilles::domain::Archetype> archetypes_;
-  achilles::engine::topology::OrderingPlan plan_;
-};
 
 // A wheel's motor: drives its wheel toward a target speed with a PI loop,
 // limited to what the motor can deliver. A model of a real actuator,
@@ -212,12 +171,16 @@ struct Wheels {
   WheelMotor right_rear;
 };
 
-WheelMotor AttachWheel(
-    const Simulation& sim, const JointRows& rows, std::string name
-) {
+// The row each joint lives at in ABA's Views, which TopologicalOrdering
+// orders.
+std::size_t Row(const Simulation& sim, const JointAddress& joint) {
+  return sim.RowFor<TopologicalOrdering>(joint);
+}
+
+WheelMotor AttachWheel(const Simulation& sim, std::string name) {
   JointAddress joint{"box_robot", std::move(name)};
   // Each wheel turns about its own axle, local X.
-  return sim.AttachActuator<WheelMotor>(joint, {1, 0, 0}, rows.Row(joint));
+  return sim.AttachActuator<WheelMotor>(joint, {1, 0, 0}, Row(sim, joint));
 }
 
 // Skid steering: a yaw rate w about +y moves a wheel at lateral offset x
@@ -283,13 +246,12 @@ int Run(const Args& args) {
   // Semi-implicit Euler: the integrator with collision.
   sim.SetIntegrator(Simulation::Integrator::kSemiImplicitEuler);
 
-  const JointRows rows(achilles::interface::LoadArchetypes(args.arow_path));
-  const std::size_t chassis = rows.Row({"box_robot", "chassis"});
+  const std::size_t chassis = Row(sim, {"box_robot", "chassis"});
   Wheels wheels{
-      AttachWheel(sim, rows, "left_front"),
-      AttachWheel(sim, rows, "left_rear"),
-      AttachWheel(sim, rows, "right_front"),
-      AttachWheel(sim, rows, "right_rear"),
+      AttachWheel(sim, "left_front"),
+      AttachWheel(sim, "left_rear"),
+      AttachWheel(sim, "right_front"),
+      AttachWheel(sim, "right_rear"),
   };
   WaypointFollower follower;
 
