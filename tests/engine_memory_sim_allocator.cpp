@@ -9,14 +9,16 @@
 #include <vector>
 
 #include "domain/archetype.hpp"
+#include "domain/joint_layout.hpp"
 #include "domain/math/vector3.hpp"
 #include "engine/algorithm_contract.hpp"
 #include "engine/field_contract.hpp"
 #include "engine/memory/binding.hpp"
+#include "engine/memory/buffering_policy.hpp"
 #include "engine/memory/sim_allocator.hpp"
-#include "domain/joint_layout.hpp"
 #include "engine/topology/layout_policy.hpp"
 #include "engine/topology/ordering_policy.hpp"
+#include "support/toy_buffered_field.hpp"
 #include "util/tmp.hpp"
 
 using achilles::domain::Archetype;
@@ -409,5 +411,62 @@ TEST(SimAllocatorSharedAs, DiesOnIncompatibleOrderingForSameSharedTag) {
   using Sim = SimAllocator<
       Algorithm<SharedField, SharedFieldTraits>,
       Algorithm<MismatchedOrderingField, MismatchedOrderingFieldTraits>>;
+  EXPECT_DEATH(Sim sim(archetypes), "unsound");
+}
+
+namespace {
+
+// Same SharedInputSlot tag, Assembler and Ordering as
+// SharedField::kSharedInput, but double-buffered -- the two can't share a
+// block, since one carves three copies of it and reads at an offset.
+enum class MismatchedBufferingField : std::uint8_t { kSharedAgain, kCount };
+template <MismatchedBufferingField F>
+struct MismatchedBufferingFieldTraits;
+template <>
+struct MismatchedBufferingFieldTraits<MismatchedBufferingField::kSharedAgain> {
+  using Assembler = Vector3Assembler<float>;
+  using SharedAs = SharedInputSlot;
+  using Ordering = TopologicalOrdering;
+  using Buffering = achilles::engine::memory::DoubleBuffered;
+  using Layout = PlanarLayout;
+};
+static_assert(achilles::engine::FieldTraitsLike<
+              MismatchedBufferingField,
+              MismatchedBufferingFieldTraits>);
+
+}  // namespace
+
+// A swap resets the write half from the rest block, so the rest block must
+// hold the populated archetype data, not zero-fill: scribble on the read
+// half, swap it out (reset) and back in, and the archetype value is back.
+TEST(SimAllocatorBuffering, RestBlockHoldsThePopulatedArchetypeData) {
+  using achilles::test_support::ToyBufferedAlgorithm;
+  using achilles::test_support::ToyBufferedField;
+  auto sim = achilles::test_support::MakeToyBufferedSim(2);
+  auto view = sim.ViewFor<ToyBufferedAlgorithm>();
+  view.Store<ToyBufferedField::kCommand, float>(1, Vector3<float>::Zero());
+
+  auto context = sim.SimContext();
+  context.SwapBuffers();
+  context.SwapBuffers();
+  Vector3<float> value = view.Load<ToyBufferedField::kCommand, float>(1);
+  Vector3<float> rest = achilles::test_support::ToyCommandRest(1);
+  EXPECT_FLOAT_EQ(value.X(), rest.X());
+  EXPECT_FLOAT_EQ(value.Y(), rest.Y());
+  EXPECT_FLOAT_EQ(value.Z(), rest.Z());
+}
+
+// Carve's reused-slot check compares buffering too: two algorithms sharing
+// a block they disagree on the copy count of would read different memory
+// for the same row. Byte size necessarily differs as well (one block vs
+// three), so this proves the mismatch is caught, not which field of the
+// check caught it.
+TEST(SimAllocatorSharedAs, DiesOnIncompatibleBufferingForSameSharedTag) {
+  Archetype arm = MakeArmArchetype();
+  std::array<Archetype, 1> archetypes = {std::move(arm)};
+
+  using Sim = SimAllocator<
+      Algorithm<SharedField, SharedFieldTraits>,
+      Algorithm<MismatchedBufferingField, MismatchedBufferingFieldTraits>>;
   EXPECT_DEATH(Sim sim(archetypes), "unsound");
 }

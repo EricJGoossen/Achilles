@@ -9,18 +9,22 @@
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/indexing_policy.hpp"
 #include "engine/topology/ordering_policy.hpp"
+#include "support/toy_buffered_field.hpp"
 #include "support/toy_field.hpp"
 #include "support/toy_reduce_field.hpp"
 
 using achilles::domain::math::Scalar;
 using achilles::domain::math::Vector3;
-using achilles::engine::topology::BroadcastIndex;
 using achilles::engine::memory::SimAllocator;
+using achilles::engine::topology::BroadcastIndex;
 using achilles::engine::topology::LinearOrdering;
+using achilles::test_support::MakeToyBufferedSim;
+using achilles::test_support::MakeToyReduceSim;
 using achilles::test_support::MakeToySim;
 using achilles::test_support::ToyAlgorithm;
+using achilles::test_support::ToyBufferedField;
+using achilles::test_support::ToyCommandRest;
 using achilles::test_support::ToyField;
-using achilles::test_support::MakeToyReduceSim;
 using achilles::test_support::ToyReduceAlgorithm;
 using achilles::test_support::ToyReduceField;
 using achilles::test_support::ToyReduceView;
@@ -236,4 +240,129 @@ TEST(ViewFieldCursor, ResolveFollowsEachFieldsOwnIndexingPolicy) {
   auto value = view.Field<ToyReduceField::kValue>();
   EXPECT_EQ((value.Resolve<float, 0>(indices)), 3U);
   EXPECT_EQ((value.Resolve<float, 1>(indices)), 1U);
+}
+
+namespace {
+
+void ExpectVector3Eq(
+    const Vector3<float>& actual, const Vector3<float>& expected
+) {
+  EXPECT_FLOAT_EQ(actual.X(), expected.X());
+  EXPECT_FLOAT_EQ(actual.Y(), expected.Y());
+  EXPECT_FLOAT_EQ(actual.Z(), expected.Z());
+}
+
+}  // namespace
+
+// Both halves start as the populated rest block, so the first tick reads
+// archetype data whichever half the parity happens to point at.
+TEST(ViewDoubleBuffered, LoadReadsTheRestValueOnEitherHalf) {
+  auto sim = MakeToyBufferedSim(2);
+  auto view = sim.ViewFor<achilles::test_support::ToyBufferedAlgorithm>();
+  ExpectVector3Eq(
+      view.Load<ToyBufferedField::kCommand, float>(1), ToyCommandRest(1)
+  );
+  sim.SimContext().SwapBuffers();
+  ExpectVector3Eq(
+      view.Load<ToyBufferedField::kCommand, float>(1), ToyCommandRest(1)
+  );
+}
+
+// A pass's own Store is scratch on the half being read -- it must not leak
+// into the half writers are filling for the next tick.
+TEST(ViewDoubleBuffered, StoreWritesOnlyTheHalfBeingRead) {
+  auto sim = MakeToyBufferedSim(1);
+  auto view = sim.ViewFor<achilles::test_support::ToyBufferedAlgorithm>();
+  view.Store<ToyBufferedField::kCommand, float>(
+      0, Vector3<float>(1.0F, 2.0F, 3.0F)
+  );
+  ExpectVector3Eq(
+      view.Load<ToyBufferedField::kCommand, float>(0),
+      Vector3<float>(1.0F, 2.0F, 3.0F)
+  );
+  sim.SimContext().SwapBuffers();
+  ExpectVector3Eq(
+      view.Load<ToyBufferedField::kCommand, float>(0), ToyCommandRest(0)
+  );
+}
+
+// WriteSlot addresses one (row, leaf) of the write half: invisible to this
+// tick's reads, and exactly that element (no other row or leaf) once the
+// halves swap.
+TEST(ViewDoubleBuffered, WriteSlotIsInvisibleUntilTheHalvesSwap) {
+  auto sim = MakeToyBufferedSim(2);
+  auto view = sim.ViewFor<achilles::test_support::ToyBufferedAlgorithm>();
+  view.WriteSlot<ToyBufferedField::kCommand>(1, 2).Add(0.5F);
+  ExpectVector3Eq(
+      view.Load<ToyBufferedField::kCommand, float>(1), ToyCommandRest(1)
+  );
+
+  sim.SimContext().SwapBuffers();
+  ExpectVector3Eq(
+      view.Load<ToyBufferedField::kCommand, float>(0), ToyCommandRest(0)
+  );
+  ExpectVector3Eq(
+      view.Load<ToyBufferedField::kCommand, float>(1),
+      ToyCommandRest(1) + Vector3<float>(0.0F, 0.0F, 0.5F)
+  );
+}
+
+// Ops read through FieldCursor, not View::Load -- a separate address path
+// (Field<F>() caches its base pointer), so it needs its own check that it
+// lands on the half being read, before and after a swap.
+TEST(ViewDoubleBuffered, FieldCursorReadsTheSameHalfAsLoad) {
+  auto sim = MakeToyBufferedSim(1);
+  auto view = sim.ViewFor<achilles::test_support::ToyBufferedAlgorithm>();
+  view.WriteSlot<ToyBufferedField::kCommand>(0, 0).Add(4.0F);
+  ExpectVector3Eq(
+      view.Field<ToyBufferedField::kCommand>().Load<float>(0), ToyCommandRest(0)
+  );
+  sim.SimContext().SwapBuffers();
+  ExpectVector3Eq(
+      view.Field<ToyBufferedField::kCommand>().Load<float>(0),
+      view.Load<ToyBufferedField::kCommand, float>(0)
+  );
+  ExpectVector3Eq(
+      view.Field<ToyBufferedField::kCommand>().Load<float>(0),
+      ToyCommandRest(0) + Vector3<float>(4.0F, 0.0F, 0.0F)
+  );
+}
+
+// ResetWriteBuffers is what throws away the previous tick's scratch -- it
+// must restore the write half to the rest value, discarding anything
+// written there.
+TEST(ViewDoubleBuffered, ResetWriteBuffersDiscardsPendingWrites) {
+  auto sim = MakeToyBufferedSim(1);
+  auto view = sim.ViewFor<achilles::test_support::ToyBufferedAlgorithm>();
+  view.WriteSlot<ToyBufferedField::kCommand>(0, 1).Add(9.0F);
+  view.ResetWriteBuffers();
+  sim.SimContext().SwapBuffers();
+  ExpectVector3Eq(
+      view.Load<ToyBufferedField::kCommand, float>(0), ToyCommandRest(0)
+  );
+}
+
+// The control: a single-buffered field in the same View keeps its value
+// across a swap.
+TEST(ViewDoubleBuffered, SingleBufferedFieldIsUnaffectedBySwaps) {
+  auto sim = MakeToyBufferedSim(1);
+  auto view = sim.ViewFor<achilles::test_support::ToyBufferedAlgorithm>();
+  view.Store<ToyBufferedField::kState, float>(
+      0, Vector3<float>(5.0F, 6.0F, 7.0F)
+  );
+  sim.SimContext().SwapBuffers();
+  ExpectVector3Eq(
+      view.Load<ToyBufferedField::kState, float>(0),
+      Vector3<float>(5.0F, 6.0F, 7.0F)
+  );
+}
+
+// One representative bounds check for WriteSlot (TESTING.md 9.1): a handle
+// past the field's last row would write into a neighbouring block.
+TEST(ViewDoubleBuffered, DiesOnAWriteSlotPastTheLastRow) {
+  auto sim = MakeToyBufferedSim(1);
+  auto view = sim.ViewFor<achilles::test_support::ToyBufferedAlgorithm>();
+  EXPECT_DEATH(
+      (void)view.WriteSlot<ToyBufferedField::kCommand>(view.Size(), 0), "row <"
+  );
 }
