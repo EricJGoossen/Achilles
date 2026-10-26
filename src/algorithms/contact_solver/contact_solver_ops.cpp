@@ -145,28 +145,34 @@ struct SoftConstraint {
   MathematicalT power;
   MathematicalT stiffness;
   MathematicalT damping;
-
-  SoftConstraint(const Solref& solref, const Solimp& solimp, float dt)
-      : d0(ClampImpedance(solimp(0, 0))),
-        dwidth(ClampImpedance(solimp(1, 0))),
-        width(xsimd::max(solimp(2, 0), MathematicalT(0))),
-        midpoint(ClampImpedance(solimp(3, 0))),
-        power(xsimd::max(solimp(4, 0), MathematicalT(1))) {
-    MathematicalT timeconst =
-        xsimd::max(solref(0, 0), MathematicalT(2.0F * dt));
-    MathematicalT dampratio = solref(1, 0);
-    MathematicalT dw_tc = dwidth * timeconst;
-    stiffness = MathematicalT(1) / xsimd::max(
-                                       MathematicalT(kMinVal),
-                                       dw_tc * dw_tc * dampratio * dampratio
-                                   );
-    damping = MathematicalT(2) / xsimd::max(MathematicalT(kMinVal), dw_tc);
-  }
-
-  MathematicalT ImpedanceAt(const MathematicalT& r) const {
-    return Impedance(r, d0, dwidth, width, midpoint, power);
-  }
 };
+
+SoftConstraint MakeSoftConstraint(
+    const Solref& solref, const Solimp& solimp, float dt
+) {
+  MathematicalT dwidth = ClampImpedance(solimp(1, 0));
+  MathematicalT timeconst = xsimd::max(solref(0, 0), MathematicalT(2.0F * dt));
+  MathematicalT dampratio = solref(1, 0);
+  MathematicalT dw_tc = dwidth * timeconst;
+  return {
+      ClampImpedance(solimp(0, 0)),
+      dwidth,
+      xsimd::max(solimp(2, 0), MathematicalT(0)),
+      ClampImpedance(solimp(3, 0)),
+      xsimd::max(solimp(4, 0), MathematicalT(1)),
+      MathematicalT(1) /
+          xsimd::max(
+              MathematicalT(kMinVal), dw_tc * dw_tc * dampratio * dampratio
+          ),
+      MathematicalT(2) / xsimd::max(MathematicalT(kMinVal), dw_tc)
+  };
+}
+
+MathematicalT ImpedanceAt(const SoftConstraint& soft, const MathematicalT& r) {
+  return Impedance(
+      r, soft.d0, soft.dwidth, soft.width, soft.midpoint, soft.power
+  );
+}
 
 // The rows' cost 1/2 D x^2 over x < 0, at the residual (qacc_smooth) and at
 // residual + search (the warmstart), for any rows matrix.
@@ -320,7 +326,7 @@ void SetupRowsOp::operator()(
       MathematicalT(0.5F);
   MathematicalT margin = margin_target.Value() + margin_source.Value();
 
-  SoftConstraint soft(solref, solimp, dt_);
+  SoftConstraint soft = MakeSoftConstraint(solref, solimp, dt_);
 
   // mju_makeFrame: t1 from +y (or +z when n is near y), made orthogonal to
   // n; t2 = n x t1. An inactive lane's normal is replaced first, so its
@@ -355,7 +361,7 @@ void SetupRowsOp::operator()(
 
     MathematicalT r = distance(k, 0) - margin;
     Mask row_active = slot_active[k] & (r < MathematicalT(0));
-    MathematicalT imp = soft.ImpedanceAt(r);
+    MathematicalT imp = ImpedanceAt(soft, r);
 
     // R = (1 - d) / d A_ii, then every pyramidal row's R = 2 mu^2 R
     // (mj_makeImpedance, impratio 1), and D = 1 / R
@@ -470,13 +476,14 @@ void SetupLimitRowsOp::operator()(
     JointCoordinates* weight_out,
     JointCoordinates* residual_out
 ) const {
-  SoftConstraint soft(DefaultSolref(solref), DefaultSolimp(solimp), dt_);
+  SoftConstraint soft =
+      MakeSoftConstraint(DefaultSolref(solref), DefaultSolimp(solimp), dt_);
   MathematicalT zero(0);
   for (std::size_t k = 0; k < 6; ++k) {
     Mask row_active =
         util::Select(active[k], MathematicalT(1), MathematicalT(0)) != zero;
     MathematicalT r = distance[k] - margin.Value();
-    MathematicalT imp = soft.ImpedanceAt(r);
+    MathematicalT imp = ImpedanceAt(soft, r);
 
     // R = (1 - d) / d A_ii, A_ii = dof_invweight0, and D = 1 / R
     MathematicalT weight =

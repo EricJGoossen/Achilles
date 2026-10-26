@@ -4,10 +4,15 @@
 #include <cstdint>
 
 #include "algorithms/aba/aba_data.hpp"
+#include "algorithms/aba/aba_step.hpp"
 #include "algorithms/contact_solver/contact_solver_data.hpp"
+#include "algorithms/contact_solver/contact_solver_step.hpp"
 #include "algorithms/conventions.hpp"
 #include "algorithms/joint_limit/joint_limit_data.hpp"
 #include "algorithms/joint_limit/joint_limit_step.hpp"
+#include "domain/math/quaternion.hpp"
+#include "domain/math/vector3.hpp"
+#include "domain/spatial/transform.hpp"
 #include "engine/topology/ordering_policy.hpp"
 #include "support/registered_sim.hpp"
 #include "support/temp_dir.hpp"

@@ -295,7 +295,7 @@ namespace {
 // 0.3 x - 0.6 y + 0.2 z: an arbitrary axis, angle 0.7 -- well inside
 // (0, pi), so Log(Exp(v)) must give v back exactly.
 Vector3<float> ArbitraryRotationVector() {
-  return Vector3<float>(0.3F, -0.6F, 0.2F);
+  return {0.3F, -0.6F, 0.2F};
 }
 
 }  // namespace

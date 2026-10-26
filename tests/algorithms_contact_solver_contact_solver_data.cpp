@@ -5,6 +5,7 @@
 #include <string>
 
 #include "algorithms/aba/aba_data.hpp"
+#include "algorithms/aba/aba_step.hpp"
 #include "algorithms/contact_solver/contact_solver_data.hpp"
 #include "algorithms/contact_solver/contact_solver_step.hpp"
 #include "algorithms/conventions.hpp"

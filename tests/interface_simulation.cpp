@@ -930,7 +930,7 @@ TEST(SimulationActuator, AttachActuatorReturnsTheCallersOwnType) {
 TEST(SimulationActuator, AttachActuatorBuildsTheMinimalActuatorLikeType) {
   TempDir dir;
   Simulation sim = MakeInitializedSim(dir, 0.0F);
-  ActuatorArchetype actuator =
+  auto actuator =
       sim.AttachActuator<ActuatorArchetype>({"base", "joint"}, {0, 0, 1});
   actuator.Apply(4.0F);
   ASSERT_TRUE(sim.Step(0.0F));

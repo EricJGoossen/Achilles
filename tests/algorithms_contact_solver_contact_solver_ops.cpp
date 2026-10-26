@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -8,6 +9,7 @@
 #include "algorithms/contact_solver/contact_solver_data.hpp"
 #include "algorithms/contact_solver/contact_solver_ops.hpp"
 #include "algorithms/conventions.hpp"
+#include "algorithms/joint_limit/joint_limit_data.hpp"
 #include "algorithms/narrow_phase/narrow_phase_data.hpp"
 #include "util/simd_ops.hpp"
 

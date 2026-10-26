@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "algorithms/aba/aba_data.hpp"
+#include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
 #include "algorithms/registry.hpp"
 #include "domain/archetype.hpp"
