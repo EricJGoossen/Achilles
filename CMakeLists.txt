@@ -96,6 +96,8 @@ target_link_libraries(achilles PRIVATE achilles_lib)
 # each is its own executable on the library, like achilles itself.
 add_executable(box_robot "${CMAKE_CURRENT_SOURCE_DIR}/examples/box_robot/box_robot.cpp")
 target_link_libraries(box_robot PRIVATE achilles_lib)
+add_executable(balancers "${CMAKE_CURRENT_SOURCE_DIR}/examples/balancers/balancers.cpp")
+target_link_libraries(balancers PRIVATE achilles_lib)
 
 option(BUILD_TESTS "Build test suite" ON)
 if(BUILD_TESTS)
