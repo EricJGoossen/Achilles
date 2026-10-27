@@ -12,12 +12,15 @@
 #include "domain/math/vector3.hpp"
 #include "domain/spatial/transform.hpp"
 #include "render/mat4.hpp"
+#include "render/mesh.hpp"
 
 namespace achilles::render {
 
 namespace {
 
 using achilles::algorithms::ScalarOperationT;
+using achilles::algorithms::viz::ShapeOf;
+using achilles::algorithms::viz::VisualShape;
 using achilles::algorithms::viz::VizField;
 using achilles::algorithms::viz::VizView;
 using ScalarTransform = domain::spatial::Transform<ScalarOperationT>;
@@ -124,13 +127,15 @@ Vec3 FallbackColor(std::size_t row) {
   }
 }
 
+// The ground grid lies in the world XY plane (z = 0): the simulation is
+// Z-up, so that is the plane gravity is normal to.
 std::vector<float> BuildGridLines(float half_extent, float step) {
   std::vector<float> verts;
   for (float x = -half_extent; x <= half_extent + 1e-4F; x += step) {
-    verts.insert(verts.end(), {x, 0.0F, -half_extent, x, 0.0F, half_extent});
+    verts.insert(verts.end(), {x, -half_extent, 0.0F, x, half_extent, 0.0F});
   }
-  for (float z = -half_extent; z <= half_extent + 1e-4F; z += step) {
-    verts.insert(verts.end(), {-half_extent, 0.0F, z, half_extent, 0.0F, z});
+  for (float y = -half_extent; y <= half_extent + 1e-4F; y += step) {
+    verts.insert(verts.end(), {-half_extent, y, 0.0F, half_extent, y, 0.0F});
   }
   return verts;
 }
@@ -140,7 +145,9 @@ std::vector<float> BuildGridLines(float half_extent, float step) {
 SceneRenderer::SceneRenderer(std::string_view title)
     : window_(1280, 800, title),
       lit_shader_(kLitVertexSource, kLitFragmentSource),
-      line_shader_(kLineVertexSource, kLineFragmentSource) {
+      line_shader_(kLineVertexSource, kLineFragmentSource),
+      cube_(SolidMesh::Cube()),
+      sphere_(SolidMesh::Sphere()) {
   grid_.Update(BuildGridLines(10.0F, 1.0F));
   axis_x_.Update(std::vector<float>{0, 0, 0, 2, 0, 0});
   axis_y_.Update(std::vector<float>{0, 0, 0, 0, 2, 0});
@@ -202,9 +209,9 @@ void SceneRenderer::RenderFrame(
         view.Load<VizField::kVisualColor, ScalarOperationT>(row);
     Vec3 rgb = color.IsZero() ? FallbackColor(row) : ToRenderVec3(color);
 
-    // The cube mesh itself is centered on the origin ([-1, 1]^3, see
-    // CubeMesh's own comment), so placing it directly at `transform` would
-    // draw every joint's box straddling its own pivot -- centered on the
+    // Each mesh is centered on the origin (within [-1, 1]^3, see
+    // SolidMesh's own comment), so placing it directly at `transform` would
+    // draw every joint's shape straddling its own pivot -- centered on the
     // joint rather than extending away from it the way a bone/limb segment
     // actually should. Offsetting by half the box's own length along its
     // local +Y (the same axis fixed_joint_transform's own translation uses
@@ -213,17 +220,21 @@ void SceneRenderer::RenderFrame(
     // convention sits right at the box's far face rather than the middle.
     // `transform` itself -- the real, unshifted joint position -- is still
     // what the bone line below is drawn from/to, so this offset is purely
-    // cosmetic (the cube's own placement), never the physics.
-    ScalarTransform box_pose = transform * ScalarTransform(
-                                               ScalarVector3(0, extents.Y(), 0),
-                                               ScalarQuaternion::Identity()
-                                           );
+    // cosmetic (the shape's own placement), never the physics.
+    ScalarTransform shape_pose =
+        transform *
+        ScalarTransform(
+            ScalarVector3(0, extents.Y(), 0), ScalarQuaternion::Identity()
+        );
     Mat4 model = FromTransformAndScale(
-        ToRenderTransform(box_pose), ToRenderVec3(extents)
+        ToRenderTransform(shape_pose), ToRenderVec3(extents)
     );
     lit_shader_.SetMat4("u_model", model);
     lit_shader_.SetVec3("u_color", rgb.X(), rgb.Y(), rgb.Z());
-    cube_.Draw();
+    VisualShape shape =
+        ShapeOf(view.Load<VizField::kVisualShape, ScalarOperationT>(row).Value()
+        );
+    (shape == VisualShape::kSphere ? sphere_ : cube_).Draw();
 
     std::size_t parent_row = topology[row];
     ScalarTransform parent_transform =

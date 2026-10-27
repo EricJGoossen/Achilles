@@ -175,6 +175,133 @@ TEST(UpdateStep, MgradIsTheMassMatrixInverseTimesGrad) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// A planar double pendulum: two revolute-z links, the second hinged 1 along
+// the first's x, each kPendulumInertia (m = 1, center 0.5 along its own x,
+// Izz = 0.26 about its joint). Unlike the coaxial hinges, x_up carries a
+// translation, so M is configuration-dependent and every pass's force
+// transform's t^ R term matters:
+//
+//   M11 = I1 + I2 + m2 (l^2 + 2 l c2 cos q2),  M12 = I2 + m2 l c2 cos q2,
+//   M22 = I2.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+constexpr F kUpperAngle = 0.3F;
+constexpr F kLowerAngle = 0.7F;
+
+RegisteredSim MakeOffsetArm(const TempDir& dir) {
+  std::string lower = RevoluteZJointArow(
+      "lower", "upper", kPendulumInertia, kLowerAngle, 0.0F
+  );
+  const std::string at_origin = "fixed_joint_transform: [0,0,0,";
+  lower.replace(
+      lower.find(at_origin), at_origin.size(), "fixed_joint_transform: [1,0,0,"
+  );
+  return MakeRegisteredSim(
+      dir,
+      RevoluteZJointArow("upper", "", kPendulumInertia, kUpperAngle, 0.0F) +
+          lower
+  );
+}
+
+struct Mat2 {
+  double a11, a12, a22;  // symmetric
+};
+
+Mat2 OffsetArmMassMatrix() {
+  double i = kPendulumIzz;
+  double coupling = 0.5 * std::cos(static_cast<double>(kLowerAngle));
+  return {i + i + 1.0 + (2.0 * coupling), i + coupling, i};
+}
+
+Mat2 Inverse(const Mat2& m) {
+  double det = (m.a11 * m.a22) - (m.a12 * m.a12);
+  return {m.a22 / det, -m.a12 / det, m.a11 / det};
+}
+
+}  // namespace
+
+// DirectionStep's M search, column by column (search = e_j), against the
+// closed-form M -- including both off-diagonal entries, so M comes out
+// symmetric through the real forward/backward tree passes.
+TEST(DirectionStep, MSearchMatchesAnOffsetArmsClosedFormMassMatrix) {
+  TempDir dir;
+  RegisteredSim sim = MakeOffsetArm(dir);
+  RunSteps<TypeList<aba::ABAStep>>(sim, SimConfig{});
+  auto view = sim.ViewFor<ContactSolverAlgorithm>();
+  Mat2 m = OffsetArmMassMatrix();
+  double expected[2][2] = {{m.a11, m.a12}, {m.a12, m.a22}};
+
+  for (std::size_t col = 0; col < 2; ++col) {
+    for (std::size_t joint = 0; joint < 2; ++joint) {
+      view.Store<ContactSolverField::kSearch, F>(
+          Row(sim, joint),
+          spatial::SpatialAcceleration<F>(
+              joint == col ? 1.0F : 0.0F, 0, 0, 0, 0, 0
+          )
+      );
+    }
+    RunSteps<TypeList<contact_solver::DirectionStep>>(sim, SimConfig{});
+    for (std::size_t row = 0; row < 2; ++row) {
+      EXPECT_NEAR(
+          (view.Load<ContactSolverField::kMSearch, F>(Row(sim, row))[0]),
+          expected[row][col], 1e-4
+      ) << "M(" << row << ", " << col << ")";
+    }
+  }
+}
+
+// UpdateStep's M^-1 grad, column by column (grad = Ma = e_j, alpha = 0, no
+// rows), against the closed-form inverse of the same M.
+TEST(UpdateStep, MgradMatchesAnOffsetArmsClosedFormInverse) {
+  TempDir dir;
+  RegisteredSim sim = MakeOffsetArm(dir);
+  RunSteps<TypeList<aba::ABAStep>>(sim, SimConfig{});
+  auto view = sim.ViewFor<ContactSolverAlgorithm>();
+  view.Store<ContactSolverField::kStep, F>(0, math::Scalar<F>(0.0F));
+  Mat2 inv = Inverse(OffsetArmMassMatrix());
+  double expected[2][2] = {{inv.a11, inv.a12}, {inv.a12, inv.a22}};
+
+  for (std::size_t col = 0; col < 2; ++col) {
+    for (std::size_t joint = 0; joint < 2; ++joint) {
+      view.Store<ContactSolverField::kMa, F>(
+          Row(sim, joint),
+          spatial::SpatialForce<F>(joint == col ? 1.0F : 0.0F, 0, 0, 0, 0, 0)
+      );
+    }
+    RunSteps<TypeList<contact_solver::UpdateStep>>(sim, SimConfig{});
+    for (std::size_t row = 0; row < 2; ++row) {
+      EXPECT_NEAR(
+          (view.Load<ContactSolverField::kMgrad, F>(Row(sim, row))[0]) /
+              expected[row][col],
+          1.0, 1e-3
+      ) << "M^-1(" << row << ", " << col << ")";
+    }
+  }
+}
+
+// InvWeightStep's dof_invweight0 is diag(M^-1) for the offset arm too --
+// the Omega recursion carried through a translated x_up.
+TEST(InvWeightStep, DofInvweightMatchesAnOffsetArmsInverseDiagonal) {
+  TempDir dir;
+  RegisteredSim sim = MakeOffsetArm(dir);
+  RunSteps<SetupList>(sim, SimConfig{}, 0.0F);
+  auto view = sim.ViewFor<ContactSolverAlgorithm>();
+  Mat2 inv = Inverse(OffsetArmMassMatrix());
+  EXPECT_NEAR(
+      (view.Load<ContactSolverField::kDofInvWeight, F>(Row(sim, 0))[0]) /
+          inv.a11,
+      1.0, 1e-3
+  );
+  EXPECT_NEAR(
+      (view.Load<ContactSolverField::kDofInvWeight, F>(Row(sim, 1))[0]) /
+          inv.a22,
+      1.0, 1e-3
+  );
+}
+
 // With no active rows the cost is Gauss's alone, minimized at
 // qacc_smooth: the solve hands ABA's own qdd back unchanged.
 TEST(Solve, WithNoActiveRowsQddIsUnchanged) {
@@ -290,20 +417,30 @@ std::string CollisionFields(
          "]\n      collision_mask: [" + std::to_string(mask) + "]\n";
 }
 
-// Slide along y (subspace entry (4, 0)), 2 kg, a sphere of radius 0.1.
-std::string BallJoint(float y) {
-  return "  - name: ball\n"
+// Slide along y (subspace entry (4, 0)), 2 kg, a sphere of radius 0.1 in
+// collision group 2 (colliding with group 1, the ground). `x` places its
+// slide sideways; `extra` is any further field lines.
+std::string BallJoint(
+    float y, const std::string& name = "ball", float x = 0.0F,
+    float mass = kBallMass, int group = 2, int mask = 1,
+    const std::string& extra = ""
+) {
+  return "  - name: " + name +
+         "\n"
          "    parent: world\n"
          "    fields:\n"
          "      joint_subspace: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,"
          "0,0,1,0,0,0,0,0,0,0,0,0,0,0]\n"
          "      joint_activation_mask: [1]\n"
-         "      fixed_joint_transform: [0,0,0, 1,0,0,0]\n"
-         "      rigid_body_inertia: [2, 0,0,0, 0.01,0.01,0.01, 0,0,0]\n"
+         "      fixed_joint_transform: [" +
+         std::to_string(x) +
+         ",0,0, 1,0,0,0]\n"
+         "      rigid_body_inertia: [" +
+         std::to_string(mass) +
+         ", 0,0,0, 0.01,0.01,0.01, 0,0,0]\n"
          "      joint_position: [0," +
-         std::to_string(y) +
-         ",0, 1,0,0,0]\n" +
-         CollisionFields("[0, 0, 0]", 0.1F, 2, 1);
+         std::to_string(y) + ",0, 1,0,0,0]\n" +
+         CollisionFields("[0, 0, 0]", 0.1F, group, mask) + extra;
 }
 
 RegisteredSim MakeBallOnGround(const TempDir& dir, float ball_y) {
@@ -379,6 +516,153 @@ TEST(Solve, ContactRowsMatchTheClosedFormMinimum) {
   ASSERT_LT(expected - aref, 0.0);  // every row still active there
 
   EXPECT_NEAR(Qdd(sim, 2) / expected, 1.0, 1e-3);
+}
+
+// A limit row and a contact's rows in the same cost: the ball on its slide
+// is 0.01 into the ground and 0.01 past its slide's lower limit (0.1), so
+// on top of the n contact rows there's one limit row, J = side = +1, with
+// its own D (R = (1 - d) / d dof_invweight0, dof_invweight0 = 1 / m) and
+// the same aref -- a* = (M a0 + (n D_c + D_l) aref) / (M + n D_c + D_l).
+// What's under test is that the limit half of every sum (the warmstart
+// cost, the line search, J^T f) adds onto the contact half rather than
+// replacing it: either half alone lands somewhere else.
+TEST(Solve, ContactAndLimitRowsShareOneCost) {
+  // LoadArchetypes takes the field list from the first joint, so the
+  // welded ones declare every limit field too (unlimited) -- or the ball's
+  // range would silently read as zero.
+  std::string unlimited = Dof0LimitFields(0.0F, 0.0F);
+  unlimited.replace(unlimited.find("[1]"), 3, "[0]");
+  TempDir dir;
+  RegisteredSim sim = MakeRegisteredSim(
+      dir,
+      WeldedJoint(
+          "world", "", 0.0F,
+          CollisionFields("[0, 0, 0]", 0.0F, 0, 0) + unlimited
+      ) +
+          WeldedJoint(
+              "ground", "world", -0.1F,
+              CollisionFields("[1, 0.1, 1]", 0.0F, 1, 2) + unlimited
+          ) +
+          BallJoint(
+              0.09F, "ball", 0.0F, kBallMass, 2, 1,
+              Dof0LimitFields(0.1F, 1.0F)
+          )
+  );
+  SimConfig config = DownwardGravity();
+  RunSteps<SetupList>(sim, config, 0.0F);
+
+  RunSteps<Forward>(sim, config);
+
+  std::size_t n = ActiveContactRows(sim);
+  ASSERT_GE(n, contact_solver::kPyramidEdges);
+
+  double m = kBallMass;
+  double a0 = -9.8;
+  double r = -0.01;
+  double contact_d =
+      1.0 / (2.0 * (1.0 - kImpedance) / kImpedance * 2.0 * ((1.0 / m) / 3.0));
+  double limit_d = 1.0 / ((1.0 - kImpedance) / kImpedance * (1.0 / m));
+  double aref = -kStiffness * kImpedance * r;
+  double d_sum = (static_cast<double>(n) * contact_d) + limit_d;
+  double expected = ((m * a0) + (d_sum * aref)) / (m + d_sum);
+  ASSERT_LT(expected - aref, 0.0);  // every row still active there
+
+  EXPECT_NEAR(Qdd(sim, 2) / expected, 1.0, 1e-3);
+}
+
+// A lower limit's row has side = +1 (an upper one's, above, -1): a
+// pendulum 0.05 below its lower limit gets a* = (M a0 + D aref) / (M + D),
+// pushed back up past where gravity alone would take it.
+TEST(Solve, LowerLimitRowPushesTheJointBackInside) {
+  TempDir dir;
+  RegisteredSim sim = MakeRegisteredSim(
+      dir,
+      RevoluteZJointArow(
+          "hinge", "", kPendulumInertia, -1.05F, 0.0F,
+          Dof0LimitFields(-1.0F, 1.0F)
+      )
+  );
+  SimConfig config = PendulumConfig();
+  RunSteps<SetupList>(sim, config, 0.0F);
+
+  RunSteps<Forward>(sim, config);
+
+  double m = kPendulumIzz;
+  double a0 = kPendulumK * std::cos(-1.05);
+  double r = -0.05;
+  double d = 1.0 / ((1.0 - kImpedance) / kImpedance * (1.0 / m));
+  double aref = -kStiffness * kImpedance * r;
+  double expected = ((m * a0) + (d * aref)) / (m + d);
+  ASSERT_LT(expected - aref, 0.0);  // the row is still active there
+  ASSERT_GT(expected, a0);
+
+  EXPECT_NEAR(Qdd(sim, 0) / expected, 1.0, 1e-3);
+}
+
+// Two free balls pressed 0.01 into each other, no gravity, neither one
+// welded: whichever is the pair's target and whichever its source, the
+// contact pushes them apart with equal and opposite forces, so
+// m_low qdd_low + m_high qdd_high = 0. The source's wrench is the pair
+// pass's lane reduction into its broadcast row, the target's a plain
+// store -- a sign or a dropped lane on either side breaks the balance.
+TEST(Solve, ContactBetweenTwoMovingBodiesConservesMomentum) {
+  constexpr F kLowMass = 2.0F;
+  constexpr F kHighMass = 1.0F;
+  TempDir dir;
+  RegisteredSim sim = MakeRegisteredSim(
+      dir,
+      WeldedJoint("world", "", 0.0F, CollisionFields("[0, 0, 0]", 0.0F, 0, 0)) +
+          BallJoint(0.0F, "low", 0.0F, kLowMass, 1, 2) +
+          BallJoint(0.19F, "high", 0.0F, kHighMass, 2, 1)
+  );
+  SimConfig config;
+  RunSteps<SetupList>(sim, config, 0.0F);
+
+  RunSteps<Forward>(sim, config);
+
+  ASSERT_GE(ActiveContactRows(sim), contact_solver::kPyramidEdges);
+  F low = Qdd(sim, 1);
+  F high = Qdd(sim, 2);
+  EXPECT_LT(low, -1.0F);
+  EXPECT_GT(high, 1.0F);
+  EXPECT_NEAR((kLowMass * low) + (kHighMass * high), 0.0F, 1e-3F * high);
+}
+
+// More balls than one lane group holds, every one resting 0.01 into the
+// same ground slab: the slab is the source row of pairs spread across
+// several target groups, and every pass (setup, line search, forces)
+// reduces over all of them. Identical, independent balls must each land
+// on exactly what one ball alone does.
+TEST(Solve, EveryBallAcrossSeveralLaneGroupsIsHeldTheSame) {
+  constexpr std::size_t kBalls = (2 * kLanes) + 1;
+  TempDir lone_dir;
+  RegisteredSim lone = MakeBallOnGround(lone_dir, 0.09F);
+  SimConfig config = DownwardGravity();
+  RunSteps<SetupList>(lone, config, 0.0F);
+  RunSteps<Forward>(lone, config);
+  F expected = Qdd(lone, 2);
+  ASSERT_GT(expected, -9.0F);  // premise: the ground holds the lone ball
+
+  std::string joints =
+      WeldedJoint("world", "", 0.0F, CollisionFields("[0, 0, 0]", 0.0F, 0, 0)) +
+      WeldedJoint(
+          "ground", "world", -0.1F,
+          CollisionFields("[10, 0.1, 1]", 0.0F, 1, 2)
+      );
+  for (std::size_t i = 0; i < kBalls; ++i) {
+    // 0.3 apart: clear of each other (and they don't collide anyway)
+    float x = (static_cast<float>(i) * 0.3F) - 4.0F;
+    joints += BallJoint(0.09F, "ball" + std::to_string(i), x);
+  }
+  TempDir dir;
+  RegisteredSim sim = MakeRegisteredSim(dir, joints);
+  RunSteps<SetupList>(sim, config, 0.0F);
+
+  RunSteps<Forward>(sim, config);
+
+  for (std::size_t i = 0; i < kBalls; ++i) {
+    EXPECT_NEAR(Qdd(sim, 2 + i) / expected, 1.0F, 1e-3F) << "ball " << i;
+  }
 }
 
 // A ball clear of the ground has no contact rows: it just falls.

@@ -136,7 +136,8 @@ MathematicalT Impedance(
 
 // A constraint's solref/solimp, as mj_referenceConstraint and
 // mj_makeImpedance use them: getsolparam's clamps, refsafe's
-// timeconst >= 2 dt, and K = 1 / (dw^2 tc^2 dr^2), B = 2 / (dw tc).
+// timeconst >= 2 dt, and K = 1 / (dw^2 tc^2 dr^2), B = 2 / (dw tc). Built
+// by MakeSoftConstraint below.
 struct SoftConstraint {
   MathematicalT d0;
   MathematicalT dwidth;
@@ -155,16 +156,16 @@ SoftConstraint MakeSoftConstraint(
   MathematicalT dampratio = solref(1, 0);
   MathematicalT dw_tc = dwidth * timeconst;
   return {
-      ClampImpedance(solimp(0, 0)),
-      dwidth,
-      xsimd::max(solimp(2, 0), MathematicalT(0)),
-      ClampImpedance(solimp(3, 0)),
-      xsimd::max(solimp(4, 0), MathematicalT(1)),
-      MathematicalT(1) /
-          xsimd::max(
-              MathematicalT(kMinVal), dw_tc * dw_tc * dampratio * dampratio
-          ),
-      MathematicalT(2) / xsimd::max(MathematicalT(kMinVal), dw_tc)
+      .d0 = ClampImpedance(solimp(0, 0)),
+      .dwidth = dwidth,
+      .width = xsimd::max(solimp(2, 0), MathematicalT(0)),
+      .midpoint = ClampImpedance(solimp(3, 0)),
+      .power = xsimd::max(solimp(4, 0), MathematicalT(1)),
+      .stiffness = MathematicalT(1) / xsimd::max(
+                                          MathematicalT(kMinVal),
+                                          dw_tc * dw_tc * dampratio * dampratio
+                                      ),
+      .damping = MathematicalT(2) / xsimd::max(MathematicalT(kMinVal), dw_tc),
   };
 }
 

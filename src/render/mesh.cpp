@@ -2,9 +2,12 @@
 
 #include <array>
 #include <bit>
+#include <cmath>
 #include <cstddef>
+#include <numbers>
 #include <span>
 #include <utility>
+#include <vector>
 
 #include "render/gl.hpp"
 
@@ -68,6 +71,54 @@ constexpr std::array<GLuint, 36> kCubeIndices = [] {
   return indices;
 }();
 
+// The sphere's grid: kSphereStacks bands from pole to pole, each split into
+// kSphereSlices around. Fine enough to read as round at the sizes a
+// rolling ball or a joint is drawn at.
+constexpr GLuint kSphereStacks = 16;
+constexpr GLuint kSphereSlices = 32;
+
+// A unit sphere's vertices, interleaved position/normal -- the same vector
+// twice, since a unit sphere's outward normal is its position. One vertex
+// per grid point, (kSphereStacks + 1) rings of (kSphereSlices + 1), the
+// seam's column duplicated so every band is a plain run of quads.
+std::vector<GLfloat> SphereVertices() {
+  std::vector<GLfloat> vertices;
+  vertices.reserve(
+      static_cast<std::size_t>(kSphereStacks + 1) * (kSphereSlices + 1) * 6
+  );
+  for (GLuint stack = 0; stack <= kSphereStacks; ++stack) {
+    float polar = std::numbers::pi_v<float> * static_cast<float>(stack) /
+                  static_cast<float>(kSphereStacks);
+    for (GLuint slice = 0; slice <= kSphereSlices; ++slice) {
+      float azimuth = 2.0F * std::numbers::pi_v<float> *
+                      static_cast<float>(slice) /
+                      static_cast<float>(kSphereSlices);
+      float x = std::sin(polar) * std::cos(azimuth);
+      float y = std::cos(polar);
+      float z = std::sin(polar) * std::sin(azimuth);
+      vertices.insert(vertices.end(), {x, y, z, x, y, z});
+    }
+  }
+  return vertices;
+}
+
+// Two triangles per grid quad, indexing SphereVertices' rings.
+std::vector<GLuint> SphereIndices() {
+  std::vector<GLuint> indices;
+  indices.reserve(static_cast<std::size_t>(kSphereStacks) * kSphereSlices * 6);
+  constexpr GLuint kRing = kSphereSlices + 1;
+  for (GLuint stack = 0; stack < kSphereStacks; ++stack) {
+    for (GLuint slice = 0; slice < kSphereSlices; ++slice) {
+      GLuint top = (stack * kRing) + slice;
+      GLuint bottom = top + kRing;
+      indices.insert(
+          indices.end(), {top, bottom, top + 1, top + 1, bottom, bottom + 1}
+      );
+    }
+  }
+  return indices;
+}
+
 // glVertexAttribPointer's last parameter is a byte offset encoded as a
 // pointer -- a historical GL API wart every loader/wrapper has to work
 // around somehow. std::bit_cast (same tool gl.cpp's own Load<Fn> uses for
@@ -82,7 +133,18 @@ const void* ByteOffset(std::size_t bytes) {
 
 }  // namespace
 
-CubeMesh::CubeMesh() : index_count_(static_cast<GLsizei>(kCubeIndices.size())) {
+SolidMesh SolidMesh::Cube() { return {kCubeVertices, kCubeIndices}; }
+
+SolidMesh SolidMesh::Sphere() {
+  std::vector<GLfloat> vertices = SphereVertices();
+  std::vector<GLuint> indices = SphereIndices();
+  return {vertices, indices};
+}
+
+SolidMesh::SolidMesh(
+    std::span<const GLfloat> vertices, std::span<const GLuint> indices
+)
+    : index_count_(static_cast<GLsizei>(indices.size())) {
   gl::g_functions.gen_vertex_arrays(1, &vao_);
   gl::g_functions.gen_buffers(1, &vbo_);
   gl::g_functions.gen_buffers(1, &ebo_);
@@ -92,16 +154,16 @@ CubeMesh::CubeMesh() : index_count_(static_cast<GLsizei>(kCubeIndices.size())) {
   gl::g_functions.bind_buffer(gl::kArrayBuffer, vbo_);
   gl::g_functions.buffer_data(
       gl::kArrayBuffer,
-      static_cast<gl::GLsizeiptr>(kCubeVertices.size() * sizeof(GLfloat)),
-      kCubeVertices.data(),
+      static_cast<gl::GLsizeiptr>(vertices.size() * sizeof(GLfloat)),
+      vertices.data(),
       gl::kStaticDraw
   );
 
   gl::g_functions.bind_buffer(gl::kElementArrayBuffer, ebo_);
   gl::g_functions.buffer_data(
       gl::kElementArrayBuffer,
-      static_cast<gl::GLsizeiptr>(kCubeIndices.size() * sizeof(GLuint)),
-      kCubeIndices.data(),
+      static_cast<gl::GLsizeiptr>(indices.size() * sizeof(GLuint)),
+      indices.data(),
       gl::kStaticDraw
   );
 
@@ -118,7 +180,7 @@ CubeMesh::CubeMesh() : index_count_(static_cast<GLsizei>(kCubeIndices.size())) {
   gl::g_functions.bind_vertex_array(0);
 }
 
-CubeMesh::~CubeMesh() {
+SolidMesh::~SolidMesh() {
   gl::g_functions.delete_buffers(1, &ebo_);
   gl::g_functions.delete_buffers(1, &vbo_);
   gl::g_functions.delete_vertex_arrays(1, &vao_);
@@ -129,13 +191,13 @@ CubeMesh::~CubeMesh() {
 // source's zeroed-out handles need no extra guard here or in the
 // destructor above -- the same reasoning Shader's own move already
 // relies on for glDeleteProgram(0).
-CubeMesh::CubeMesh(CubeMesh&& other) noexcept
+SolidMesh::SolidMesh(SolidMesh&& other) noexcept
     : vao_(std::exchange(other.vao_, 0)),
       vbo_(std::exchange(other.vbo_, 0)),
       ebo_(std::exchange(other.ebo_, 0)),
       index_count_(std::exchange(other.index_count_, 0)) {}
 
-CubeMesh& CubeMesh::operator=(CubeMesh&& other) noexcept {
+SolidMesh& SolidMesh::operator=(SolidMesh&& other) noexcept {
   if (this != &other) {
     gl::g_functions.delete_buffers(1, &ebo_);
     gl::g_functions.delete_buffers(1, &vbo_);
@@ -148,7 +210,7 @@ CubeMesh& CubeMesh::operator=(CubeMesh&& other) noexcept {
   return *this;
 }
 
-void CubeMesh::Draw() const {
+void SolidMesh::Draw() const {
   gl::g_functions.bind_vertex_array(vao_);
   glDrawElements(GL_TRIANGLES, index_count_, GL_UNSIGNED_INT, nullptr);
   gl::g_functions.bind_vertex_array(0);
