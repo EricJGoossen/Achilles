@@ -33,6 +33,7 @@
 #include "algorithms/aba/aba_data.hpp"
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
+#include "domain/archetype.hpp"
 #include "engine/topology/ordering_policy.hpp"
 #include "interface/actuator.hpp"
 #include "interface/simulation.hpp"
@@ -227,6 +228,94 @@ constexpr float RadToDeg(float radians) {
   return radians * 180.0F / std::numbers::pi_v<float>;
 }
 
+// Holds each box above its tray until its drop time.
+void HoldUndroppedBoxes(
+    Simulation& sim, const std::vector<std::size_t>& boxes, float sim_time
+) {
+  for (std::size_t i = 0; i < kRobotCount; ++i) {
+    float drop_time = kFirstDrop + (static_cast<float>(i) * kDropInterval);
+    if (sim_time < drop_time) {
+      Place(
+          sim,
+          boxes[i],
+          RobotX(i),
+          kTrayHeight + kDropHeights[i],
+          kDropOffsets[i]
+      );
+    }
+  }
+}
+
+void WriteCsvHeader(std::ofstream& csv) {
+  csv << "t";
+  for (std::size_t i = 0; i < kRobotCount; ++i) {
+    csv << ",pitch_deg_" << i;
+  }
+  for (std::size_t i = 0; i < kRobotCount; ++i) {
+    csv << ",box_y_" << i;
+  }
+  csv << '\n';
+}
+
+void WriteCsvRow(
+    std::ofstream& csv,
+    const Simulation& sim,
+    const std::vector<Balancer>& robots,
+    const std::vector<std::size_t>& boxes,
+    float sim_time
+) {
+  csv << sim_time;
+  for (const Balancer& robot : robots) {
+    csv << ',' << RadToDeg(robot.Pitch(sim));
+  }
+  for (std::size_t box : boxes) {
+    csv << ','
+        << sim.ViewFor<ABAAlgorithm>()
+               .Load<ABAField::kWorldTransform, ScalarOperationT>(box)
+               .Translation()
+               .Y();
+  }
+  csv << '\n';
+}
+
+void PrintPitches(
+    const Simulation& sim, const std::vector<Balancer>& robots, float sim_time
+) {
+  std::cout << std::fixed << std::setprecision(1) << "t=" << std::setw(5)
+            << sim_time << "s  pitch (deg):";
+  for (const Balancer& robot : robots) {
+    std::cout << std::setw(7) << RadToDeg(robot.Pitch(sim));
+  }
+  std::cout << '\n';
+}
+
+// Real time, the same fixed-step accumulator src/main.cpp uses. Runs until
+// the window closes, a tick fails, or sim_time (advanced by tick) reaches
+// seconds; seconds <= 0 runs until the window closes.
+template <typename TickT>
+void RunRealTime(
+    Simulation& sim, float seconds, const float& sim_time, TickT& tick
+) {
+  constexpr float kMaxFrameTime = 0.25F;
+  float accumulator = 0.0F;
+  auto last_time = std::chrono::steady_clock::now();
+  bool running = true;
+  while (running && (seconds <= 0.0F || sim_time < seconds)) {
+    auto now = std::chrono::steady_clock::now();
+    accumulator += std::min(
+        std::chrono::duration<float>(now - last_time).count(), kMaxFrameTime
+    );
+    last_time = now;
+    while (running && accumulator >= kDt) {
+      running = tick();
+      accumulator -= kDt;
+    }
+    if (running) {
+      running = sim.Render();
+    }
+  }
+}
+
 }  // namespace
 
 // The whole demo; throws on a bad scene (a missing joint, say).
@@ -260,14 +349,7 @@ int Run(const Args& args) {
   std::ofstream csv;
   if (!args.csv_path.empty()) {
     csv.open(args.csv_path);
-    csv << "t";
-    for (std::size_t i = 0; i < kRobotCount; ++i) {
-      csv << ",pitch_deg_" << i;
-    }
-    for (std::size_t i = 0; i < kRobotCount; ++i) {
-      csv << ",box_y_" << i;
-    }
-    csv << '\n';
+    WriteCsvHeader(csv);
   }
 
   // One control tick per physics tick: read the state the last Step left,
@@ -277,43 +359,16 @@ int Run(const Args& args) {
   float next_report = 0.0F;
   float next_sample = 0.0F;
   auto tick = [&] {
-    for (std::size_t i = 0; i < kRobotCount; ++i) {
-      float drop_time = kFirstDrop + (static_cast<float>(i) * kDropInterval);
-      if (sim_time < drop_time) {
-        Place(
-            sim,
-            boxes[i],
-            RobotX(i),
-            kTrayHeight + kDropHeights[i],
-            kDropOffsets[i]
-        );
-      }
-    }
+    HoldUndroppedBoxes(sim, boxes, sim_time);
     for (Balancer& robot : robots) {
       robot.Control(sim);
     }
     if (csv.is_open() && sim_time >= next_sample) {
-      csv << sim_time;
-      for (const Balancer& robot : robots) {
-        csv << ',' << RadToDeg(robot.Pitch(sim));
-      }
-      for (std::size_t box : boxes) {
-        csv << ','
-            << sim.ViewFor<ABAAlgorithm>()
-                   .Load<ABAField::kWorldTransform, ScalarOperationT>(box)
-                   .Translation()
-                   .Y();
-      }
-      csv << '\n';
+      WriteCsvRow(csv, sim, robots, boxes, sim_time);
       next_sample += 0.01F;
     }
     if (args.headless && sim_time >= next_report) {
-      std::cout << std::fixed << std::setprecision(1) << "t=" << std::setw(5)
-                << sim_time << "s  pitch (deg):";
-      for (const Balancer& robot : robots) {
-        std::cout << std::setw(7) << RadToDeg(robot.Pitch(sim));
-      }
-      std::cout << '\n';
+      PrintPitches(sim, robots, sim_time);
       next_report += 0.5F;
     }
     bool ok = sim.Step(kDt);
@@ -330,25 +385,7 @@ int Run(const Args& args) {
     return 0;
   }
 
-  // Real time, the same fixed-step accumulator src/main.cpp uses.
-  constexpr float kMaxFrameTime = 0.25F;
-  float accumulator = 0.0F;
-  auto last_time = std::chrono::steady_clock::now();
-  bool running = true;
-  while (running && (args.seconds <= 0.0F || sim_time < args.seconds)) {
-    auto now = std::chrono::steady_clock::now();
-    accumulator += std::min(
-        std::chrono::duration<float>(now - last_time).count(), kMaxFrameTime
-    );
-    last_time = now;
-    while (running && accumulator >= kDt) {
-      running = tick();
-      accumulator -= kDt;
-    }
-    if (running) {
-      running = sim.Render();
-    }
-  }
+  RunRealTime(sim, args.seconds, sim_time, tick);
   return 0;
 }
 

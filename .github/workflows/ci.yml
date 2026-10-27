@@ -46,7 +46,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Check formatting (src/, include/)
+      - name: Check formatting (src/, include/, examples/)
         run: ./scripts/check-format.sh
 
   tidy:
@@ -63,7 +63,7 @@ jobs:
           CXX: clang++
         run: cmake -S . -B build -G Ninja
 
-      - name: Check clang-tidy (src/, include/, tests/)
+      - name: Check clang-tidy (src/, include/, examples/, tests/)
         run: ./scripts/check-tidy.sh build
 
   tidy-analyzer:

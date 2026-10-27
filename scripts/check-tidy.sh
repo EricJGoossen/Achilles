@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Fails if clang-tidy reports any warning under src/, include/, or tests/.
+# Fails if clang-tidy reports any warning under src/, include/, examples/,
+# or tests/.
 #
-# This only lints the real src/*.cpp and tests/*.cpp translation units (via
+# This only lints the real src/*.cpp, examples/*/*.cpp, and tests/*.cpp
+# translation units (via
 # the project's compile database) -- it does NOT compile each header
 # standalone. That relies on an invariant this script also enforces: every
 # header under include/ must be reachable (via #include, transitively) from
@@ -59,6 +61,9 @@ fi
 # tests/*.cpp check is scoped to tests/ alone -- shared headers stay
 # governed by whichever config the src/*.cpp side already uses.
 SRC_HEADER_FILTER="^${ROOT_DIR}/(src|include)/.*"
+# examples/*/*.cpp resolve the root .clang-tidy, same as src/*.cpp, so they
+# share its include/ scope plus their own example directory.
+EXAMPLE_HEADER_FILTER="^${ROOT_DIR}/(src|include|examples)/.*"
 TEST_HEADER_FILTER="^${ROOT_DIR}/tests/.*"
 GOOGLETEST_INCLUDE_DIR="$BUILD_DIR/_deps/googletest-src/googletest/include"
 YAML_CPP_INCLUDE_DIR="$BUILD_DIR/_deps/yaml-cpp-src/include"
@@ -73,7 +78,7 @@ CONFIG_HASH="$(cat "$ROOT_DIR/.clang-tidy" "$ROOT_DIR/tests/.clang-tidy" "${BASH
 
 # Prints one project header/source path per line that $1 transitively
 # includes (via the preprocessor, so it's exact, not a guess), restricted
-# to files under src/, include/, or tests/ -- third-party headers (yaml-cpp,
+# to files under src/, include/, examples/, or tests/ -- third-party headers (yaml-cpp,
 # xsimd, googletest) are deliberately excluded: they're pinned by
 # CMakeLists.txt, not edited here, and hashing them on every run would be
 # pure overhead.
@@ -83,7 +88,7 @@ project_deps_of() {
         | tr -d '\\' \
         | tr -s ' \t\n' '\n' \
         | sed '/^$/d' \
-        | grep -E "^${ROOT_DIR}/(src|include|tests)/" \
+        | grep -E "^${ROOT_DIR}/(src|include|examples|tests)/" \
         | sort -u
 }
 
@@ -124,6 +129,7 @@ RESULT_DIR="$(mktemp -d "$BUILD_DIR/.check-tidy-parallel.XXXXXX")"
 trap 'rm -rf "$RESULT_DIR"' EXIT
 
 mapfile -t SRC_FILES < <(find "$ROOT_DIR/src" -name '*.cpp' | sort)
+mapfile -t EXAMPLE_FILES < <(find "$ROOT_DIR/examples" -name '*.cpp' | sort)
 # Non-recursive, mirroring tests/CMakeLists.txt's own glob (see
 # TESTING.md §1): tests/support/ holds shared headers only, never its own
 # test executables.
@@ -134,6 +140,10 @@ ALL_FILTERS=()
 for src in "${SRC_FILES[@]}"; do
     ALL_UNITS+=("$src")
     ALL_FILTERS+=("$SRC_HEADER_FILTER")
+done
+for example_src in "${EXAMPLE_FILES[@]}"; do
+    ALL_UNITS+=("$example_src")
+    ALL_FILTERS+=("$EXAMPLE_HEADER_FILTER")
 done
 for test_src in "${TEST_FILES[@]}"; do
     ALL_UNITS+=("$test_src")

@@ -186,8 +186,8 @@ The main pieces:
 ## Development
 
 ```bash
-cmake --build build --target check-format         # clang-format (src/, include/)
-cmake --build build --target check-tidy           # clang-tidy (src/, include/, tests/)
+cmake --build build --target check-format         # clang-format (src/, include/, examples/)
+cmake --build build --target check-tidy           # clang-tidy (src/, include/, examples/, tests/)
 cmake --build build --target check-tidy-analyzer  # Clang Static Analyzer (slow)
 ```
 
