@@ -12,6 +12,7 @@
 #include "domain/math/vector3.hpp"
 #include "domain/spatial/transform.hpp"
 #include "render/mat4.hpp"
+#include "render/mesh.hpp"
 
 namespace achilles::render {
 
