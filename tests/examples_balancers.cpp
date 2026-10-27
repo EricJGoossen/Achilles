@@ -7,9 +7,9 @@
 // actuators.
 //
 // Reads the real files, so an edit to the scene that breaks it fails here
-// -- but with balancer.arow's 8 copies cut to 2: every test needs only two
-// robots, and the collision passes' cost grows with the pairs of bodies,
-// which in a debug build turns 8 copies into minutes.
+// -- but with balancer.arow's and box.arow's 8 copies each cut to 2: every
+// test needs only two robots, and the collision passes' cost grows with the
+// pairs of bodies, which in a debug build turns 8 copies into minutes.
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -55,6 +55,19 @@ std::filesystem::path ExampleDir() {
 std::string ReadFile(const std::filesystem::path& path) {
   std::ifstream in(path);
   return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
+
+// `file`'s text with its "copies: 8" cut to "copies: 2". Fails the calling
+// test if the scene no longer says 8.
+std::string CutCopies(const std::string& file) {
+  std::string text = ReadFile(ExampleDir() / file);
+  const std::string copies = "copies: 8";
+  std::size_t at = text.find(copies);
+  EXPECT_NE(at, std::string::npos) << file << "'s copies changed";
+  if (at != std::string::npos) {
+    text.replace(at, copies.size(), "copies: 2");
+  }
+  return text;
 }
 
 // The row each joint lives at in ABA's Views, which TopologicalOrdering
@@ -134,14 +147,9 @@ void Balance(const Simulation& sim, const Robot& robot) {
 class BalancersScene : public ::testing::Test {
  protected:
   void SetUp() override {
-    // The real scene, copied whole, with only balancer.arow's copies cut.
-    std::string balancer = ReadFile(ExampleDir() / "balancer.arow");
-    const std::string copies = "copies: 8";
-    std::size_t at = balancer.find(copies);
-    ASSERT_NE(at, std::string::npos) << "balancer.arow's copies changed";
-    balancer.replace(at, copies.size(), "copies: 2");
-    dir_.Write("balancer.arow", balancer);
-    dir_.Write("box.arow", ReadFile(ExampleDir() / "box.arow"));
+    // The real scene, copied whole, with only the copies cut.
+    dir_.Write("balancer.arow", CutCopies("balancer.arow"));
+    dir_.Write("box.arow", CutCopies("box.arow"));
     std::filesystem::path arow =
         dir_.Write("balancers.arow", ReadFile(ExampleDir() / "balancers.arow"));
 

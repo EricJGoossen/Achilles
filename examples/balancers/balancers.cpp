@@ -1,15 +1,19 @@
 // The balancing demo: eight two-wheeled robots (balancer.arow, 8 copies),
-// each starting tipped 5 degrees forward, each running the same PD loop on
-// its body's pitch but with its own gains -- from too soft to hold itself
-// up to well tuned. Partway through, a box (box.arow) is thrown at one of
-// the well-tuned robots. Everything control-related lives in this file -- the
-// sim only ever sees torques through the actuators it hands out.
+// each starting tipped 5 degrees forward and catching itself with the same
+// PD loop on its body's pitch. Then, left to right, a box (box.arow, one
+// copy per robot) drops onto each robot's tray -- from higher up each time,
+// and further off center, alternately in front and behind -- and the robot
+// has to absorb the hit, then lean away from the off-center load to keep
+// balancing with the box riding on top.
+// Everything control-related lives in this file -- the sim only ever sees
+// torques through the actuators it hands out.
 //
 // Usage: balancers <balancers.arow> <sim_config.yaml> [--headless]
 //                  [--seconds N] [--csv PATH]
 // (scripts/run-balancers.sh passes this folder's files). Headless runs
 // print each robot's pitch every half simulated second instead of drawing
-// it; --csv also writes every robot's pitch every 10 ms, for plotting.
+// it; --csv also writes every robot's pitch and box's height every 10 ms,
+// for plotting.
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -52,10 +56,12 @@ constexpr float kRobotSpacing = 0.6F;  // m between neighbors along +x
 // Controller tuning. Each wheel gets
 //   tau = kp * pitch + kd * pitch_rate + kSpeedGain * v + kPositionGain * z
 // where v and z are the robot's speed and distance along +z from where it
-// started (z = 0). Only kp and kd vary from robot to robot; the speed and
-// position terms keep a balancing robot from rolling away. Their sign is
-// the counterintuitive one: to stop, a robot moving forward must first
-// lean back, and the only way to lean back is to drive forward harder.
+// started (z = 0). The speed and position terms keep a balancing robot from
+// rolling away. Their sign is the counterintuitive one: to stop, a robot
+// moving forward must first lean back, and the only way to lean back is to
+// drive forward harder.
+constexpr float kPitchGain = 10.0F;        // N*m per rad
+constexpr float kPitchRateGain = 1.2F;     // N*m per rad/s
 constexpr float kSpeedGain = 1.5F;         // N*m per m/s
 constexpr float kPositionGain = 0.5F;      // N*m per m
 constexpr float kWheelTorqueLimit = 2.5F;  // N*m per wheel
@@ -63,37 +69,18 @@ constexpr float kWheelTorqueLimit = 2.5F;  // N*m per wheel
 // robot's tip-over cutoff, instead of spinning it across the floor.
 constexpr float kFallenPitch = 60.0F * std::numbers::pi_v<float> / 180.0F;
 
-struct Gains {
-  float kp;  // N*m per rad of pitch
-  float kd;  // N*m per rad/s of pitch rate
+// Box i is held above robot i until kFirstDrop + i * kDropInterval, then
+// let go. It's held kDropHeights[i] above the robot's tray (kTrayHeight
+// up), shifted kDropOffsets[i] along z off its center.
+constexpr float kTrayHeight = 0.74F;
+constexpr float kFirstDrop = 1.5F;
+constexpr float kDropInterval = 0.75F;
+constexpr std::array<float, kRobotCount> kDropHeights = {
+    0.1F, 0.25F, 0.4F, 0.55F, 0.7F, 0.85F, 1.0F, 1.2F
 };
-
-// Left to right along +x. Gravity tips the body with about 8.8 N*m per rad
-// (m g l = 3 * 9.81 * 0.3), shared by two wheels, so kp has to beat about
-// 4.4 per wheel; too little kd and every catch overshoots into a growing
-// wobble. From the left: one too soft and two too undamped, all down
-// within 2 s; one right at the edge whose wobble grows until it falls at
-// about 4 s; one just inside it that keeps wobbling about 5 degrees
-// without ever settling; and three that settle within half a second.
-constexpr std::array<Gains, kRobotCount> kGains = {{
-    {3.0F, 0.6F},
-    {10.0F, 0.0F},
-    {10.0F, 0.35F},
-    {4.0F, 0.6F},
-    {4.5F, 0.6F},
-    {5.0F, 1.2F},
-    {10.0F, 1.2F},
-    {20.0F, 1.2F},
-}};
-
-// The box is held kThrowDistance in front of (-z of) this robot until
-// kThrowTime, then thrown at it: up and forward at kThrowSpeed (y, z), so
-// it arcs into the upper body about 0.3 s later.
-constexpr std::size_t kThrowTarget = 6;
-constexpr float kThrowTime = 5.0F;
-constexpr float kThrowHeight = 0.55F;
-constexpr float kThrowDistance = 1.2F;
-constexpr std::array<float, 2> kThrowSpeed = {1.5F, 4.0F};
+constexpr std::array<float, kRobotCount> kDropOffsets = {
+    0.0F, 0.03F, -0.05F, 0.07F, -0.08F, 0.1F, -0.11F, 0.12F
+};
 
 constexpr ScalarOperationT kDt = 0.004F;
 
@@ -106,7 +93,7 @@ std::size_t Row(const Simulation& sim, const JointAddress& joint) {
 // Moves a free joint's body to `position` (world, since every free joint
 // here hangs off the world root), keeping its rotation, and stops it.
 // .arow copies all start from the same data, so this is how the example
-// spreads them out -- and how it holds the box until the throw.
+// spreads them out -- and how it holds each box until its drop.
 void Place(const Simulation& sim, std::size_t row, float x, float y, float z) {
   auto view = sim.ViewFor<ABAAlgorithm>();
   auto pose = view.Load<ABAField::kJointPosition, ScalarOperationT>(row);
@@ -121,8 +108,7 @@ void Place(const Simulation& sim, std::size_t row, float x, float y, float z) {
 class Balancer {
  public:
   Balancer(const Simulation& sim, std::size_t index)
-      : gains_(kGains[index]),
-        body_(Row(sim, {"balancer", "body", index})),
+      : body_(Row(sim, {"balancer", "body", index})),
         left_row_(Row(sim, {"balancer", "left_wheel", index})),
         right_row_(Row(sim, {"balancer", "right_wheel", index})),
         left_(Attach(sim, "left_wheel", index)),
@@ -174,7 +160,7 @@ class Balancer {
                   .Translation()
                   .Z();
 
-    float torque = (gains_.kp * pitch) + (gains_.kd * pitch_rate) +
+    float torque = (kPitchGain * pitch) + (kPitchRateGain * pitch_rate) +
                    (kSpeedGain * speed) + (kPositionGain * z);
     torque = std::clamp(torque, -kWheelTorqueLimit, kWheelTorqueLimit);
     left_.Apply(torque);
@@ -191,7 +177,6 @@ class Balancer {
     );
   }
 
-  Gains gains_;
   std::size_t body_;
   std::size_t left_row_;
   std::size_t right_row_;
@@ -233,7 +218,7 @@ bool ParseArgs(int argc, char** argv, Args& args) {
     }
   }
   if (args.headless && args.seconds <= 0.0F) {
-    args.seconds = 12.0F;
+    args.seconds = 10.0F;
   }
   return true;
 }
@@ -266,7 +251,11 @@ int Run(const Args& args) {
                   .Y();
     Place(sim, robots.back().Body(), RobotX(i), y, 0.0F);
   }
-  const std::size_t box = Row(sim, {"box", "box"});
+  std::vector<std::size_t> boxes;
+  boxes.reserve(kRobotCount);
+  for (std::size_t i = 0; i < kRobotCount; ++i) {
+    boxes.push_back(Row(sim, {"box", "box", i}));
+  }
 
   std::ofstream csv;
   if (!args.csv_path.empty()) {
@@ -274,6 +263,9 @@ int Run(const Args& args) {
     csv << "t";
     for (std::size_t i = 0; i < kRobotCount; ++i) {
       csv << ",pitch_deg_" << i;
+    }
+    for (std::size_t i = 0; i < kRobotCount; ++i) {
+      csv << ",box_y_" << i;
     }
     csv << '\n';
   }
@@ -284,18 +276,18 @@ int Run(const Args& args) {
   float sim_time = 0.0F;
   float next_report = 0.0F;
   float next_sample = 0.0F;
-  bool thrown = false;
   auto tick = [&] {
-    if (sim_time < kThrowTime) {
-      Place(sim, box, RobotX(kThrowTarget), kThrowHeight, -kThrowDistance);
-    } else if (!thrown) {
-      // The box is unrotated, so its own frame's linear velocity is the
-      // world's.
-      sim.ViewFor<ABAAlgorithm>()
-          .Store<ABAField::kJointVelocity, ScalarOperationT>(
-              box, {0.0F, 0.0F, 0.0F, 0.0F, kThrowSpeed[0], kThrowSpeed[1]}
-          );
-      thrown = true;
+    for (std::size_t i = 0; i < kRobotCount; ++i) {
+      float drop_time = kFirstDrop + (static_cast<float>(i) * kDropInterval);
+      if (sim_time < drop_time) {
+        Place(
+            sim,
+            boxes[i],
+            RobotX(i),
+            kTrayHeight + kDropHeights[i],
+            kDropOffsets[i]
+        );
+      }
     }
     for (Balancer& robot : robots) {
       robot.Control(sim);
@@ -304,6 +296,13 @@ int Run(const Args& args) {
       csv << sim_time;
       for (const Balancer& robot : robots) {
         csv << ',' << RadToDeg(robot.Pitch(sim));
+      }
+      for (std::size_t box : boxes) {
+        csv << ','
+            << sim.ViewFor<ABAAlgorithm>()
+                   .Load<ABAField::kWorldTransform, ScalarOperationT>(box)
+                   .Translation()
+                   .Y();
       }
       csv << '\n';
       next_sample += 0.01F;

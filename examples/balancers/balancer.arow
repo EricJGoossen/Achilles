@@ -1,6 +1,7 @@
-# One two-wheeled self-balancing robot: a tall body on a free joint and two
-# wheels on revolute joints, like an inverted pendulum on wheels. With no
-# torque on its wheels it simply falls over; balancers.cpp keeps it up.
+# One two-wheeled self-balancing robot: a tall body on a free joint, a tray
+# welded on top of it to catch a box on, and two wheels on revolute joints,
+# like an inverted pendulum on wheels. With no torque on its wheels it
+# simply falls over; balancers.cpp keeps it up.
 # Every copy starts identical, here at the world origin; balancers.cpp
 # spreads them along +x after Init().
 #
@@ -36,6 +37,29 @@ joints:
       collision_pose: {translation: [0, 0.3, 0], rotation: [1, 0, 0, 0]}
       collision_extents: [0.1, 0.28, 0.04]
       collision_radius: [0.02]
+      collision_margin: [0.005]
+      collision_group: [2]
+      collision_mask: [5]
+  # A 0.3 kg tray, half-extents (0.16, 0.015, 0.16), welded (no free
+  # coordinates) to the top of the body. Its frame sits on the body's top
+  # face, its plate rising 0.03 from there: h = m * c = (0, 0.0045, 0), and
+  # the plate's inertia about its center raised to the frame by the
+  # parallel axis theorem.
+  - name: tray
+    parent: body
+    fields:
+      joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [0, 0.6, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [0.3, 0, 0.0045, 0, 0.00265, 0.00512, 0.00265, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.16, 0.015, 0.16]
+      visual_color: [0.75, 0.75, 0.78]
+      collision_pose: {translation: [0, 0.015, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.15, 0.005, 0.15]
+      collision_radius: [0.01]
       collision_margin: [0.005]
       collision_group: [2]
       collision_mask: [5]

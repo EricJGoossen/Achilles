@@ -1,19 +1,19 @@
 # Eight two-wheeled self-balancing robots in a row, and a box to drop on
-# one of them -- the balancing demo. The controller lives in this folder's
-# balancers.cpp: one AngularActuator per wheel, each robot running the same
-# PD loop on its body's pitch with its own gains. Run with
-# scripts/run-balancers.sh.
+# each one -- the balancing demo. The controller lives in this folder's
+# balancers.cpp: one AngularActuator per wheel, every robot running the same
+# PD loop on its body's pitch. Run with scripts/run-balancers.sh.
 #
 # This root file is the world: a massless "world" root carrying the welded
-# ground slab, with the robots (balancer.arow, 8 copies) and the box
-# (box.arow) attached to it as siblings, so their pairs aren't skipped as
+# ground slab, with the robots (balancer.arow) and the boxes (box.arow), 8
+# copies each, attached to it as siblings, so their pairs aren't skipped as
 # parent/child. Same conventions as box_robot.arow: +y is up, the ground's
 # top face is the y = 0 plane, and every body's frame sits where the viewer
 # starts drawing its box (outward along local +y).
 #
-# Collision groups: the ground is group 1, the robots group 2, the box
-# group 4. The ground collides with robots and box, the robots with the
-# ground and box (never each other or themselves), the box with both.
+# Collision groups: the ground is group 1, the robots group 2, the boxes
+# group 4. The ground collides with robots and boxes, the robots with the
+# ground and boxes (never each other or themselves), the boxes with both
+# (never each other).
 archetype: world
 includes:
   - balancer.arow

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The balancing demo: eight two-wheeled robots balancing themselves with
-# different gains, and a box thrown at one (examples/balancers). Its own
+# The balancing demo: eight two-wheeled robots balancing themselves, each
+# catching a box dropped on its tray (examples/balancers). Its own
 # controller, examples/balancers/balancers.cpp, builds as the balancers target.
 # Builds an optimized binary into build-release/ -- a debug build is far too
 # slow to run in real time with collision on. Extra arguments are passed
