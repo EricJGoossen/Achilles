@@ -42,6 +42,11 @@ foreach(_test_src ${ACHILLES_TEST_SOURCES})
             gtest_main
             achilles_lib
     )
+    # Lets a test load the real files under examples/ (examples_*.cpp)
+    # rather than a copy of them.
+    target_compile_definitions(${target}
+        PRIVATE ACHILLES_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    )
 
     gtest_discover_tests(${target})
 endforeach()

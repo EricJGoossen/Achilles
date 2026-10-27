@@ -1,0 +1,5 @@
+# Paired with robot_on_plane.arow -- gravity along -y, the viewer's down
+# (base_acceleration is -gravity, see algorithms::SimConfig).
+base_acceleration:
+  angular: [0, 0, 0]
+  linear: [0, 9.81, 0]

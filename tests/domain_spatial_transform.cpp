@@ -242,3 +242,37 @@ TEST(TransformApplyInertia, IdentityIsNoOp) {
   );
   EXPECT_TRUE(Transform<float>::Identity().Apply(i).IsApprox(i));
 }
+
+// --- Log: Exp's inverse, (rotation vector, translation) ---
+
+TEST(TransformLog, IdentityLogsToZero) {
+  EXPECT_TRUE(Transform<float>::Identity().Log().IsZero());
+}
+
+// Angular is the rotation's own Log, linear the translation as is --
+// angular first, the SpatialPosition (Dual) row order.
+TEST(TransformLog, IsRotationLogThenTranslation) {
+  Transform<float> x = ArbitraryTransform();
+  auto logged = x.Log();
+  EXPECT_TRUE(logged.Angular().IsApprox(x.Rotation().Log()));
+  EXPECT_TRUE(logged.Linear().IsApprox(x.Translation()));
+}
+
+// The defining round trips, both directions: Exp(Log(x)) == x, and
+// Log(Exp(v)) == v for a rotation inside half a turn -- what lets the
+// joint-limit detector read a joint's coordinate back out of the pose PI
+// integrated with Exp.
+TEST(TransformLog, RoundTripsWithExp) {
+  Transform<float> x = ArbitraryTransform();
+  auto logged = x.Log();
+  EXPECT_TRUE(TransformNear(
+      Transform<float>::Exp(SpatialVelocity<float>(logged.AsVector6())), x
+  ));
+
+  SpatialVelocity<float> v(
+      Vector3<float>(0.2F, 0.1F, -0.4F), Vector3<float>(3.0F, -1.0F, 2.0F)
+  );
+  EXPECT_TRUE(Transform<float>::Exp(v).Log().AsVector6().IsApprox(
+      v.AsVector6()
+  ));
+}

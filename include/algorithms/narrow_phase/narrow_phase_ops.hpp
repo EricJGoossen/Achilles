@@ -57,7 +57,7 @@ namespace achilles::algorithms::narrow_phase {
 // Each slot's point is midway between the two surfaces along the normal,
 // and a slot is active when the broad phase kept the pair, the slot holds a
 // real point no earlier active slot already holds, and its distance is
-// within max(m_s, m_t), MuJoCo's pair margin.
+// within m_s + m_t, MuJoCo's pair margin (mj_assignMargin's sum).
 struct ComputeSweptBoxContactOp {
   using FieldEnum = NarrowPhaseField;
   using ArgData = engine::ArgData<FieldEnum>;

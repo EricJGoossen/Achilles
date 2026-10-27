@@ -25,18 +25,26 @@ namespace achilles::engine::pass {
 // into one tuple, ordered the way ArgIndex numbers them, and:
 //   1. Reads each of kInputs and kOutputs through its cursor, at whichever
 //      element that argument's field's own Indexing policy resolves the
-//      tuple to for its ArgData::index -- see FieldCursor::Resolve.
+//      tuple to for its ArgData::index -- see FieldCursor::Resolve. An
+//      output resolved to a topology::BroadcastIndex starts from zero
+//      instead (FieldCursor::LoadOutput).
 //   2. Calls Op::operator() with the inputs by const reference, then each
 //      slot of the tuple kTraversalInputs names handed over as-is (if the
 //      Op declares any -- see kTraversalInputCountV, engine/op_contract.hpp),
 //      then a pointer to the loaded value of each of kOutputs.
-//   3. Writes each output back through its cursor, resolved the same way.
+//   3. Writes each output back through its cursor, resolved the same way,
+//      in kOutputs order.
 // That is the whole Op contract: inputs are read-only, outputs are always
 // read/write. An output's incoming value is whatever the View holds at that
 // index -- an accumulator to add onto (vi's IntegrateVelocityOp, ABA's
 // PropagateInertiaOp into its parent), a previous value an Op means to
 // read, or stale data an Op simply overwrites. Which of those it is, is the
 // Op's own business to document; the invoker treats them all the same.
+// The one exception is an output resolved to a BroadcastIndex -- a pair
+// pass's kSource row, or a batched read of a GlobalIndexing field: it's a
+// reduction, handed in as zero and stored as row += (sum of its lanes)
+// (see topology::BroadcastIndex). Its store reads the row at store time,
+// so list it after any group output that might cover the same memory.
 // Initialize (OpInitInvoker below) follows the same contract.
 //
 // Op is borrowed, not copied: operator() is const, so the invoker never
@@ -109,10 +117,17 @@ class OpInvokerBase {
   // own field's Indexing policy resolves `indices` to for Index -- the only
   // place an argument's ArgData::index is ever consulted. An element that
   // resolves to a topology::BroadcastIndex picks the cursor's broadcasting
-  // Load overload, and has no Store to pick at all.
+  // Load overload as an input, and its zeroed LoadOutput / accumulating
+  // Store overloads as an output.
   template <typename T, ArgIndex Index, typename Cursor, typename Indices>
   static auto LoadAt(const Cursor& cursor, const Indices& indices) {
     return cursor.template Load<T>(
+        cursor.template Resolve<T, static_cast<size_t>(Index)>(indices)
+    );
+  }
+  template <typename T, ArgIndex Index, typename Cursor, typename Indices>
+  static auto LoadOutputAt(const Cursor& cursor, const Indices& indices) {
+    return cursor.template LoadOutput<T>(
         cursor.template Resolve<T, static_cast<size_t>(Index)>(indices)
     );
   }
@@ -134,7 +149,7 @@ class OpInvokerBase {
   void
   Invoke(const Indices& indices, std::index_sequence<InIs...>, std::index_sequence<TrIs...>, std::index_sequence<OutIs...>)
       const {
-    std::tuple<OutputParam<OutIs>...> outputs{LoadAt<
+    std::tuple<OutputParam<OutIs>...> outputs{LoadOutputAt<
         typename OutputParam<OutIs>::ScalarType,
         Op::kOutputs[OutIs].index>(
         std::get<OutIs>(this->output_cursors_), indices

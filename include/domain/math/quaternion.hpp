@@ -62,6 +62,28 @@ class Quaternion {
   }
   static constexpr Quaternion<T> PaddingSeed() { return Identity(); }
 
+  // Exp's inverse: the rotation vector theta * axis, on the short way round
+  // (q and -q are the same rotation, so w is taken >= 0 and theta lands in
+  // [0, pi]). theta = 2 atan2(|v|, w), so v scales by k = theta / |v|; at
+  // |v| == 0 that's the same removable singularity as Exp's, whose limit
+  // is 2 / w = 2 -- selected per lane, as in Exp. A zero quaternion (a
+  // zero-filled padding row) also lands there, and logs to zero.
+  constexpr Vector3<T> Log() const {
+    using std::atan2;
+    using xsimd::atan2;
+
+    T kEpsilon = T{1e-8};
+    T sign = util::Sign(W());
+    T w = W() * sign;
+    Vector3<T> v(X() * sign, Y() * sign, Z() * sign);
+    T s = v.Norm();
+
+    auto near_zero = s <= kEpsilon;
+    T safe_s = util::Select(near_zero, T{1}, s);
+    T k = util::Select(near_zero, T{2}, T{2} * atan2(s, w) / safe_s);
+    return v * k;
+  }
+
   // Access
   constexpr std::tuple<T, T, T, T> ToTuple() const {
     return std::make_tuple(W(), X(), Y(), Z());

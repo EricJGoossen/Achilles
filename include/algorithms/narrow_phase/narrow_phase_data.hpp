@@ -79,7 +79,7 @@ static_assert(
 // and one per-group word, kContactActive (see ContactActiveMask): bit
 // (k * kLanes + t) set when lane t's pair was a broad-phase candidate and its
 // slot k is a real contact within the pair's margin, MuJoCo's
-// max(m_s, m_t) -- a contact a solver should consider even though it may not
+// m_s + m_t -- a contact a solver should consider even though it may not
 // yet touch. Slots whose bit is clear still hold whatever the Op computed (or
 // the zero-fill) and mean nothing.
 //
@@ -161,6 +161,7 @@ template <>
 struct NarrowPhaseFieldTraits<NarrowPhaseField::kContactDistance> {
   using Assembler =
       math::MatrixAssembler<ScalarOperationT, kSweptBoxContactSlots, 1>;
+  using SharedAs = ContactDistanceSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Indexing = engine::topology::PairGroupIndexing<kLanes, kLanes>;
   using Layout = engine::topology::PlanarLayout;
@@ -168,6 +169,7 @@ struct NarrowPhaseFieldTraits<NarrowPhaseField::kContactDistance> {
 template <>
 struct NarrowPhaseFieldTraits<NarrowPhaseField::kContactNormal> {
   using Assembler = math::Vector3Assembler<ScalarOperationT>;
+  using SharedAs = ContactNormalSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Indexing = engine::topology::PairGroupIndexing<kLanes, kLanes>;
   using Layout = engine::topology::PlanarLayout;
@@ -176,6 +178,7 @@ template <>
 struct NarrowPhaseFieldTraits<NarrowPhaseField::kContactPoint> {
   using Assembler =
       math::MatrixAssembler<ScalarOperationT, 3, kSweptBoxContactSlots>;
+  using SharedAs = ContactPointSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Indexing = engine::topology::PairGroupIndexing<kLanes, kLanes>;
   using Layout = engine::topology::PlanarLayout;
@@ -184,6 +187,7 @@ template <>
 struct NarrowPhaseFieldTraits<NarrowPhaseField::kContactActive> {
   using Assembler =
       math::ActivationMaskAssembler<kLanes * kSweptBoxContactSlots>;
+  using SharedAs = ContactActiveSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Indexing = engine::topology::PairGroupIndexing<kLanes>;
   using Layout = engine::topology::PlanarLayout;
