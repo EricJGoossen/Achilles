@@ -108,12 +108,12 @@ field. The loader is in
 
 `sim_config.yaml` holds global parameters. For now that's
 `base_acceleration`. For ordinary gravity on a fixed base, set it to
-negative gravity:
+negative gravity. Gravity points down -Z, so that's +9.8 on Z:
 
 ```yaml
 base_acceleration:
   angular: [0, 0, 0]
-  linear: [0, 0, -9.8]
+  linear: [0, 0, 9.8]
 ```
 
 ## Architecture

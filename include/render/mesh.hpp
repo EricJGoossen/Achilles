@@ -7,32 +7,43 @@
 
 namespace achilles::render {
 
-// A unit cube (vertices in [-1, 1]^3, one position+normal per corner-face
-// vertex so face normals stay flat-shaded) -- the one shape every visible
-// joint is drawn as, scaled per joint by its own kVisualExtents
-// half-extents (see mat4.hpp's own FromTransformAndScale). Built and
-// uploaded once; Draw() just binds and issues one indexed draw call, so a
-// frame with many joints costs one draw call per joint, not one buffer
+// A lit, indexed triangle mesh of one unit shape (vertices within
+// [-1, 1]^3, interleaved position(3)/normal(3)) -- the shapes visible
+// joints are drawn as, scaled per joint by its own kVisualExtents
+// half-extents (see mat4.hpp's own FromTransformAndScale). Cube() and
+// Sphere() build the two shapes algorithms::viz::VisualShape names. Built
+// and uploaded once; Draw() just binds and issues one indexed draw call, so
+// a frame with many joints costs one draw call per joint, not one buffer
 // upload per joint -- plenty fast for the joint counts an articulated-body
 // sim actually reaches, and far simpler than instancing.
-class CubeMesh {
+class SolidMesh {
  public:
-  CubeMesh();
-  ~CubeMesh();
+  // A unit cube, one position+normal per corner-face vertex so face
+  // normals stay flat-shaded.
+  static SolidMesh Cube();
+  // A unit sphere, a latitude/longitude grid whose normals are its
+  // positions, so it shades smoothly.
+  static SolidMesh Sphere();
 
-  CubeMesh(const CubeMesh&) = delete;
-  CubeMesh& operator=(const CubeMesh&) = delete;
+  ~SolidMesh();
+
+  SolidMesh(const SolidMesh&) = delete;
+  SolidMesh& operator=(const SolidMesh&) = delete;
   // Movable (transfers the GL object names, same shape as Shader/Window's
-  // own move) so a class embedding a CubeMesh -- e.g. SceneRenderer,
+  // own move) so a class embedding a SolidMesh -- e.g. SceneRenderer,
   // itself embedded in interface::Simulation -- stays movable too, rather
   // than forcing every owner up the chain to become an optional<T> the
   // caller can never relocate.
-  CubeMesh(CubeMesh&& other) noexcept;
-  CubeMesh& operator=(CubeMesh&& other) noexcept;
+  SolidMesh(SolidMesh&& other) noexcept;
+  SolidMesh& operator=(SolidMesh&& other) noexcept;
 
   void Draw() const;
 
  private:
+  // Uploads `vertices` (interleaved position/normal, 6 floats per vertex)
+  // and `indices` (3 per triangle).
+  SolidMesh(std::span<const GLfloat> vertices, std::span<const GLuint> indices);
+
   GLuint vao_ = 0;
   GLuint vbo_ = 0;
   GLuint ebo_ = 0;

@@ -6,6 +6,7 @@
 #include "algorithms/conventions.hpp"
 #include "algorithms/shared_slots.hpp"
 #include "domain/joint_topology.hpp"
+#include "domain/math/scalar.hpp"
 #include "domain/math/vector3.hpp"
 #include "engine/field_contract.hpp"
 #include "engine/topology/layout_policy.hpp"
@@ -18,26 +19,45 @@ namespace achilles::algorithms::viz {
 // The visual-representation half of a joint's per-tick state: where it is
 // (kWorldTransform, read-only here -- ABA's own Propagate*VelocityOp is
 // still the only thing that ever writes it) and how to draw it
-// (kVisualExtents/kVisualColor, static per-archetype appearance data, set
-// once at load time and never mutated at runtime). Like VIField/PIField,
-// this has nothing to do with *simulating* the system -- see VizAlgorithm
-// in viz_step.hpp, which has no Step at all for exactly
-// that reason: there is no per-tick computation of its own to run, only
-// state other algorithms (ABA) or the archetype loader populate.
+// (kVisualExtents/kVisualColor/kVisualShape, static per-archetype
+// appearance data, set once at load time and never mutated at runtime). Like
+// VIField/PIField, this has nothing to do with *simulating* the system -- see
+// VizAlgorithm in viz_step.hpp, which has no Step at all for exactly that
+// reason: there is no per-tick computation of its own to run, only state other
+// algorithms (ABA) or the archetype loader populate.
 //
 // A joint with no "visual_extents" given in its archetype gets
 // PlanarLayout's/Vector3's own zero-fill default (Vector3::Zero()), which a
 // renderer is expected to treat as "draw nothing for this joint" -- the
 // same "absent data reads as an inert default" convention every other
 // field in this codebase already follows (see e.g. Arena::ZeroFill's own
-// comment), rather than a separate present/absent flag.
+// comment), rather than a separate present/absent flag. Likewise a joint
+// with no "visual_shape" reads as 0, VisualShape::kBox.
 enum class VizField : uint8_t {
   kWorldTransform,  // x_world -- ABA's own kWorldTransform, read-only here
-  kVisualExtents,   // half-extents of the box drawn at this joint, or Zero()
-                    // to draw nothing
+  kVisualExtents,   // half-extents of the shape drawn at this joint, or
+                    // Zero() to draw nothing
   kVisualColor,     // rgb in [0, 1]; Zero() lets a renderer pick a fallback
+  kVisualShape,     // which shape to draw, a VisualShape code
   kCount
 };
+
+// What kVisualShape's code means. Stored as a plain scalar, since archetype
+// data is read as doubles (see SimAllocator's Populate pass) and no integer
+// scalar field exists to read it into; a reader rounds it (ShapeOf). Either
+// shape is scaled by kVisualExtents and drawn from the joint outward along
+// its local +Y, so a sphere of radius r has extents (r, r, r) and sits with
+// its bottom on the joint.
+enum class VisualShape : uint8_t {
+  kBox = 0,
+  kSphere = 1,
+};
+
+// kVisualShape's code as a VisualShape -- anything unrecognized reads as a
+// box, the same inert default an absent field gets.
+inline VisualShape ShapeOf(ScalarOperationT code) {
+  return code > 0.5F && code < 1.5F ? VisualShape::kSphere : VisualShape::kBox;
+}
 static_assert(engine::FieldEnumLike<VizField>);
 
 template <VizField F>
@@ -45,8 +65,8 @@ struct VizFieldTraits;
 
 // Every VizField binds Ordering = TopologicalOrdering, matching ABA's own
 // choice for kWorldTransform (aba_data.hpp) -- not just for the shared
-// field, but for kVisualExtents/kVisualColor too. A View addresses every
-// one of its fields by the same "sorted row" index, so unless every field
+// field, but for kVisualExtents/kVisualColor/kVisualShape too. A View addresses
+// every one of its fields by the same "sorted row" index, so unless every field
 // shares the exact ordering policy that produced that row numbering, row i
 // of kVisualExtents and row i of kWorldTransform could silently refer to
 // two different joints (see engine/memory/binding.hpp's own comment on
@@ -76,6 +96,13 @@ struct VizFieldTraits<VizField::kVisualColor> {
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
   static constexpr std::string_view kName = "visual_color";
+};
+template <>
+struct VizFieldTraits<VizField::kVisualShape> {
+  using Assembler = math::ScalarAssembler<ScalarOperationT>;
+  using Ordering = engine::topology::TopologicalOrdering;
+  using Layout = engine::topology::PlanarLayout;
+  static constexpr std::string_view kName = "visual_shape";
 };
 static_assert(engine::FieldTraitsLike<VizField, VizFieldTraits>);
 
