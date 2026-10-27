@@ -114,8 +114,10 @@ struct PairInputs {
   float margin_source = 0.0F;
   float friction_target = 0.0F;
   float friction_source = 0.0F;
-  Solref solref = Solref::Zero();
-  Solimp solimp = Solimp::Zero();
+  Solref solref_target = Solref::Zero();
+  Solref solref_source = Solref::Zero();
+  Solimp solimp_target = Solimp::Zero();
+  Solimp solimp_source = Solimp::Zero();
   InvWeight invweight_target{B(0.5F), B(1.0F)};
   InvWeight invweight_source{B(0.25F), B(1.0F)};
   Transform x_target = Transform::Identity();
@@ -146,10 +148,10 @@ PairRows SetupRows(const PairInputs& in) {
       Scalar(B(in.margin_source)),
       Scalar(B(in.friction_target)),
       Scalar(B(in.friction_source)),
-      in.solref,
-      in.solref,
-      in.solimp,
-      in.solimp,
+      in.solref_target,
+      in.solref_source,
+      in.solimp_target,
+      in.solimp_source,
       in.invweight_target,
       in.invweight_source,
       in.x_target,
@@ -353,6 +355,28 @@ TEST(ComputeInverseInertiaOp, DofInvweightIncludesTheParentsResponse) {
   EXPECT_NEAR(
       child_out.dof_invweight[0].get(0), (1.0 / 4.0) + (1.0 / 1.0), kTolerance
   );
+}
+
+// A massless body has no center of mass to measure at: body_invweight0 is
+// taken at its frame origin instead, finite rather than 0 / 0 -- so its
+// translational part is the mean of Omega's linear diagonal block. Here
+// U and D^-1 are a free joint carrying a massive child's inertia.
+TEST(ComputeInverseInertiaOp, MasslessBodyIsMeasuredAtItsFrameOrigin) {
+  Inertia carried(
+      B(2.0F), V(0.2F, 0.0F, 0.0F), B(2.0F), B(3.0F), B(4.0F), B(0.0F),
+      B(0.0F), B(0.0F)
+  );
+  InertiaOperator<false> u(carried.AsMatrix());
+  InertiaOperator<true> d_inv(carried.AsMatrix().Inverse());
+  InverseInertia out = ComputeInverseInertia(
+      MotionSubspace::Identity(), u, d_inv, Inertia::Zero(), Matrix6x6::Zero()
+  );
+  double linear_mean = (static_cast<double>(out.omega(3, 3).get(0)) +
+                        out.omega(4, 4).get(0) + out.omega(5, 5).get(0)) /
+                       3.0;
+  ASSERT_TRUE(std::isfinite(out.invweight(0, 0).get(0)));
+  EXPECT_NEAR(out.invweight(0, 0).get(0), linear_mean, kTolerance);
+  EXPECT_TRUE(std::isfinite(out.invweight(1, 0).get(0)));
 }
 
 // ===========================================================================
@@ -630,6 +654,94 @@ TEST(SetupRowsOp, InactiveSlotsAndLanesAreZeroed) {
   }
 }
 
+// mju_makeFrame's other seed: a normal away from +y (|n_y| < 0.5) takes t1
+// from +y instead of +z. For n = +z, t1 = +y and t2 = n x t1 = -x.
+TEST(SetupRowsOp, NormalAwayFromYSeedsTheTangentFromY) {
+  PairInputs in;
+  in.normal = V(0.0F, 0.0F, 1.0F);
+  in.distance(0, 0) = B(-0.01F);
+  PairRows out = SetupRows(in);
+  EXPECT_TRUE(achilles::util::AllTrue(
+      Edge(out.edges, 0).IsApprox(V(0.0F, 1.0F, 1.0F))
+  ));
+  EXPECT_TRUE(achilles::util::AllTrue(
+      Edge(out.edges, 1).IsApprox(V(0.0F, -1.0F, 1.0F))
+  ));
+  EXPECT_TRUE(achilles::util::AllTrue(
+      Edge(out.edges, 2).IsApprox(V(-1.0F, 0.0F, 1.0F))
+  ));
+  EXPECT_TRUE(achilles::util::AllTrue(
+      Edge(out.edges, 3).IsApprox(V(1.0F, 0.0F, 1.0F))
+  ));
+}
+
+// A lane with no active slot may hold any normal -- whatever the narrow
+// phase computed for a non-contact (possibly degenerate) pair, NaN
+// included. Its frame is built from a stand-in normal, so its edges stay
+// finite: ContactForceOp multiplies every edge by its row's force, and a
+// NaN edge times an inactive row's zero force is still NaN in the wrench.
+TEST(SetupRowsOp, InactiveLaneWithANonFiniteNormalStillGetsAFiniteFrame) {
+  PairInputs in;
+  float nan = std::nanf("");
+  in.normal = V(nan, nan, nan);
+  in.active = ContactActiveMask(0);
+  in.distance(0, 0) = B(-0.01F);
+  PairRows out = SetupRows(in);
+  for (std::size_t e = 0; e < kPyramidEdges; ++e) {
+    for (std::size_t i = 0; i < 3; ++i) {
+      for (std::size_t lane = 0; lane < kLanes; ++lane) {
+        EXPECT_TRUE(std::isfinite(out.edges(i, e).get(lane)));
+      }
+    }
+    EXPECT_FLOAT_EQ(out.weight(e, 0).get(0), 0.0F);
+  }
+}
+
+// An unset (zero) friction reads as MuJoCo's default 1 before the max is
+// taken, so one body's 0.5 against the other's unset gives mu = 1 --
+// whichever body is the unset one -- while a value set below the default
+// is used as given.
+TEST(SetupRowsOp, UnsetFrictionReadsAsTheDefaultBeforeTheMax) {
+  PairInputs in;
+  in.distance(0, 0) = B(-0.01F);
+  in.friction_target = 0.5F;
+  EXPECT_TRUE(achilles::util::AllTrue(
+      Edge(SetupRows(in).edges, 0).IsApprox(V(0.0F, 1.0F, 1.0F))
+  ));
+  PairInputs swapped = in;
+  swapped.friction_target = 0.0F;
+  swapped.friction_source = 0.5F;
+  EXPECT_TRUE(achilles::util::AllTrue(
+      Edge(SetupRows(swapped).edges, 0).IsApprox(V(0.0F, 1.0F, 1.0F))
+  ));
+  in.friction_source = 0.3F;
+  EXPECT_TRUE(achilles::util::AllTrue(
+      Edge(SetupRows(in).edges, 0).IsApprox(V(0.0F, 1.0F, 0.5F))
+  ));
+}
+
+// The pair's solref and solimp are the mean of the two bodies' (solmix
+// 1:1), each unset one read as the defaults first: timeconst (0.04 +
+// 0.02) / 2 = 0.03, and deep in the contact the impedance is the mean
+// dwidth (0.5 + 0.95) / 2 = 0.725. Both K (in aref) and R (in D) see it.
+TEST(SetupRowsOp, SolrefAndSolimpAreTheMeanOfTheTwoBodies) {
+  PairInputs in;
+  in.distance(0, 0) = B(-0.01F);
+  in.solref_target = Solref{B(0.04F), B(1.0F)};
+  in.solimp_target = Solimp{B(0.5F), B(0.5F), B(0.001F), B(0.5F), B(2.0F)};
+  PairRows out = SetupRows(in);
+  double r = -0.01;
+  double imp = (0.5 + kDwidth) / 2.0;
+  double timeconst = (0.04 + kTimeconst) / 2.0;
+  double stiffness = 1.0 / (imp * imp * timeconst * timeconst);
+  EXPECT_NEAR(
+      out.reference(0, 0).get(0) / (-stiffness * imp * r), 1.0, kTolerance
+  );
+  EXPECT_NEAR(
+      out.weight(0, 0).get(0) / ContactWeight(imp, 1.0, 0.75), 1.0, kTolerance
+  );
+}
+
 // ===========================================================================
 // ProjectSearchOp (J search)
 // ===========================================================================
@@ -718,6 +830,33 @@ TEST(ContactForceOp, PushesWhileTheResidualIsNegativeAndAccumulatesWrenches) {
   EXPECT_NEAR(wrench_target.Angular().Z().get(0), 5.0 + 1.6, kTolerance);
   EXPECT_NEAR(wrench_source.Linear().Y().get(0), -1.6, kTolerance);
   EXPECT_NEAR(wrench_source.Angular().Z().get(0), 5.0 - 1.6, kTolerance);
+}
+
+// The wrench sums every slot's force, each at its own point: equal pushes
+// at (1, 0, 0) and (-1, 0, 0) add to twice the force and cancel in torque
+// -- what catches a sum that kept only one slot, or one taken about the
+// wrong point.
+TEST(ContactForceOp, SumsEverySlotsForceAtItsOwnPoint) {
+  ContactRows residual = ContactRows::Zero();
+  residual(0, 0) = B(-1.0F);
+  residual(0, 1) = B(-1.0F);
+  ContactRows weight = ContactRows::Zero();
+  weight(0, 0) = B(1.0F);
+  weight(0, 1) = B(1.0F);
+  EdgeDirections edges = EdgeDirections::Zero();
+  edges(1, 0) = B(1.0F);  // +y
+  ContactPoints point = ContactPoints::Zero();
+  point(0, 0) = B(1.0F);
+  point(0, 1) = B(-1.0F);
+  Force wrench_target = Force::Zero();
+  Force wrench_source = Force::Zero();
+  ContactForceOp{}(
+      Scalar(B(0.0F)), ContactRows::Zero(), weight, edges, point, &residual,
+      &wrench_target, &wrench_source
+  );
+  EXPECT_NEAR(wrench_target.Linear().Y().get(0), 2.0, kTolerance);
+  EXPECT_NEAR(wrench_target.Angular().Z().get(0), 0.0, kTolerance);
+  EXPECT_NEAR(wrench_source.Linear().Y().get(0), -2.0, kTolerance);
 }
 
 // ===========================================================================
@@ -821,6 +960,71 @@ TEST(SetupLimitRowsOp, JointSolrefReplacesTheDefault) {
   double reference = (-Damping(0.1) * 0.3) - (Stiffness(0.1) * imp * r);
   EXPECT_NEAR(out.residual[0].get(0) / -reference, 1.0, kTolerance);
   EXPECT_NEAR(out.weight[0].get(0) / LimitWeight(imp, 1.0), 1.0, kTolerance);
+}
+
+// A solref with only one part set is not "unset": it's used as given, and
+// refsafe raises its zero timeconst to 2 dt. (0, 0.5) is tc = 0.002,
+// dr = 0.5 -- not the (0.02, 1) default a partial check would swap in.
+TEST(SetupLimitRowsOp, PartlySetSolrefIsUsedWithTimeconstRaisedToTwoDt) {
+  LimitInputs in;
+  in.distance[0] = B(-0.02F);
+  in.side[0] = B(1.0F);
+  in.dof_invweight[0] = B(1.0F);
+  in.qd = Velocity(V(0.3F, 0.0F, 0.0F), Vector3::Zero());
+  in.solref = Solref{B(0.0F), B(0.5F)};
+  LimitRows out = SetupLimitRows(in);
+  double r = -0.02;
+  double imp = Impedance(r);
+  double timeconst = 2.0 * kDt;
+  double dampratio = 0.5;
+  double dw_tc = kDwidth * timeconst;
+  double stiffness = 1.0 / (dw_tc * dw_tc * dampratio * dampratio);
+  double damping = 2.0 / dw_tc;
+  double reference = (-damping * 0.3) - (stiffness * imp * r);
+  EXPECT_NEAR(out.residual[0].get(0) / -reference, 1.0, kTolerance);
+}
+
+// A flat solimp (d0 == dwidth) has that impedance at every depth, so a
+// shallow row and a deep one get the same D: with d = 0.5, R =
+// dof_invweight0 and D = 1 / dof_invweight0.
+TEST(SetupLimitRowsOp, FlatSolimpGivesTheSameImpedanceAtEveryDepth) {
+  for (float distance : {-0.0002F, -0.02F}) {
+    LimitInputs in;
+    in.distance[0] = B(distance);
+    in.side[0] = B(1.0F);
+    in.dof_invweight[0] = B(4.0F);
+    in.solimp = Solimp{B(0.5F), B(0.5F), B(0.001F), B(0.5F), B(2.0F)};
+    EXPECT_NEAR(SetupLimitRows(in).weight[0].get(0), 0.25, kTolerance)
+        << distance;
+  }
+}
+
+// A partly set solimp is used as given, and getsolparam's clamps keep it
+// finite: width 0 makes it flat (the mean of d0 and dwidth, 0.7), and the
+// zero midpoint and power are clamped rather than reaching pow(0, -1).
+TEST(SetupLimitRowsOp, PartlySetSolimpWithNoWidthIsFlatAtTheMean) {
+  LimitInputs in;
+  in.distance[0] = B(-0.02F);
+  in.side[0] = B(1.0F);
+  in.dof_invweight[0] = B(1.0F);
+  in.solimp = Solimp{B(0.6F), B(0.8F), B(0.0F), B(0.0F), B(0.0F)};
+  LimitRows out = SetupLimitRows(in);
+  EXPECT_NEAR(out.weight[0].get(0), LimitWeight(0.7, 1.0), kTolerance);
+  EXPECT_TRUE(std::isfinite(out.residual[0].get(0)));
+}
+
+// An impedance of 1 would make R = 0 -- an infinitely stiff row. It's
+// clamped to mjMAXIMP = 0.9999 first, so D = 0.9999 / 0.0001 /
+// dof_invweight0, never kMinVal's 1e15.
+TEST(SetupLimitRowsOp, ImpedanceIsClampedBelowOne) {
+  LimitInputs in;
+  in.distance[0] = B(-0.02F);
+  in.side[0] = B(1.0F);
+  in.dof_invweight[0] = B(1.0F);
+  in.solimp = Solimp{B(1.0F), B(1.0F), B(0.001F), B(0.5F), B(2.0F)};
+  LimitRows out = SetupLimitRows(in);
+  auto max_imp = static_cast<double>(0.9999F);
+  EXPECT_NEAR(out.weight[0].get(0) / LimitWeight(max_imp, 1.0), 1.0, 1e-2);
 }
 
 // Every DOF the detector didn't mark active is zeroed, whatever its
@@ -1135,6 +1339,26 @@ TEST(NewtonStepOp, LandsOnAQuadraticsMinimumInOneStep) {
   EXPECT_NEAR(alpha.Value(), 2.0, kTolerance);
   // the slope was negative at 0, so the minimum lies above it
   EXPECT_FLOAT_EQ(low.Value(), 0.0F);
+}
+
+// Once CG has converged its search direction is zero, and every slope and
+// curvature with it: the step must stay put (0 / max(0, MINVAL) = 0), not
+// bisect off toward the unbounded bracket. Likewise a zero slope partway
+// along is already the minimum, and leaves the bracket alone.
+TEST(NewtonStepOp, ZeroSlopeLeavesAlphaWhereItIs) {
+  GlobalScalar alpha(0.0F);
+  GlobalScalar low(0.0F);
+  GlobalScalar high(1e30F);
+  NewtonStepOp{}(G(0.0F), G(0.0F), G(0.0F), G(0.0F), &alpha, &low, &high);
+  EXPECT_FLOAT_EQ(alpha.Value(), 0.0F);
+  EXPECT_FLOAT_EQ(high.Value(), 1e30F);
+
+  // slope = -3 + 1.5 * 2 = 0 at alpha = 1.5
+  alpha = G(1.5F);
+  NewtonStepOp{}(G(-3.0F), G(1.0F), G(2.0F), G(0.0F), &alpha, &low, &high);
+  EXPECT_FLOAT_EQ(alpha.Value(), 1.5F);
+  EXPECT_FLOAT_EQ(low.Value(), 0.0F);
+  EXPECT_FLOAT_EQ(high.Value(), 1e30F);
 }
 
 // A Newton step that would leave the bracket the slopes seen so far
