@@ -36,7 +36,7 @@ class Arena {
   // an unwritten row reads deterministic zero rather than stale memory --
   // matching what ViewFixture already guarantees today via memset.
   // NOTE: zero is not a universally safe value for every field (e.g. a zero
-  // Quaternion is degenerate) -- see AssemblerLike's SeedableLike
+  // Quaternion is degenerate) -- see AssemblerLike's PaddingSeed
   // requirement and SimAllocator's padding-seed pass.
   void ZeroFill(std::byte* block, std::size_t bytes);
 

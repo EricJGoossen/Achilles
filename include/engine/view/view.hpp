@@ -33,6 +33,7 @@ template <
     AssemblerLike AssemblerT,
     topology::IndexingPolicyLike IndexingT = topology::RowIndexing,
     memory::BufferingPolicyLike BufferingT = memory::SingleBuffered>
+  requires AssemblesThrough<AssemblerT, PolicyT>
 struct FieldBinding {
   using Layout = PolicyT;
   using Assembler = AssemblerT;
@@ -48,7 +49,7 @@ concept FieldBindingLike =
       typename T::Indexing;
       typename T::Buffering;
     } && topology::LayoutPolicyLike<typename T::Layout> &&
-    AssemblerLike<typename T::Assembler> &&
+    AssemblesThrough<typename T::Assembler, typename T::Layout> &&
     topology::IndexingPolicyLike<typename T::Indexing> &&
     memory::BufferingPolicyLike<typename T::Buffering>;
 
@@ -118,36 +119,34 @@ class View {
 
   // T picks the shape read/written for field F: Scalar<F> for one plain
   // instance, or an xsimd::batch of it to gather several lanes' worth at
-  // once (Assembler<F>::Read/Write reject any other T). `index` is in units
+  // once (Assembler<F>::Value rejects any other T). `index` is in units
   // of however many raw instances one T covers -- instance index directly
   // when T is scalar, batch index when T is batched.
-  template <EnumT F, util::ArithmeticLike T>
-  using Value = decltype(Assembler<F>::template Read<T>(
-      std::declval<const std::byte*>(), size_t{0}
-  ));
+  template <EnumT F, FieldShapeLike T>
+  using Value = typename Assembler<F>::template Value<T>;
 
-  template <util::ArithmeticLike T>
+  template <FieldShapeLike T>
   static constexpr size_t LaneSize() {
     return util::LaneCountOf<T>();
   }
 
   size_t Size() const { return num_instances_; }
 
-  template <EnumT F, util::ArithmeticLike T>
+  template <EnumT F, FieldShapeLike T>
   size_t NumBatches() const {
     return FieldIndexing<F>::Count(num_instances_) / LaneSize<T>();
   }
 
-  template <EnumT F, util::ArithmeticLike T>
+  template <EnumT F, FieldShapeLike T>
   Value<F, T> Load(size_t index) const {
-    return Assembler<F>::template Read<T>(
+    return Assembler<F>::template Read<T, FieldLayout<F>>(
         FieldZero<F>(index * LaneSize<T>()), FieldStrideBytes<F>()
     );
   }
 
-  template <EnumT F, util::ArithmeticLike T>
+  template <EnumT F, FieldShapeLike T>
   void Store(size_t index, const Value<F, T>& value) const {
-    Assembler<F>::template Write<T>(
+    Assembler<F>::template Write<T, FieldLayout<F>>(
         FieldZero<F>(index * LaneSize<T>()), FieldStrideBytes<F>(), value
     );
   }
@@ -168,25 +167,27 @@ class View {
     // PairTraversal (or a batched GlobalIndexing one anywhere), a
     // BroadcastIndex -- broadcast when loaded, a lane reduction when
     // stored.
-    template <util::ArithmeticLike T, size_t Slot, typename Indices>
+    template <FieldShapeLike T, size_t Slot, typename Indices>
     auto Resolve(const Indices& indices) const {
       return FieldIndexing<F>::template Resolve<Slot, LaneSize<T>()>(
           indices, rows_
       );
     }
 
-    template <util::ArithmeticLike T>
+    template <FieldShapeLike T>
     Value<F, T> Load(size_t index) const {
-      return Assembler<F>::template Read<T>(
+      return Assembler<F>::template Read<T, FieldLayout<F>>(
           ElementAt(index * LaneSize<T>()), stride_
       );
     }
 
     // One row's value, splatted across every lane of T -- see
     // topology::BroadcastIndex. An input's Load.
-    template <util::ArithmeticLike T>
+    template <FieldShapeLike T>
     Value<F, T> Load(topology::BroadcastIndex index) const {
-      return Assembler<F>::template Broadcast<T>(ElementAt(index.row), stride_);
+      return Assembler<F>::template Broadcast<T, FieldLayout<F>>(
+          ElementAt(index.row), stride_
+      );
     }
 
     // What an output starts from before its Op runs. At a group index,
@@ -195,18 +196,18 @@ class View {
     // (see the accumulating Store below), so the Op adds its lanes'
     // contributions onto nothing, never onto a splat of the row that every
     // lane would then sum back in.
-    template <util::ArithmeticLike T>
+    template <FieldShapeLike T>
     Value<F, T> LoadOutput(size_t index) const {
       return Load<T>(index);
     }
-    template <util::ArithmeticLike T>
+    template <FieldShapeLike T>
     Value<F, T> LoadOutput(topology::BroadcastIndex /*index*/) const {
       return Assembler<F>::template Zero<T>();
     }
 
-    template <util::ArithmeticLike T>
+    template <FieldShapeLike T>
     void Store(size_t index, const Value<F, T>& value) const {
-      Assembler<F>::template Write<T>(
+      Assembler<F>::template Write<T, FieldLayout<F>>(
           ElementAt(index * LaneSize<T>()), stride_, value
       );
     }
@@ -214,9 +215,9 @@ class View {
     // row += (sum of value's lanes) -- see topology::BroadcastIndex.
     // Read-modify-write at store time, so it lands on top of anything
     // stored into the same memory earlier in the same call.
-    template <util::ArithmeticLike T>
+    template <FieldShapeLike T>
     void Store(topology::BroadcastIndex index, const Value<F, T>& value) const {
-      Assembler<F>::template Accumulate<T>(
+      Assembler<F>::template Accumulate<T, FieldLayout<F>>(
           ElementAt(index.row), stride_, value
       );
     }
@@ -252,9 +253,12 @@ class View {
   memory::BufferedScalar<Scalar<F>> WriteSlot(size_t row, size_t leaf) const {
     assert(row < FieldIndexing<F>::Count(num_instances_));
     assert(leaf < Assembler<F>::kNumFields);
-    std::byte* rest_element =
-        type_bases_[static_cast<size_t>(F)] + (leaf * FieldStrideBytes<F>()) +
-        (row * FieldLayout<F>::template ElementStrideBytes<Assembler<F>>());
+    std::byte* rest_element = FieldLayout<F>::LeafAt(
+        type_bases_[static_cast<size_t>(F)] +
+            (row * FieldLayout<F>::template ElementStrideBytes<Assembler<F>>()),
+        leaf,
+        FieldStrideBytes<F>()
+    );
     return memory::BufferedScalar<Scalar<F>>(
         rest_element, FieldBlockBytes<F>(), parity_
     );

@@ -95,7 +95,7 @@ class OpInvokerBase {
         output_cursors_(MakeOutputCursors(view, OutputSeq{})) {}
 
   // The T to gather/scatter field I as: operator()'s own declared
-  // parameter type at that position names it via ScalarType, so a field
+  // parameter type at that position names it (ParamScalarT), so a field
   // that's batched needs no different handling here than one that isn't
   // -- Load<T>/Store<T> take whichever T the Op actually asked for.
   template <size_t I>
@@ -150,22 +150,20 @@ class OpInvokerBase {
   Invoke(const Indices& indices, std::index_sequence<InIs...>, std::index_sequence<TrIs...>, std::index_sequence<OutIs...>)
       const {
     std::tuple<OutputParam<OutIs>...> outputs{LoadOutputAt<
-        typename OutputParam<OutIs>::ScalarType,
+        ParamScalarT<OutputParam<OutIs>>,
         Op::kOutputs[OutIs].index>(
         std::get<OutIs>(this->output_cursors_), indices
     )...};
 
     this->op_->operator()(
-        LoadAt<typename InputParam<InIs>::ScalarType, Op::kInputs[InIs].index>(
+        LoadAt<ParamScalarT<InputParam<InIs>>, Op::kInputs[InIs].index>(
             std::get<InIs>(this->input_cursors_), indices
         )...,
         TraversalInputAt<TrIs>(indices)...,
         &std::get<OutIs>(outputs)...
     );
 
-    (StoreAt<
-         typename OutputParam<OutIs>::ScalarType,
-         Op::kOutputs[OutIs].index>(
+    (StoreAt<ParamScalarT<OutputParam<OutIs>>, Op::kOutputs[OutIs].index>(
          std::get<OutIs>(this->output_cursors_),
          indices,
          std::get<OutIs>(outputs)
@@ -260,20 +258,17 @@ class OpInitInvoker<Op, View, true> {
       const {
     std::tuple<InitOutputParam<OutIs>...> outputs{
         std::get<OutIs>(init_output_cursors_)
-            .template Load<typename InitOutputParam<OutIs>::ScalarType>(
-                base_index
-            )...
+            .template Load<ParamScalarT<InitOutputParam<OutIs>>>(base_index)...
     };
 
     init_op_->Initialize(
         std::get<InIs>(init_input_cursors_)
-            .template Load<typename InitInputParam<InIs>::ScalarType>(base_index
-            )...,
+            .template Load<ParamScalarT<InitInputParam<InIs>>>(base_index)...,
         &std::get<OutIs>(outputs)...
     );
 
     (std::get<OutIs>(init_output_cursors_)
-         .template Store<typename InitOutputParam<OutIs>::ScalarType>(
+         .template Store<ParamScalarT<InitOutputParam<OutIs>>>(
              base_index, std::get<OutIs>(outputs)
          ),
      ...);

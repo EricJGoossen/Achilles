@@ -125,7 +125,7 @@ concept OpHasInit = requires(T a) {
 // The T an Op parameter of type P asks its field to be read as: P's own
 // ScalarType for a domain type that names one (Vector3<float> -> float,
 // Vector3<batch> -> batch), otherwise P itself -- a whole record, read by a
-// RecordAssembler field (engine/assembler.hpp) as exactly that.
+// LeafAssembler<R> field (engine/assembler.hpp) as exactly that.
 template <typename P>
 struct ParamScalar {
   using Type = P;

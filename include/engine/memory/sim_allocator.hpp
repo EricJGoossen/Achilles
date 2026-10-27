@@ -186,10 +186,7 @@ struct FieldVisitor {
       const domain::JointLayout& rows
   ) {
     using ScalarType = typename FieldAssembler::ScalarType;
-    using AssembledScalar = decltype(FieldAssembler::template Read<ScalarType>(
-        std::declval<const std::byte*>(), std::size_t{0}
-    ));
-    const AssembledScalar seed = AssembledScalar::PaddingSeed();
+    const AssembledT<FieldAssembler> seed = FieldAssembler::PaddingSeed();
     const std::size_t stride =
         FieldLayout::template StrideBytes<FieldAssembler>(
             Elements(padded_instances)
@@ -199,7 +196,9 @@ struct FieldVisitor {
 
     auto write_element = [&](std::size_t element) {
       std::byte* element_ptr = base + element * element_stride;
-      FieldAssembler::template Write<ScalarType>(element_ptr, stride, seed);
+      FieldAssembler::template Write<ScalarType, FieldLayout>(
+          element_ptr, stride, seed
+      );
     };
 
     FieldIndexing::SeedPadding(write_element, rows, padded_instances);
@@ -220,8 +219,8 @@ struct FieldVisitor {
   // domain type's own constructor shape varies per type. ArchetypeField's
   // own contract (see archetype.hpp) is that its leaves are already given
   // in the bound field's Assembler's own flattening order, which is
-  // exactly what makes writing them straight into the planar block, one
-  // leaf-array at a time, correct.
+  // exactly what makes writing each one straight to the leaf the field's
+  // Layout puts it at (FieldLayout::LeafAt) correct.
   static void Populate(
       std::byte* base,
       std::size_t padded_instances,
@@ -266,8 +265,9 @@ struct FieldVisitor {
           for (std::size_t j = 0; j < joint_count; ++j) {
             std::size_t sorted_row = rows.ToSorted({first_instance + i, j});
             for (std::size_t leaf = 0; leaf < kLeafCount; ++leaf) {
-              std::byte* leaf_ptr =
-                  base + (leaf * stride) + (sorted_row * element_stride);
+              std::byte* leaf_ptr = FieldLayout::LeafAt(
+                  base + (sorted_row * element_stride), leaf, stride
+              );
               *std::bit_cast<ScalarType*>(leaf_ptr) = static_cast<ScalarType>(
                   ArchetypeFieldAt(*field, i, j, leaf, joint_count)
               );
