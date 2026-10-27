@@ -33,16 +33,18 @@ void Camera::Zoom(float scroll_delta) {
 
 Vec3 Camera::Eye() const {
   float cos_pitch = std::cos(pitch_);
+  // Z-up, matching the simulation (sim_config.yaml's gravity is along -Z):
+  // yaw turns about +Z and pitch lifts the eye toward +Z.
   Vec3 offset(
       distance_ * cos_pitch * std::cos(yaw_),
-      distance_ * std::sin(pitch_),
-      distance_ * cos_pitch * std::sin(yaw_)
+      distance_ * cos_pitch * std::sin(yaw_),
+      distance_ * std::sin(pitch_)
   );
   return target_ + offset;
 }
 
 Mat4 Camera::View() const {
-  return LookAt(Eye(), target_, Vec3(0.0F, 1.0F, 0.0F));
+  return LookAt(Eye(), target_, Vec3(0.0F, 0.0F, 1.0F));
 }
 
 Mat4 Camera::Projection(float aspect) {

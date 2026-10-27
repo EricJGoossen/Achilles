@@ -124,13 +124,15 @@ Vec3 FallbackColor(std::size_t row) {
   }
 }
 
+// The ground grid lies in the world XY plane (z = 0): the simulation is
+// Z-up, so that is the plane gravity is normal to.
 std::vector<float> BuildGridLines(float half_extent, float step) {
   std::vector<float> verts;
   for (float x = -half_extent; x <= half_extent + 1e-4F; x += step) {
-    verts.insert(verts.end(), {x, 0.0F, -half_extent, x, 0.0F, half_extent});
+    verts.insert(verts.end(), {x, -half_extent, 0.0F, x, half_extent, 0.0F});
   }
-  for (float z = -half_extent; z <= half_extent + 1e-4F; z += step) {
-    verts.insert(verts.end(), {-half_extent, 0.0F, z, half_extent, 0.0F, z});
+  for (float y = -half_extent; y <= half_extent + 1e-4F; y += step) {
+    verts.insert(verts.end(), {-half_extent, y, 0.0F, half_extent, y, 0.0F});
   }
   return verts;
 }
