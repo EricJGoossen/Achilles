@@ -63,7 +63,7 @@ struct RobotOnPlane {
   }
 
   std::size_t Row(std::size_t joint) const {
-    return sim.LayoutFor<TopologicalOrdering>().ToSorted(0, joint);
+    return sim.LayoutFor<TopologicalOrdering>().ToSorted({0, joint});
   }
   F Height(std::size_t joint) const {
     return sim.ViewFor<aba::ABAAlgorithm>()
