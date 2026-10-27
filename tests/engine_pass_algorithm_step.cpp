@@ -483,7 +483,7 @@ TEST(StepTest, ReductionsAcrossPassesFeedAGlobalTraversalOp) {
           StartSumOp{}, AddToSumOp{}, FinishSumOp{}
       ),
       view,
-      std::size_t{rows}
+      rows
   );
 
   auto n = static_cast<float>(rows);

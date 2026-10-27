@@ -11,6 +11,8 @@
 #include "algorithms/conventions.hpp"
 #include "algorithms/integrators.hpp"
 #include "algorithms/sim_config.hpp"
+#include "domain/math/scalar.hpp"
+#include "domain/spatial/dual.hpp"
 #include "engine/topology/ordering_policy.hpp"
 #include "support/registered_sim.hpp"
 #include "support/temp_dir.hpp"

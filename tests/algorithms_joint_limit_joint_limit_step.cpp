@@ -5,10 +5,12 @@
 #include <string>
 
 #include "algorithms/aba/aba_data.hpp"
+#include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
 #include "algorithms/joint_limit/joint_limit_data.hpp"
 #include "algorithms/joint_limit/joint_limit_step.hpp"
 #include "algorithms/sim_config.hpp"
+#include "domain/spatial/transform.hpp"
 #include "engine/topology/ordering_policy.hpp"
 #include "support/registered_sim.hpp"
 #include "support/temp_dir.hpp"

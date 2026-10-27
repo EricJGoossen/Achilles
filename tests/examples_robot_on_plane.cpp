@@ -19,6 +19,7 @@
 #include <filesystem>
 
 #include "algorithms/aba/aba_data.hpp"
+#include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
 #include "algorithms/integrators.hpp"
 #include "algorithms/sim_config.hpp"
@@ -70,7 +71,7 @@ struct RobotOnPlane {
         .Translation()
         .Y();
   }
-  void Tick() { sim.SimContext().Step<SemiImplicitEuler>(kDt, config); }
+  void Tick() const { sim.SimContext().Step<SemiImplicitEuler>(kDt, config); }
 };
 
 }  // namespace
