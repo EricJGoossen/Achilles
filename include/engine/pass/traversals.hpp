@@ -84,38 +84,143 @@ concept TraversalLike =
 // straddles two different tree positions. Stride=1 (every existing scalar
 // caller) makes every division here a no-op, so this is a strictly
 // backward-compatible extension.
-template <Direction Dir, size_t Stride>
-struct TreeTraversal {
+
+// -- Sources: where a RowTraversal's second index (ArgIndex::kSource) comes
+// from for each row group j, and where Initialize runs. Each is a pair of
+// static functions resolved at compile time, plus whether it can drive a
+// batched (Stride > 1) pass.
+
+// The row itself -- a pass whose fields all live in one row space reads
+// and writes each row on its own. Driven by a bare row count or anything
+// with a Size(). Initialize runs at row 0.
+struct SelfSource {
+  static constexpr bool kBatchable = true;
+
+  template <size_t Stride, typename Rows>
+  static constexpr size_t Of(const Rows& /*rows*/, size_t group) {
+    return group;
+  }
+  template <size_t Stride, typename Rows>
+  static constexpr size_t InitRow(const Rows& /*rows*/) {
+    return 0;
+  }
+};
+
+// The row's parent group, in the same row space (ArgIndex::kParent) -- a
+// tree ordering's topology. Batchable because the tree planner guarantees
+// no parent shares a lane group with its child (see JointTopology::
+// IsBatchSafe). Initialize runs at row 0's parent: the base row a root
+// joint reads as its parent, seeded before the walk.
+struct ParentSource {
+  static constexpr bool kBatchable = true;
+
+  template <size_t Stride, domain::TopologyLike Topology>
+  static constexpr size_t Of(const Topology& parents, size_t group) {
+    return parents[group * Stride] / Stride;
+  }
+  template <size_t Stride, domain::TopologyLike Topology>
+  static constexpr size_t InitRow(const Topology& parents) {
+    return parents[0] / Stride;
+  }
+};
+
+// The row's *link* (ArgIndex::kLink) -- for a list ordering (topology::
+// ListOrdering), whose topology holds, per row, the row in another
+// ordering's row space that entry is attached to (e.g. the joint a sensor
+// is mounted on). An Op reads that other ordering's fields at kLink and its
+// own list-ordered ones at kTarget. Not batchable: links point anywhere, so
+// a lane group of entries has no single source group to load. Initialize
+// runs at row 0 of the list itself.
+struct LinkSource {
+  static constexpr bool kBatchable = false;
+
+  template <size_t Stride, domain::TopologyLike Topology>
+  static constexpr size_t Of(const Topology& links, size_t row) {
+    return links[row];
+  }
+  template <size_t Stride, domain::TopologyLike Topology>
+  static constexpr size_t InitRow(const Topology& /*links*/) {
+    return 0;
+  }
+};
+
+namespace detail {
+
+// How many raw rows a RowTraversal walks: a bare count as-is, or a
+// topology's Size().
+constexpr size_t RowCount(size_t rows) { return rows; }
+template <typename Rows>
+  requires requires(const Rows& rows) { rows.Size(); }
+constexpr size_t RowCount(const Rows& rows) {
+  return rows.Size();
+}
+
+}  // namespace detail
+
+// Every row group of one ordering, one call per group with (target = the
+// group, source = Source's index for it) -- forward or backward. The only
+// thing that distinguishes a tree, linear or linked pass is Source; the
+// loop is the same, and Source is resolved at compile time, so each costs
+// exactly what its own hand-written loop did. Rows is whatever the Step
+// call hands first after the view: a JointTopology, or (SelfSource only) a
+// bare row count -- so a linear pass can share a Step call with a tree
+// pass and its topology.
+template <Direction Dir, size_t Stride, typename Source>
+  requires(Stride == 1 || Source::kBatchable)
+struct RowTraversal {
   static constexpr Direction kDirection = Dir;
   static constexpr size_t kStride = Stride;
 
-  template <typename Callable, domain::TopologyLike Topology, typename... Rest>
+  template <typename Callable, typename Rows, typename... Rest>
+    requires(Dir == Direction::kForward)
   static constexpr void Apply(
-      const Callable& callable, const Topology& topology, const Rest&...
+      const Callable& callable, const Rows& rows, const Rest&... /*rest*/
   ) {
-    size_t groups = topology.Size() / Stride;
-    if constexpr (Dir == Direction::kForward) {
-      for (size_t j = 0; j < groups; ++j) {
-        callable(j, topology[j * Stride] / Stride);
-      }
-    } else {
-      for (size_t j = groups; j-- > 0;) {
-        callable(j, topology[j * Stride] / Stride);
-      }
+    size_t groups = detail::RowCount(rows) / Stride;
+    for (size_t j = 0; j < groups; ++j) {
+      callable(j, Source::template Of<Stride>(rows, j));
     }
   }
 
-  template <typename Callable, typename Topology, typename... Rest>
-  static constexpr void InitOp(
-      const Callable& callable, const Topology& topology, const Rest&...
+  template <typename Callable, typename Rows, typename... Rest>
+    requires(Dir == Direction::kBackward)
+  static constexpr void Apply(
+      const Callable& callable, const Rows& rows, const Rest&... /*rest*/
   ) {
-    if (topology.Size() > 0) {
-      callable.Initialize(topology[0] / Stride);
+    size_t groups = detail::RowCount(rows) / Stride;
+    for (size_t j = groups; j-- > 0;) {
+      callable(j, Source::template Of<Stride>(rows, j));
+    }
+  }
+
+  template <typename Callable, typename Rows, typename... Rest>
+  static constexpr void InitOp(
+      const Callable& callable, const Rows& rows, const Rest&... /*rest*/
+  ) {
+    if (detail::RowCount(rows) / Stride > 0) {
+      callable.Initialize(Source::template InitRow<Stride>(rows));
     }
   }
 };
+
+// Each joint after its parent (forward) or before it (backward), handed
+// that parent's group as ArgIndex::kParent.
+template <Direction Dir, size_t Stride>
+using TreeTraversal = RowTraversal<Dir, Stride, ParentSource>;
+
+// Every row on its own, handed itself as the source -- so a parentless
+// field (the only kind that makes sense here) reads/writes itself either
+// way.
+template <Direction Dir, size_t Stride>
+using LinearTraversal = RowTraversal<Dir, Stride, SelfSource>;
+
+// Every entry of a list ordering, handed its link as ArgIndex::kLink.
+using LinkedTraversal = RowTraversal<Direction::kForward, 1, LinkSource>;
+
 using ForwardTreeTraversal = TreeTraversal<Direction::kForward, 1>;
 using BackwardTreeTraversal = TreeTraversal<Direction::kBackward, 1>;
+using ForwardLinearTraversal = LinearTraversal<Direction::kForward, 1>;
+using BackwardLinearTraversal = LinearTraversal<Direction::kBackward, 1>;
 static_assert(
     TraversalLike<ForwardTreeTraversal>,
     "ForwardTreeTraversal must satisfy TraversalLike concept"
@@ -124,71 +229,6 @@ static_assert(
     TraversalLike<BackwardTreeTraversal>,
     "BackwardTreeTraversal must satisfy TraversalLike concept"
 );
-
-// Accepts either a bare size, or anything with a Size() (a JointTopology
-// works here too) -- so a linear pass can be driven by the same topology
-// argument a tree pass in the same Step call uses. LinearTraversal itself
-// only ever hands back one index (there's no parent to also report), while
-// an OpInvoker always expects (target_index, parent_index) -- Apply bridges
-// that by calling the callable with the same index twice, so a parentless
-// field (the only kind that makes sense on a linear pass) reads/writes
-// itself either way.
-//
-// Stride -- same meaning and same backward-compatible default as
-// TreeTraversal's own (see its comment): `size` is always a raw-row/raw-
-// instance count, and a batched Op needs size/Stride groups, not size raw
-// steps. There's no separate parent value to divide here (target and
-// parent are always the same group index already).
-template <Direction Dir, size_t Stride>
-struct LinearTraversal {
-  static constexpr Direction kDirection = Dir;
-  static constexpr size_t kStride = Stride;
-
-  template <typename Callable, typename SizeOrTopology, typename... Rest>
-  static constexpr void Apply(
-      const Callable& callable,
-      const SizeOrTopology& size_or_topology,
-      const Rest&...
-  ) {
-    size_t size = [&] {
-      if constexpr (requires { size_or_topology.Size(); }) {
-        return size_or_topology.Size();
-      } else {
-        return size_or_topology;
-      }
-    }();
-    size_t groups = size / Stride;
-    if constexpr (Dir == Direction::kForward) {
-      for (size_t j = 0; j < groups; ++j) {
-        callable(j, j);
-      }
-    } else {
-      for (size_t j = groups; j-- > 0;) {
-        callable(j, j);
-      }
-    }
-  }
-
-  template <typename Callable, typename SizeOrTopology, typename... Rest>
-  static constexpr void InitOp(
-      const Callable& callable,
-      const SizeOrTopology& size_or_topology,
-      const Rest&...
-  ) {
-    size_t size = [&] {
-      if constexpr (requires { size_or_topology.Size(); }) {
-        return size_or_topology.Size();
-      } else {
-        return size_or_topology;
-      }
-    }();
-    if (size / Stride > 0) {
-      callable.Initialize(0);
-    }
-  }
-};
-using ForwardLinearTraversal = LinearTraversal<Direction::kForward, 1>;
-using BackwardLinearTraversal = LinearTraversal<Direction::kBackward, 1>;
 static_assert(
     TraversalLike<ForwardLinearTraversal>,
     "ForwardLinearTraversal must satisfy TraversalLike concept"
@@ -196,6 +236,10 @@ static_assert(
 static_assert(
     TraversalLike<BackwardLinearTraversal>,
     "BackwardLinearTraversal must satisfy TraversalLike concept"
+);
+static_assert(
+    TraversalLike<LinkedTraversal>,
+    "LinkedTraversal must satisfy TraversalLike concept"
 );
 
 // One call, at index 0 -- for an Op whose work is a single value the whole

@@ -21,16 +21,18 @@ namespace achilles::engine {
 // engine/pass/op_invoker.hpp). kTarget is always the row/group the
 // traversal is visiting. kSource is the second index, whatever that
 // traversal makes it -- kParent names the same slot under a TreeTraversal,
-// which is the only place it means "parent"; a LinearTraversal hands the
-// target again, and a PairTraversal hands the broadcast source row
-// (engine/pass/traversals.hpp). kStructure is a third slot only some
-// traversals fill: not an index at all, but a fact the traversal derived
-// from its own topology about this one call (a PairTraversal's
+// which is the only place it means "parent"; kLink names it under a
+// LinkedTraversal, where it's the row a list entry is linked to; a
+// LinearTraversal hands the target again, and a PairTraversal hands the
+// broadcast source row (engine/pass/traversals.hpp). kStructure is a third slot
+// only some traversals fill: not an index at all, but a fact the traversal
+// derived from its own topology about this one call (a PairTraversal's
 // PairStructure) -- read through kTraversalInputs, never through a field.
 enum class ArgIndex : uint8_t {
   kTarget = 0,
   kSource = 1,
   kParent = kSource,
+  kLink = kSource,
   kStructure = 2,
 };
 
@@ -120,13 +122,28 @@ concept OpHasInit = requires(T a) {
                T::kInitInputs.size() + T::kInitOutputs.size();
 };
 
-// operator()'s I-th input is expected to be `const P&` where P is some
-// domain type that names its own scalar via `P::ScalarType` -- that's the T
-// an Op wants field kInputs[I].field read as. Checked with `if constexpr`/
-// `requires` throughout (rather than asserting directly) so a malformed
-// operator() -- wrong reference-ness, or a parameter type with no
-// ScalarType -- makes this consteval function return false instead of
-// hard-erroring, keeping OpArgsMatchView usable as an ordinary bool.
+// The T an Op parameter of type P asks its field to be read as: P's own
+// ScalarType for a domain type that names one (Vector3<float> -> float,
+// Vector3<batch> -> batch), otherwise P itself -- a whole record, read by a
+// RecordAssembler field (engine/assembler.hpp) as exactly that.
+template <typename P>
+struct ParamScalar {
+  using Type = P;
+};
+template <typename P>
+  requires requires { typename P::ScalarType; }
+struct ParamScalar<P> {
+  using Type = typename P::ScalarType;
+};
+template <typename P>
+using ParamScalarT = typename ParamScalar<P>::Type;
+
+// operator()'s I-th input is expected to be `const P&`, P being exactly
+// what reading field kInputs[I].field as ParamScalarT<P> produces. Checked
+// with `if constexpr` (rather than asserting directly) so a malformed
+// operator() -- wrong reference-ness, or a P its field doesn't read as --
+// makes this consteval function return false instead of hard-erroring,
+// keeping OpArgsMatchView usable as an ordinary bool.
 template <typename Op, typename View, size_t I>
 consteval bool InputArgMatchesView() {
   using Declared =
@@ -136,15 +153,10 @@ consteval bool InputArgMatchesView() {
     return false;
   } else {
     using Plain = std::remove_cvref_t<Declared>;
-    if constexpr (!requires { typename Plain::ScalarType; }) {
-      return false;
-    } else {
-      return std::is_same_v<
-          Declared,
-          const typename View::template Value<
-              Op::kInputs[I].field,
-              typename Plain::ScalarType>&>;
-    }
+    return std::is_same_v<
+        Declared,
+        const typename View::
+            template Value<Op::kInputs[I].field, ParamScalarT<Plain>>&>;
   }
 }
 
@@ -159,15 +171,10 @@ consteval bool OutputArgMatchesView() {
     return false;
   } else {
     using Plain = std::remove_pointer_t<Declared>;
-    if constexpr (!requires { typename Plain::ScalarType; }) {
-      return false;
-    } else {
-      return std::is_same_v<
-          Declared,
-          typename View::template Value<
-              Op::kOutputs[J].field,
-              typename Plain::ScalarType>*>;
-    }
+    return std::is_same_v<
+        Declared,
+        typename View::
+            template Value<Op::kOutputs[J].field, ParamScalarT<Plain>>*>;
   }
 }
 
@@ -193,15 +200,10 @@ consteval bool InitInputArgMatchesView() {
     return false;
   } else {
     using Plain = std::remove_cvref_t<Declared>;
-    if constexpr (!requires { typename Plain::ScalarType; }) {
-      return false;
-    } else {
-      return std::is_same_v<
-          Declared,
-          const typename View::template Value<
-              Op::kInitInputs[I].field,
-              typename Plain::ScalarType>&>;
-    }
+    return std::is_same_v<
+        Declared,
+        const typename View::
+            template Value<Op::kInitInputs[I].field, ParamScalarT<Plain>>&>;
   }
 }
 
@@ -214,15 +216,10 @@ consteval bool InitOutputArgMatchesView() {
     return false;
   } else {
     using Plain = std::remove_pointer_t<Declared>;
-    if constexpr (!requires { typename Plain::ScalarType; }) {
-      return false;
-    } else {
-      return std::is_same_v<
-          Declared,
-          typename View::template Value<
-              Op::kInitOutputs[J].field,
-              typename Plain::ScalarType>*>;
-    }
+    return std::is_same_v<
+        Declared,
+        typename View::
+            template Value<Op::kInitOutputs[J].field, ParamScalarT<Plain>>*>;
   }
 }
 
@@ -251,15 +248,15 @@ consteval bool InitArgsMatchViewIfPresent() {
 // An Op is well-paired with a View when operator()'s parameter types, in
 // declaration order, match what kInputs/kOutputs says they should be: a
 // `const P&` for each kInputs entry and a `P*` for each kOutputs entry,
-// where P is exactly what reading (or writing) that field as P's own
-// ScalarType produces from the View. Nothing about OpLike or the ArgData
+// where P is exactly what reading (or writing) that field as
+// ParamScalarT<P> produces from the View. Nothing about OpLike or the ArgData
 // arrays otherwise enforces this -- reordering kInputs (or kOutputs)
 // without reordering operator()'s parameters the same way compiles fine
 // and silently pairs the wrong field with the wrong parameter, and nothing
 // stops a field's Assembler from producing a type that merely happens to
 // have the right size but is semantically the wrong thing. Checking here
 // turns both mistakes into a compile error at the point an Op is paired
-// with a concrete View. Because P supplies its own ScalarType, this works
+// with a concrete View. Because P supplies its own scalar, this works
 // unchanged whether an Op mixes scalar and batched fields or uses only one
 // -- there is no separate "batched" version of this check.
 template <typename Op, typename View>
