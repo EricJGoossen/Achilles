@@ -1,0 +1,39 @@
+# The ball. ball_balance.cpp sets it down at rest on the high corner of the
+# tipped plate after Init(). One copy (tests/examples_ball_balance.cpp
+# raises it to two).
+#
+# A 0.5 kg solid ball of radius 0.08 on a free joint. (No smaller: below
+# about 1e-3 kg m^2 of rotational inertia per axis, a debug build's
+# spatial-inertia inverse rejects a body as singular -- see
+# Matrix::IsNonSingularDeterminant.) It's drawn as a sphere (visual_shape
+# 1), which the viewer draws like a box, from the body's frame outward
+# along its local +y -- so the frame sits at the bottom of the ball, and the
+# sphere drawn from it is centered on the ball wherever rolling has turned
+# it. The center of mass is 0.08 above the frame:
+# h = m * c = (0, 0.04, 0), and the ball's inertia about its center
+# (2/5 m r^2 = 0.00128) raised to the frame by the parallel axis theorem.
+archetype: ball
+copies: 1
+attach:
+  archetype: world
+  joint: world
+joints:
+  - name: ball
+    parent: null
+    fields:
+      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]
+      joint_activation_mask: [63]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [0.5, 0, 0.04, 0, 0.00448, 0.00128, 0.00448, 0, 0, 0]
+      joint_position: {translation: [0, 2, -2.5], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.08, 0.08, 0.08]
+      visual_color: [0.9, 0.55, 0.1]
+      visual_shape: [1]
+      collision_pose: {translation: [0, 0.08, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0, 0, 0]
+      collision_radius: [0.08]
+      collision_margin: [0.005]
+      collision_group: [4]
+      collision_mask: [3]

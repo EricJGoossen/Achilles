@@ -98,6 +98,8 @@ add_executable(box_robot "${CMAKE_CURRENT_SOURCE_DIR}/examples/box_robot/box_rob
 target_link_libraries(box_robot PRIVATE achilles_lib)
 add_executable(balancers "${CMAKE_CURRENT_SOURCE_DIR}/examples/balancers/balancers.cpp")
 target_link_libraries(balancers PRIVATE achilles_lib)
+add_executable(ball_balance "${CMAKE_CURRENT_SOURCE_DIR}/examples/ball_balance/ball_balance.cpp")
+target_link_libraries(ball_balance PRIVATE achilles_lib)
 
 option(BUILD_TESTS "Build test suite" ON)
 if(BUILD_TESTS)

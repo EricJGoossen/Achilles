@@ -1,0 +1,56 @@
+# A tilting plate keeping a ball balanced on it -- the ball-on-plate demo.
+# The controller lives in this folder's ball_balance.cpp: two
+# AngularActuators, tilting the plate about X and Z to steer the ball
+# rolling on it. Run with scripts/run-ball-balance.sh.
+#
+# This root file is the world: a massless "world" root carrying the welded
+# ground slab, with the plate rig (plate_rig.arow) and the ball
+# (ball.arow) attached to it as siblings, so their pairs aren't skipped as
+# parent/child. Same conventions as box_robot.arow: +y is up, the ground's
+# top face is the y = 0 plane, and every body's frame sits where the viewer
+# starts drawing its shape (outward along local +y).
+#
+# Collision groups: the ground is group 1, the plate group 2, the ball
+# group 4. The ball collides with the ground and the plate; nothing else
+# collides with anything.
+archetype: world
+includes:
+  - plate_rig.arow
+  - ball.arow
+joints:
+  - name: world
+    parent: null
+    fields:
+      joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [1, 0, 0, 0, 0.1, 0.1, 0.1, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0, 0, 0]
+      visual_color: [0, 0, 0]
+      collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0, 0, 0]
+      collision_radius: [0]
+      collision_margin: [0]
+      collision_group: [0]
+      collision_mask: [0]
+  - name: ground
+    parent: world
+    fields:
+      joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [0, -0.2, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [1, 0, 0, 0, 0.1, 0.1, 0.1, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [3, 0.1, 3]
+      visual_color: [0.35, 0.38, 0.35]
+      collision_pose: {translation: [0, 0.1, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [3, 0.1, 3]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [4]
