@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <span>
+#include <string_view>
 #include <type_traits>
 #include <vector>
 
@@ -155,6 +156,55 @@ struct LinearOrdering : public Ordering {
   static OrderingPlan Build(
       std::span<ArchetypeTreeStructure> tree, std::size_t lane_size
   );
+};
+
+// Every attachment (domain::ArchetypeAttachment) whose list is `list`, as
+// the joint it's linked to: archetype by archetype, instance by instance,
+// in each archetype's own declaration order -- the order ListOrdering
+// numbers its rows in.
+std::vector<ArchetypeJointHandle> CollectAttachments(
+    std::span<ArchetypeTreeStructure> tree, std::string_view list
+);
+
+// Shared by every ListOrdering<Tag, ...>: one row per entry of a list,
+// linked to the row `links` names in `link_layout` (the link ordering's own
+// JointLayout). Entry i is "instance i, joint 0" of the list's own
+// JointLayout; padding rows link to the link ordering's base row.
+OrderingPlan BuildListPlan(
+    std::span<const ArchetypeJointHandle> links,
+    const domain::JointLayout& link_layout,
+    std::size_t lane_size
+);
+
+// A list's tag: names the list (Tag::kListName) the attachments it orders
+// were declared under.
+template <typename Tag>
+concept ListTagLike = requires {
+  { Tag::kListName } -> std::convertible_to<std::string_view>;
+};
+
+// Rows that aren't joints: one per attachment the archetypes declare under
+// Tag::kListName (see CollectAttachments for the order), padded to a lane
+// multiple -- sensors, say, rather than bodies. Each row's topology entry
+// is its *link*: the row, in LinkOrdering's own row space, of the joint
+// that entry is attached to. LinkedTraversal (engine/pass/traversals.hpp)
+// hands that link as a pass's source index, so an Op over a list can read
+// any field ordered by LinkOrdering at the entry's joint, the way a
+// TreeTraversal hands a joint's parent.
+//
+// Plans LinkOrdering again to find those rows rather than looking up its
+// plan: a policy's Build is a pure function of the archetypes, so this
+// lands on the exact rows the sim's own LinkOrdering plan does.
+template <ListTagLike Tag, OrderingPolicyLike LinkOrdering>
+struct ListOrdering {
+  static OrderingPlan Build(
+      std::span<ArchetypeTreeStructure> tree, std::size_t lane_size
+  ) {
+    const OrderingPlan link_plan = LinkOrdering::Build(tree, lane_size);
+    return BuildListPlan(
+        CollectAttachments(tree, Tag::kListName), link_plan.Layout(), lane_size
+    );
+  }
 };
 
 }  // namespace achilles::engine::topology

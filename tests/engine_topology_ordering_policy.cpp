@@ -301,10 +301,9 @@ TEST(
 
   OrderingPlan plan = TopologicalOrdering::Build(tree, 8);
   JointLayout layout = plan.Layout();
-  // Doesn't die: JointTopology's own constructor asserts CheckBatchSafety
-  // over exactly the rows this hands it, so reaching this line at all is
-  // the proof that no parent/child pair landed in the same SIMD batch.
+  // No parent/child pair landed in the same SIMD batch.
   JointTopology topology = plan.Topology();
+  EXPECT_TRUE(topology.IsBatchSafe());
 
   EXPECT_TRUE(plan.Topology().IsForwardSafe());
 

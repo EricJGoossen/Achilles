@@ -22,15 +22,13 @@ class JointTopology {
   // depends on its element width (a xsimd::batch<double> has half the
   // lanes of a same-register xsimd::batch<float>) -- hardcoding one here
   // would silently validate padding built for a different lane count.
+  //
+  // Holds whatever per-row source index its ordering planned -- a parent
+  // for a tree ordering, a link into another ordering for a list one -- so
+  // it checks nothing on construction: only the planner knows which
+  // invariants its rows promise (see IsBatchSafe).
   JointTopology(std::span<const size_t> parents, size_t lane_size)
-      : parents_(parents), lane_size_(lane_size) {
-    assert(
-        CheckBatchSafety() &&
-        "A parent and child joint land in the same SIMD batch -- the "
-        "topological sort must pad each dependency level to a multiple "
-        "of lane_size so batching never crosses a parent/child edge."
-    );
-  };
+      : parents_(parents), lane_size_(lane_size) {}
 
   size_t Size() const { return parents_.size(); }
 
@@ -57,8 +55,12 @@ class JointTopology {
     return true;
   }
 
- private:
-  bool CheckBatchSafety() const {
+  // True when no row and its source land in the same lane group -- what a
+  // batched TreeTraversal needs so a lane group never reads a parent it is
+  // itself still writing. Only meaningful when the sources are parents in
+  // this same row space, so it's the tree orderings' planner that asserts
+  // it (Ordering::BuildFromLocalOrders), not every topology.
+  bool IsBatchSafe() const {
     size_t lane_size = lane_size_;
 
     if (lane_size <= 1) {
@@ -77,6 +79,7 @@ class JointTopology {
     return true;
   }
 
+ private:
   std::span<const size_t> parents_;
   size_t lane_size_;
 };

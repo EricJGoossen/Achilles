@@ -28,7 +28,8 @@ class OrderingPlan {
   // `parents`: per padded row, the row of its parent, or the reserved base
   // row (parents.size()) for a root instance's root joint and for padding.
   // `instance_offsets`, `sorted_rows`, `joints`: see domain::JointLayout's
-  // constructor.
+  // constructor. A list ordering (ListOrdering) fills `parents` with link
+  // rows into another ordering instead.
   OrderingPlan(
       std::vector<std::size_t> parents,
       std::vector<std::size_t> instance_offsets,
