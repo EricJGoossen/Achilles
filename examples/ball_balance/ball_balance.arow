@@ -8,7 +8,16 @@
 # (ball.arow) attached to it as siblings, so their pairs aren't skipped as
 # parent/child. Same conventions as box_robot.arow: +y is up, the ground's
 # top face is the y = 0 plane, and every body's frame sits where the viewer
-# starts drawing its shape (outward along local +y).
+# starts drawing its shape (outward along local +y). A quarter turn about x
+# in each root's fixed transform (the ground here, the post in
+# plate_rig.arow, the ball in ball.arow) then stands the scene up in the
+# viewer's Z-up world: the scene's +y is the world's +z, and
+# sim_config.yaml's gravity is along -z.
+#
+# The turn can't go on the world joint once for everything: a copy past
+# the first of an archetype attached to it sits in a SIMD lane whose parent
+# lane is padding, not the world joint (TreeTraversal reads a child group's
+# parent group lane for lane), so it would never see the turn.
 #
 # Collision groups: the ground is group 1, the plate group 2, the ball
 # group 4. The ball collides with the ground and the plate; nothing else
@@ -41,7 +50,7 @@ joints:
     fields:
       joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
       joint_activation_mask: [0]
-      fixed_joint_transform: {translation: [0, -0.2, 0], rotation: [1, 0, 0, 0]}
+      fixed_joint_transform: {translation: [0, 0, -0.2], rotation: [0.70710678, 0.70710678, 0, 0]}
       rigid_body_inertia: [1, 0, 0, 0, 0.1, 0.1, 0.1, 0, 0, 0]
       joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
       joint_velocity: [0, 0, 0, 0, 0, 0]

@@ -4,6 +4,8 @@
 # pivots are driven by ball_balance.cpp's actuators; with no torque the
 # plate just flops. ball_balance.cpp sets the plate's starting tilt after
 # Init(). One copy (tests/examples_ball_balance.cpp raises it to two).
+# The post's quarter turn about x stands the rig up in the Z-up world
+# (see ball_balance.arow).
 archetype: plate_rig
 copies: 1
 attach:
@@ -17,7 +19,7 @@ joints:
     fields:
       joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
       joint_activation_mask: [0]
-      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [0.70710678, 0.70710678, 0, 0]}
       rigid_body_inertia: [1, 0, 0, 0, 0.1, 0.1, 0.1, 0, 0, 0]
       joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
       joint_velocity: [0, 0, 0, 0, 0, 0]

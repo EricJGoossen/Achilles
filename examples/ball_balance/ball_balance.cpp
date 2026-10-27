@@ -260,7 +260,7 @@ class Plate {
     sim.StepWith<achilles::util::TypeList<ABAStep>>(0.0F);
   }
 
-  // The ball's center relative to the plate's pivot, in world axes: (x, y,
+  // The ball's center relative to the plate's pivot, in the scene's axes: (x, y,
   // z). Close enough to the plate's own axes at these tilts.
   Vec3 BallOnPlate(const Simulation& sim) const {
     auto view = sim.ViewFor<ABAAlgorithm>();
@@ -273,11 +273,13 @@ class Plate {
     float up_x = 2.0F * ((q.X() * q.Y()) - (q.W() * q.Z()));
     float up_y = 1.0F - (2.0F * ((q.X() * q.X()) + (q.Z() * q.Z())));
     float up_z = 2.0F * ((q.Y() * q.Z()) + (q.W() * q.X()));
-    return {
-        ball.Translation().X() + (kBallRadius * up_x) - pivot.X(),
-        ball.Translation().Y() + (kBallRadius * up_y) - pivot.Y(),
-        ball.Translation().Z() + (kBallRadius * up_z) - pivot.Z(),
-    };
+    // Then from world axes back to the scene's own (ball_balance.arow's
+    // world joint turned its +y to the world's +z): world (x, y, z) is
+    // scene (x, z, -y).
+    float x = ball.Translation().X() + (kBallRadius * up_x) - pivot.X();
+    float y = ball.Translation().Y() + (kBallRadius * up_y) - pivot.Y();
+    float z = ball.Translation().Z() + (kBallRadius * up_z) - pivot.Z();
+    return {x, z, -y};
   }
 
   // What the camera last reported: (x, z).

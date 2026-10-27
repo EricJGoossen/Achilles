@@ -112,7 +112,7 @@ Rig AttachRig(const Simulation& sim, std::size_t instance) {
   };
 }
 
-// The ball's center relative to its plate's pivot, in world axes -- the
+// The ball's center relative to its plate's pivot, in the scene's axes -- the
 // same reading ball_balance.cpp's Plate::BallOnPlate makes.
 std::array<float, 3> BallOnPlate(const Simulation& sim, const Rig& rig) {
   auto view = sim.ViewFor<ABAAlgorithm>();
@@ -123,11 +123,13 @@ std::array<float, 3> BallOnPlate(const Simulation& sim, const Rig& rig) {
   float up_x = 2.0F * ((q.X() * q.Y()) - (q.W() * q.Z()));
   float up_y = 1.0F - (2.0F * ((q.X() * q.X()) + (q.Z() * q.Z())));
   float up_z = 2.0F * ((q.Y() * q.Z()) + (q.W() * q.X()));
-  return {
-      ball.Translation().X() + (kBallRadius * up_x) - pivot.X(),
-      ball.Translation().Y() + (kBallRadius * up_y) - pivot.Y(),
-      ball.Translation().Z() + (kBallRadius * up_z) - pivot.Z(),
-  };
+  // Then from world axes back to the scene's own (ball_balance.arow's
+  // world joint turned its +y to the world's +z): world (x, y, z) is
+  // scene (x, z, -y).
+  float x = ball.Translation().X() + (kBallRadius * up_x) - pivot.X();
+  float y = ball.Translation().Y() + (kBallRadius * up_y) - pivot.Y();
+  float z = ball.Translation().Z() + (kBallRadius * up_z) - pivot.Z();
+  return {x, z, -y};
 }
 
 // ball_balance.cpp's inner loop: drives one pivot to `target` radians.
