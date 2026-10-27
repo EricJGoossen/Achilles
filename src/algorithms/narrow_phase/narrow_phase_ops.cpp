@@ -367,7 +367,7 @@ void ComputeSweptBoxContactOp::operator()(
   );
   MathematicalT r_t = r_target.Value();
   MathematicalT r_s = r_source.Value();
-  MathematicalT margin = xsimd::max(m_target.Value(), m_source.Value());
+  MathematicalT margin = m_target.Value() + m_source.Value();
 
   Survey survey = SurveyPair(target, source);
   const FaceAxis& face = survey.face;

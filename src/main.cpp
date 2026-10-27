@@ -154,11 +154,11 @@ std::optional<CliArgs> ParseArgs(int argc, char** argv) {
 // controls accuracy, never frame rate. The loop runs until a Step() fails,
 // or (only when visual) the render window is closed. See
 // scripts/run-example.sh for the common case of running this against
-// examples/two_joint_arm.arow. --integrator sets Simulation::SetIntegrator
-// and --dt the fixed timestep; CliArgs's own defaults (kRungeKutta4,
-// dt = 2ms) are the CLI's, not Simulation's -- library callers (tests,
-// embedders) still get semi-implicit Euler at whatever dt they pass unless
-// they ask for something else. Pass --integrator euler to see the older,
+// examples/two_joint_arm/two_joint_arm.arow. --integrator sets
+// Simulation::SetIntegrator and --dt the fixed timestep; CliArgs's own defaults
+// (kRungeKutta4, dt = 2ms) are the CLI's, not Simulation's -- library callers
+// (tests, embedders) still get semi-implicit Euler at whatever dt they pass
+// unless they ask for something else. Pass --integrator euler to see the older,
 // visibly-dissipative behavior for comparison, or raise --dt to trade
 // fidelity back for throughput.
 int main(int argc, char** argv) {

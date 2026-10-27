@@ -1,0 +1,187 @@
+# A passive humanoid robot on a ground plane -- the contact solver demo.
+# Run with scripts/run-robot-demo.sh (semi-implicit Euler: the only
+# integrator with collision so far), with this folder's sim_config.yaml.
+#
+# The viewer draws each body's box from its frame outward along local +y,
+# the way a limb hangs off its joint, so every body's frame sits at its
+# joint end: the torso's at the middle of its bottom face (the hips), each
+# limb's at its hip or shoulder, turned so +y points down the limb. Each
+# collision shape (collision_pose) and center of mass (rigid_body_inertia's
+# h) is offset to the middle of its box to match.
+#
+# Every body lives in one archetype. A massless "world" root carries the
+# ground slab (welded, its top face the y = 0 plane) and the robot as
+# siblings, so their pairs aren't skipped as parent/child. The torso floats
+# on a free joint; legs swing fore/aft and arms out/in on revolute joints.
+# There are no actuators and no joint damping or limits, so the robot
+# topples and folds up like a ragdoll.
+#
+# Collision groups keep the robot from colliding with itself: the ground is
+# group 1 and collides with group 2, the robot's bodies are group 2 and
+# collide with group 1. Limbs are capsules (a segment swept by a radius),
+# the torso and head rounded boxes. Contact friction, solref and solimp are
+# left unset, which reads as MuJoCo's defaults.
+archetype: robot
+joints:
+  - name: world
+    parent: null
+    fields:
+      joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [1, 0, 0, 0, 0.1, 0.1, 0.1, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0, 0, 0]
+      visual_color: [0, 0, 0]
+      collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0, 0, 0]
+      collision_radius: [0]
+      collision_margin: [0]
+      collision_group: [0]
+      collision_mask: [0]
+  - name: ground
+    parent: world
+    fields:
+      joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [0, -0.2, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [1, 0, 0, 0, 0.1, 0.1, 0.1, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [6, 0.1, 6]
+      visual_color: [0.35, 0.38, 0.35]
+      collision_pose: {translation: [0, 0.1, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [6, 0.1, 6]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [2]
+  - name: torso
+    parent: world
+    fields:
+      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]
+      joint_activation_mask: [63]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [8, 0, 2.4, 0, 1.00507, 0.211733, 1.12667, 0, 0, 0]
+      joint_position: {translation: [0, 0.8, 0], rotation: [0.994522, -0, -0, -0.104528]}
+      joint_velocity: [0, 0, 0, 0.4, 0, 0.15]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.25, 0.3, 0.13]
+      visual_color: [0.62, 0.66, 0.72]
+      collision_pose: {translation: [0, 0.3, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.21, 0.26, 0.09]
+      collision_radius: [0.04]
+      collision_margin: [0.005]
+      collision_group: [2]
+      collision_mask: [1]
+  - name: head
+    parent: torso
+    fields:
+      joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [0, 0.62, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [1.5, 0, 0.165, 0, 0.0314, 0.0144, 0.0314, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.12, 0.11, 0.12]
+      visual_color: [0.95, 0.55, 0.15]
+      collision_pose: {translation: [0, 0.11, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.09, 0.08, 0.09]
+      collision_radius: [0.03]
+      collision_margin: [0.005]
+      collision_group: [2]
+      collision_mask: [1]
+  - name: visor
+    parent: head
+    fields:
+      joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [0, 0.1, 0.12], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [0.1, 0, 0.003, 0, 0.000133, 0.000283, 0.00039, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.09, 0.03, 0.02]
+      visual_color: [0.25, 0.27, 0.32]
+      collision_pose: {translation: [0, 0.03, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0, 0, 0]
+      collision_radius: [0]
+      collision_margin: [0]
+      collision_group: [0]
+      collision_mask: [0]
+  - name: left_leg
+    parent: torso
+    fields:
+      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [1]
+      fixed_joint_transform: {translation: [0.13, 0, 0], rotation: [0, 1, 0, 0]}
+      rigid_body_inertia: [3, 0, 1.155, 0, 0.598525, 0.01125, 0.598525, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [0.999657, 0.026177, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.075, 0.385, 0.075]
+      visual_color: [0.25, 0.27, 0.32]
+      collision_pose: {translation: [0, 0.385, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0, 0.31, 0]
+      collision_radius: [0.075]
+      collision_margin: [0.005]
+      collision_group: [2]
+      collision_mask: [1]
+  - name: left_arm
+    parent: torso
+    fields:
+      joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [1]
+      fixed_joint_transform: {translation: [0.31, 0.55, 0], rotation: [0, 1, 0, 0]}
+      rigid_body_inertia: [1.2, 0, 0.354, 0, 0.14045, 0.00242, 0.14045, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [0.976296, -0, -0, -0.21644]}
+      joint_velocity: [-1.5, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.055, 0.295, 0.055]
+      visual_color: [0.95, 0.55, 0.15]
+      collision_pose: {translation: [0, 0.295, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0, 0.24, 0]
+      collision_radius: [0.055]
+      collision_margin: [0.005]
+      collision_group: [2]
+      collision_mask: [1]
+  - name: right_leg
+    parent: torso
+    fields:
+      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [1]
+      fixed_joint_transform: {translation: [-0.13, 0, 0], rotation: [0, 1, 0, 0]}
+      rigid_body_inertia: [3, 0, 1.155, 0, 0.598525, 0.01125, 0.598525, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [0.999657, -0.026177, -0, -0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.075, 0.385, 0.075]
+      visual_color: [0.25, 0.27, 0.32]
+      collision_pose: {translation: [0, 0.385, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0, 0.31, 0]
+      collision_radius: [0.075]
+      collision_margin: [0.005]
+      collision_group: [2]
+      collision_mask: [1]
+  - name: right_arm
+    parent: torso
+    fields:
+      joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [1]
+      fixed_joint_transform: {translation: [-0.31, 0.55, 0], rotation: [0, 1, 0, 0]}
+      rigid_body_inertia: [1.2, 0, 0.354, 0, 0.14045, 0.00242, 0.14045, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [0.976296, 0, 0, 0.21644]}
+      joint_velocity: [1.5, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.055, 0.295, 0.055]
+      visual_color: [0.95, 0.55, 0.15]
+      collision_pose: {translation: [0, 0.295, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0, 0.24, 0]
+      collision_radius: [0.055]
+      collision_margin: [0.005]
+      collision_group: [2]
+      collision_mask: [1]

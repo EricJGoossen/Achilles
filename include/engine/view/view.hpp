@@ -141,8 +141,10 @@ class View {
     // engine::ArgIndex numbers them) and which of them the argument names
     // (Slot) -- entirely field F's own Indexing policy's call (see
     // topology/indexing_policy.hpp), resolved at compile time. Returns
-    // either a group index (for Load/Store below) or, for a row-indexed
-    // source argument under a PairTraversal, a BroadcastIndex (Load only).
+    // either a group index or, for a row-indexed source argument under a
+    // PairTraversal (or a batched GlobalIndexing one anywhere), a
+    // BroadcastIndex -- broadcast when loaded, a lane reduction when
+    // stored.
     template <util::ArithmeticLike T, size_t Slot, typename Indices>
     auto Resolve(const Indices& indices) const {
       return FieldIndexing<F>::template Resolve<Slot, LaneSize<T>()>(
@@ -158,16 +160,41 @@ class View {
     }
 
     // One row's value, splatted across every lane of T -- see
-    // topology::BroadcastIndex. Deliberately no matching Store.
+    // topology::BroadcastIndex. An input's Load.
     template <util::ArithmeticLike T>
     Value<F, T> Load(topology::BroadcastIndex index) const {
       return Assembler<F>::template Broadcast<T>(ElementAt(index.row), stride_);
+    }
+
+    // What an output starts from before its Op runs. At a group index,
+    // whatever the field holds there (outputs are read/write); at a
+    // BroadcastIndex, zero -- the output is a reduction into that one row
+    // (see the accumulating Store below), so the Op adds its lanes'
+    // contributions onto nothing, never onto a splat of the row that every
+    // lane would then sum back in.
+    template <util::ArithmeticLike T>
+    Value<F, T> LoadOutput(size_t index) const {
+      return Load<T>(index);
+    }
+    template <util::ArithmeticLike T>
+    Value<F, T> LoadOutput(topology::BroadcastIndex /*index*/) const {
+      return Assembler<F>::template Zero<T>();
     }
 
     template <util::ArithmeticLike T>
     void Store(size_t index, const Value<F, T>& value) const {
       Assembler<F>::template Write<T>(
           ElementAt(index * LaneSize<T>()), stride_, value
+      );
+    }
+
+    // row += (sum of value's lanes) -- see topology::BroadcastIndex.
+    // Read-modify-write at store time, so it lands on top of anything
+    // stored into the same memory earlier in the same call.
+    template <util::ArithmeticLike T>
+    void Store(topology::BroadcastIndex index, const Value<F, T>& value) const {
+      Assembler<F>::template Accumulate<T>(
+          ElementAt(index.row), stride_, value
       );
     }
 

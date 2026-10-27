@@ -1,4 +1,4 @@
-# Paired with two_joint_arm.arow for achilles_viewer -- ordinary downward
+# Paired with three_joint_arm.arow -- ordinary downward
 # gravity as a fixed-base acceleration (see algorithms::SimConfig's own
 # comment on base_acceleration typically being -gravity). Gravity is
 # (0, 0, -9.8), so base_acceleration is (0, 0, +9.8).

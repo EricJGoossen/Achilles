@@ -1,14 +1,21 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cstddef>
+#include <xsimd/xsimd.hpp>
 
+#include "domain/math/scalar.hpp"
 #include "domain/math/vector3.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/op_contract.hpp"
 #include "engine/pass/op_invoker.hpp"
+#include "engine/topology/indexing_policy.hpp"
 #include "support/toy_field.hpp"
+#include "support/toy_reduce_field.hpp"
 
+using achilles::domain::math::Scalar;
 using achilles::domain::math::Vector3;
+using achilles::engine::topology::BroadcastIndex;
 using achilles::engine::ArgData;
 using achilles::engine::ArgIndex;
 using achilles::engine::OpArgsMatchView;
@@ -20,6 +27,10 @@ using achilles::engine::pass::SingleOpInvoker;
 using achilles::test_support::MakeToySim;
 using achilles::test_support::ToyAlgorithm;
 using achilles::test_support::ToyField;
+using achilles::test_support::MakeToyReduceSim;
+using achilles::test_support::ToyReduceAlgorithm;
+using achilles::test_support::ToyReduceField;
+using achilles::test_support::ToyReduceView;
 using achilles::test_support::ToyView;
 
 namespace {
@@ -139,6 +150,102 @@ struct AccumulateOnInitializeOp {
 static_assert(OpLike<AccumulateOnInitializeOp>);
 static_assert(OpHasInit<AccumulateOnInitializeOp>);
 static_assert(OpArgsMatchView<AccumulateOnInitializeOp, ToyView>);
+
+using Batch = xsimd::batch<float>;
+
+// A batched read of kValue's target group, added into kTotal -- a
+// GlobalIndexing field, so a batched output of it resolves to
+// BroadcastIndex{0}: the invoker must hand it in zeroed and store it as
+// kTotal += (sum of lanes). `+=` onto the incoming value, so a non-zero
+// start (a splat of the stored total) would show up as that total counted
+// once per lane.
+struct ReduceIntoTotalOp {
+  using FieldEnum = ToyReduceField;
+
+  static constexpr std::array<ArgData<FieldEnum>, 1> kInputs = {
+      ArgData<FieldEnum>{FieldEnum::kValue, ArgIndex::kTarget},
+  };
+  static constexpr std::array<ArgData<FieldEnum>, 1> kOutputs = {
+      ArgData<FieldEnum>{FieldEnum::kTotal, ArgIndex::kTarget},
+  };
+
+  void operator()(const Scalar<Batch>& value, Scalar<Batch>* total_out)
+      const {
+    *total_out += value;
+  }
+};
+static_assert(OpLike<ReduceIntoTotalOp>);
+static_assert(OpArgsMatchView<ReduceIntoTotalOp, ToyReduceView>);
+
+// A pair pass's shape: kValue's target group read lane for lane, added into
+// the source row -- a row-indexed field resolved through the traversal's
+// BroadcastIndex source, so a reduction into that one row.
+struct ReduceIntoSourceOp {
+  using FieldEnum = ToyReduceField;
+
+  static constexpr std::array<ArgData<FieldEnum>, 1> kInputs = {
+      ArgData<FieldEnum>{FieldEnum::kValue, ArgIndex::kTarget},
+  };
+  static constexpr std::array<ArgData<FieldEnum>, 1> kOutputs = {
+      ArgData<FieldEnum>{FieldEnum::kValue, ArgIndex::kSource},
+  };
+
+  void operator()(const Scalar<Batch>& target, Scalar<Batch>* source_out)
+      const {
+    *source_out += target;
+  }
+};
+static_assert(OpLike<ReduceIntoSourceOp>);
+static_assert(OpArgsMatchView<ReduceIntoSourceOp, ToyReduceView>);
+
+// Overwrites the whole target group with 100 and reduces 1 per lane into
+// the source row -- in that kOutputs order, the order the contact solver's
+// ContactForceOp relies on (target wrench, then source wrench). When the
+// source row sits inside the target group both cover the same memory, and
+// the reduction must land on top of the group store, not under it.
+struct GroupThenSourceOp {
+  using FieldEnum = ToyReduceField;
+
+  static constexpr std::array<ArgData<FieldEnum>, 0> kInputs = {};
+  static constexpr std::array<ArgData<FieldEnum>, 2> kOutputs = {
+      ArgData<FieldEnum>{FieldEnum::kValue, ArgIndex::kTarget},
+      ArgData<FieldEnum>{FieldEnum::kValue, ArgIndex::kSource},
+  };
+
+  void operator()(Scalar<Batch>* target_out, Scalar<Batch>* source_out) const {
+    *target_out = Scalar<Batch>(Batch(100.0F));
+    *source_out += Scalar<Batch>(Batch(1.0F));
+  }
+};
+static_assert(OpLike<GroupThenSourceOp>);
+static_assert(OpArgsMatchView<GroupThenSourceOp, ToyReduceView>);
+
+// A scalar read and write of kTotal -- what a GlobalTraversal Op does: a
+// one-lane load resolves to plain index 0, so the output starts from the
+// stored value (an ordinary read/write output), not from zero.
+struct DoubleTotalOp {
+  using FieldEnum = ToyReduceField;
+
+  static constexpr std::array<ArgData<FieldEnum>, 0> kInputs = {};
+  static constexpr std::array<ArgData<FieldEnum>, 1> kOutputs = {
+      ArgData<FieldEnum>{FieldEnum::kTotal, ArgIndex::kTarget},
+  };
+
+  void operator()(Scalar<float>* total_out) const {
+    *total_out = Scalar<float>(total_out->Value() * 2.0F);
+  }
+};
+static_assert(OpLike<DoubleTotalOp>);
+static_assert(OpArgsMatchView<DoubleTotalOp, ToyReduceView>);
+
+// Fills row r of kValue with r + 1, for the reductions below to sum.
+void FillAscending(const ToyReduceView& view, std::size_t rows) {
+  for (std::size_t row = 0; row < rows; ++row) {
+    view.Store<ToyReduceField::kValue, float>(
+        row, Scalar<float>(static_cast<float>(row + 1))
+    );
+  }
+}
 
 }  // namespace
 
@@ -281,4 +388,88 @@ TEST(SingleOpInvokerTest, InitializeAccumulatesOntoTheStoredValue) {
   )));
   // Initialize only touches the base index it was given.
   EXPECT_TRUE((view.Load<ToyField::kVelocity, float>(0).IsZero()));
+}
+
+// A batched output of a GlobalIndexing field is a reduction: each call
+// adds the sum of its lanes onto the stored total, and two calls (two lane
+// groups of a linear pass) both land. The stored 5 must be counted once,
+// not once per lane -- proving the output started from zero rather than a
+// splat of the total.
+TEST(OpInvoker, BatchedGlobalOutputReducesEveryCallOntoTheStoredValue) {
+  SimAllocator<ToyReduceAlgorithm> sim = MakeToyReduceSim(2 * Batch::size);
+  ToyReduceView view = sim.ViewFor<ToyReduceAlgorithm>();
+  FillAscending(view, 2 * Batch::size);
+  view.Store<ToyReduceField::kTotal, float>(0, Scalar<float>(5.0F));
+
+  ReduceIntoTotalOp op;
+  OpInvoker<ReduceIntoTotalOp, ToyReduceView> invoker(view, op);
+  invoker(/*target_index=*/0, /*source_index=*/std::size_t{0});
+  invoker(/*target_index=*/1, /*source_index=*/std::size_t{1});
+
+  auto n = static_cast<float>(2 * Batch::size);
+  EXPECT_FLOAT_EQ(
+      (view.Load<ToyReduceField::kTotal, float>(0).Value()),
+      5.0F + (n * (n + 1.0F) * 0.5F)
+  );
+}
+
+// The pair-pass shape of the same reduction: a row-indexed output named by
+// a BroadcastIndex source sums the target group's lanes into that one
+// source row, and leaves every other row alone.
+TEST(OpInvoker, OutputAtABroadcastSourceReducesIntoThatRow) {
+  SimAllocator<ToyReduceAlgorithm> sim = MakeToyReduceSim(2 * Batch::size);
+  ToyReduceView view = sim.ViewFor<ToyReduceAlgorithm>();
+  FillAscending(view, 2 * Batch::size);
+
+  ReduceIntoSourceOp op;
+  OpInvoker<ReduceIntoSourceOp, ToyReduceView> invoker(view, op);
+  // Source row 0 against target group 1 (rows lane .. 2 lane - 1).
+  invoker(/*target_index=*/1, BroadcastIndex{0});
+
+  auto lanes = static_cast<float>(Batch::size);
+  // 1 + sum over r in [lane, 2 lane) of (r + 1)
+  float group_sum = (lanes * (lanes + 1.0F) * 0.5F) + (lanes * lanes);
+  EXPECT_FLOAT_EQ(
+      (view.Load<ToyReduceField::kValue, float>(0).Value()), 1.0F + group_sum
+  );
+  EXPECT_FLOAT_EQ((view.Load<ToyReduceField::kValue, float>(1).Value()), 2.0F);
+}
+
+// Outputs store in kOutputs order, and a reduction reads its row at store
+// time: with the source row inside the target group, the group's 100 is
+// stored first and the source's lane sum lands on top of it.
+TEST(OpInvoker, BroadcastOutputStoresOnTopOfAnEarlierGroupOutput) {
+  SimAllocator<ToyReduceAlgorithm> sim = MakeToyReduceSim(Batch::size);
+  ToyReduceView view = sim.ViewFor<ToyReduceAlgorithm>();
+
+  GroupThenSourceOp op;
+  OpInvoker<GroupThenSourceOp, ToyReduceView> invoker(view, op);
+  invoker(/*target_index=*/0, BroadcastIndex{0});
+
+  auto lanes = static_cast<float>(Batch::size);
+  EXPECT_FLOAT_EQ(
+      (view.Load<ToyReduceField::kValue, float>(0).Value()), 100.0F + lanes
+  );
+  // The rest of the group holds just the group store.
+  if (Batch::size > 1) {
+    EXPECT_FLOAT_EQ(
+        (view.Load<ToyReduceField::kValue, float>(1).Value()), 100.0F
+    );
+  }
+}
+
+// A scalar output of a GlobalIndexing field is an ordinary read/write
+// output at index 0: it starts from the stored value, and is overwritten
+// with whatever the Op leaves there.
+TEST(SingleOpInvokerTest, ScalarGlobalOutputReadsAndWritesTheValuePlainly) {
+  SimAllocator<ToyReduceAlgorithm> sim = MakeToyReduceSim(4);
+  ToyReduceView view = sim.ViewFor<ToyReduceAlgorithm>();
+  view.Store<ToyReduceField::kTotal, float>(0, Scalar<float>(3.0F));
+
+  DoubleTotalOp op;
+  SingleOpInvoker<DoubleTotalOp, ToyReduceView> invoker(view, op);
+  invoker(0);
+  invoker(0);
+
+  EXPECT_FLOAT_EQ((view.Load<ToyReduceField::kTotal, float>(0).Value()), 12.0F);
 }

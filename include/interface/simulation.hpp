@@ -64,14 +64,15 @@ class Simulation {
     } catch (const std::exception& e) {
       return util::Warning("Simulation allocation failed", e.what());
     }
-    return true;
+    // Model constants derived from the initial state (algorithms::Setup).
+    return RunStepList(&algorithms::StepIntegrator<algorithms::Setup>, 0.0F);
   }
 
   // Advances the physics by one tick of the selected integrator (see
   // SetIntegrator) over `dt`. Never renders -- see Render(). Returns false
   // (after warning) if the sim isn't initialized or the step throws.
   bool Step(algorithms::ScalarOperationT dt) {
-    return Advance(integrator_step_, dt);
+    return RunStepList(integrator_step_, dt);
   }
 
   // Runs any step list (a util::TypeList of Steps, see engine::StepLike)
@@ -81,7 +82,7 @@ class Simulation {
   // return contract as Step().
   template <typename StepList>
   bool StepWith(algorithms::ScalarOperationT dt) {
-    return Advance(&algorithms::StepIntegrator<StepList>, dt);
+    return RunStepList(&algorithms::StepIntegrator<StepList>, dt);
   }
 
   // Draws one frame of the current state through render::SceneRenderer,
@@ -150,12 +151,14 @@ class Simulation {
   }
 
  private:
-  bool Advance(
+  // Runs one pass of a step list (`step`, an IntegratorStepFn) over this
+  // sim's state: a tick (Step/StepWith) or the one-time Setup list (Init).
+  bool RunStepList(
       algorithms::IntegratorStepFn step, algorithms::ScalarOperationT dt
   ) {
     if (!state_.has_value()) {
       return util::Warning(
-          "Simulation::Step() called before Simulation::Init() -- "
+          "Simulation step list run before Simulation::Init() -- "
           "the sim is not yet initialized."
       );
     }

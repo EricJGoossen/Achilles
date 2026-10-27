@@ -94,6 +94,7 @@ struct ABAFieldTraits<ABAField::kFixedJointTransform> {
 template <>
 struct ABAFieldTraits<ABAField::kRigidBodyInertia> {
   using Assembler = spatial::InertiaAssembler<ScalarOperationT>;
+  using SharedAs = RigidBodyInertiaSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
   static constexpr std::string_view kName = "rigid_body_inertia";
@@ -129,6 +130,7 @@ struct ABAFieldTraits<ABAField::kJointTorque> {
 template <>
 struct ABAFieldTraits<ABAField::kParentToBodyTransform> {
   using Assembler = spatial::TransformAssembler<ScalarOperationT>;
+  using SharedAs = ParentToBodyTransformSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
 };
@@ -145,6 +147,7 @@ struct ABAFieldTraits<ABAField::kWorldTransform> {
 template <>
 struct ABAFieldTraits<ABAField::kSpatialVelocity> {
   using Assembler = spatial::SpatialVelocityAssembler<ScalarOperationT>;
+  using SharedAs = SpatialVelocitySlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
 };
@@ -169,12 +172,14 @@ struct ABAFieldTraits<ABAField::kArticulatedBiasForce> {
 template <>
 struct ABAFieldTraits<ABAField::kUTerm> {
   using Assembler = spatial::InertiaOperatorAssembler<ScalarOperationT>;
+  using SharedAs = UTermSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
 };
 template <>
 struct ABAFieldTraits<ABAField::kDInvTerm> {
   using Assembler = spatial::InvertedInertiaOperatorAssembler<ScalarOperationT>;
+  using SharedAs = DInvTermSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
 };

@@ -287,3 +287,90 @@ TEST(QuaternionBatched, ExpAndRotatePerLane) {
   EXPECT_FLOAT_EQ(norm.get(0), 1.0F);
   EXPECT_FLOAT_EQ(norm.get(1), 1.0F);
 }
+
+// --- Log: Exp's inverse, on the short way round ---
+
+namespace {
+
+// 0.3 x - 0.6 y + 0.2 z: an arbitrary axis, angle 0.7 -- well inside
+// (0, pi), so Log(Exp(v)) must give v back exactly.
+Vector3<float> ArbitraryRotationVector() {
+  return {0.3F, -0.6F, 0.2F};
+}
+
+}  // namespace
+
+TEST(QuaternionLog, IdentityLogsToZero) {
+  EXPECT_TRUE(Quaternion<float>::Identity().Log().IsZero());
+}
+
+// The defining property: Log undoes Exp for any rotation vector shorter
+// than pi.
+TEST(QuaternionLog, InvertsExpInsideHalfATurn) {
+  Vector3<float> v = ArbitraryRotationVector();
+  EXPECT_TRUE(Quaternion<float>::Exp(v).Log().IsApprox(v));
+
+  Vector3<float> near_half_turn(0.0F, 0.0F, kPi - 0.01F);
+  EXPECT_TRUE(Quaternion<float>::Exp(near_half_turn)
+                  .Log()
+                  .IsApprox(near_half_turn, 1e-4F));
+}
+
+// q and -q are the same rotation, so they must log to the same vector --
+// the w >= 0 flip. Without it, -q would log to the long way round
+// (angle 2 pi - theta about the opposite axis).
+TEST(QuaternionLog, NegatedQuaternionLogsToTheSameVector) {
+  Vector3<float> v = ArbitraryRotationVector();
+  Quaternion<float> q = Quaternion<float>::Exp(v);
+  Quaternion<float> negated(-q.W(), -q.X(), -q.Y(), -q.Z());
+  EXPECT_TRUE(negated.Log().IsApprox(v));
+}
+
+// Past half a turn the short way round is the other way: 3.5 rad about +z
+// logs to 2 pi - 3.5 about -z. This is why a joint limit's rotational range
+// has to sit inside (-pi, pi) (joint_limit_data.hpp).
+TEST(QuaternionLog, PastHalfATurnWrapsToTheShortWayRound) {
+  Quaternion<float> q =
+      Quaternion<float>::Exp(Vector3<float>(0.0F, 0.0F, 3.5F));
+  EXPECT_TRUE(q.Log().IsApprox(
+      Vector3<float>(0.0F, 0.0F, 3.5F - (2.0F * kPi)), 1e-4F
+  ));
+}
+
+// The |v| -> 0 removable singularity: a tiny rotation logs to (very nearly)
+// itself rather than to NaN from 0/0.
+TEST(QuaternionLog, TinyRotationLogsToItselfWithoutNaN) {
+  Vector3<float> tiny(1e-9F, 0.0F, 0.0F);
+  Vector3<float> logged = Quaternion<float>::Exp(tiny).Log();
+  EXPECT_FALSE(std::isnan(logged.X()));
+  EXPECT_NEAR(logged.X(), 1e-9F, 1e-8F);
+  EXPECT_FLOAT_EQ(logged.Y(), 0.0F);
+  EXPECT_FLOAT_EQ(logged.Z(), 0.0F);
+}
+
+// A zero quaternion is what a zero-filled padding row holds for a joint's
+// position; it must log to zero, not NaN, so a dense pass over padding
+// lanes (the joint-limit detector's) stays finite.
+TEST(QuaternionLog, ZeroQuaternionLogsToZero) {
+  Quaternion<float> zero(0.0F, 0.0F, 0.0F, 0.0F);
+  Vector3<float> logged = zero.Log();
+  EXPECT_FALSE(std::isnan(logged.X()));
+  EXPECT_TRUE(logged.IsZero());
+}
+
+// Batched: each lane takes its own branch -- an ordinary angle, a wrapped
+// one, and the tiny-angle select -- per lane, not per batch.
+TEST(QuaternionLog, BatchedSelectsPerLane) {
+  using Batch = xsimd::batch<float>;
+  Vector3<Batch> v(
+      Batch(0.0F), Batch(0.0F), MakeBatch({0.5F, 3.5F, 1e-9F, -1.0F})
+  );
+  Vector3<Batch> logged = Quaternion<Batch>::Exp(v).Log();
+
+  EXPECT_NEAR(logged.Z().get(0), 0.5F, 1e-5F);
+  EXPECT_NEAR(logged.Z().get(1), 3.5F - (2.0F * kPi), 1e-4F);
+  if (Batch::size > 3) {
+    EXPECT_NEAR(logged.Z().get(2), 1e-9F, 1e-8F);
+    EXPECT_NEAR(logged.Z().get(3), -1.0F, 1e-5F);
+  }
+}

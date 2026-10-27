@@ -198,6 +198,33 @@ static_assert(
     "BackwardLinearTraversal must satisfy TraversalLike concept"
 );
 
+// One call, at index 0 -- for an Op whose work is a single value the whole
+// sim shares rather than anything per row: a scalar Op over
+// topology::GlobalIndexing fields, e.g. an iterative solver turning the
+// sums a reduction pass just left in them into its next step length. Takes
+// (and ignores) whatever the Step call's other traversals take, so it sits
+// in the same Ops list as the passes that reduce into those fields and the
+// ones that read the result. Always Stride 1: there's only the one element
+// to read. Initialize, if the Op has one, runs at that same index first.
+struct GlobalTraversal {
+  static constexpr Direction kDirection = Direction::kForward;
+  static constexpr size_t kStride = 1;
+
+  template <typename Callable, typename... Rest>
+  static constexpr void Apply(const Callable& callable, const Rest&...) {
+    callable(0, 0);
+  }
+
+  template <typename Callable, typename... Rest>
+  static constexpr void InitOp(const Callable& callable, const Rest&...) {
+    callable.Initialize(0);
+  }
+};
+static_assert(
+    TraversalLike<GlobalTraversal>,
+    "GlobalTraversal must satisfy TraversalLike concept"
+);
+
 // What a PairTraversal knows about one (source row, target group) call
 // from its own topology alone, handed to an Op through its tuple's
 // ArgIndex::kStructure slot (see kTraversalInputs, engine/op_contract.hpp):

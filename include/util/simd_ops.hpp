@@ -69,6 +69,18 @@ inline void SimdStore(ElemT* ptr, std::size_t idx, T val) {
   ptr[idx] = val;
 }
 
+// ptr[0] += the sum of val's lanes -- every lane of a batch folded into
+// one element. For a scalar T this is just ptr[0] += val.
+template <typename T, typename ElemT>
+  requires(xsimd::is_batch<T>::value)
+inline void SimdAccumulate(ElemT* ptr, T val) {
+  *ptr += xsimd::reduce_add(val);
+}
+template <typename T, typename ElemT>
+inline void SimdAccumulate(ElemT* ptr, T val) {
+  *ptr += val;
+}
+
 template <bool IsBatch, typename T>
 using SimdT = std::conditional_t<IsBatch, xsimd::batch<T>, T>;
 

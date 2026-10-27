@@ -1,4 +1,4 @@
-# A variant of examples/two_joint_arm.arow built specifically to break that
+# A variant of examples/two_joint_arm/two_joint_arm.arow built specifically to break that
 # scene's planar symmetry: the elbow here rotates about local Z instead of
 # local X (joint_subspace row 2 -- Yaw -- instead of row 0 -- Roll; see
 # domain::spatial::Dual's own Roll/Pitch/Yaw/X/Y/Z row order), while its
