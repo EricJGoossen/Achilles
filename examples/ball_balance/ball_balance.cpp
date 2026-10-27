@@ -260,8 +260,8 @@ class Plate {
     sim.StepWith<achilles::util::TypeList<ABAStep>>(0.0F);
   }
 
-  // The ball's center relative to the plate's pivot, in the scene's axes: (x, y,
-  // z). Close enough to the plate's own axes at these tilts.
+  // The ball's center relative to the plate's pivot, in the scene's axes: (x,
+  // y, z). Close enough to the plate's own axes at these tilts.
   Vec3 BallOnPlate(const Simulation& sim) const {
     auto view = sim.ViewFor<ABAAlgorithm>();
     auto ball = view.Load<ABAField::kWorldTransform, ScalarOperationT>(ball_);

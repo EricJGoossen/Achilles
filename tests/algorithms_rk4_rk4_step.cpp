@@ -13,8 +13,8 @@
 #include "algorithms/rk4/rk4_step.hpp"
 #include "algorithms/sim_config.hpp"
 #include "domain/archetype.hpp"
-#include "engine/memory/sim_allocator.hpp"
 #include "domain/joint_layout.hpp"
+#include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/ordering_policy.hpp"
 #include "util/simd_ops.hpp"
 

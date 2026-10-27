@@ -11,8 +11,8 @@
 #include "algorithms/vi/vi_data.hpp"
 #include "algorithms/vi/vi_step.hpp"
 #include "domain/archetype.hpp"
-#include "engine/memory/sim_allocator.hpp"
 #include "domain/joint_layout.hpp"
+#include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/ordering_policy.hpp"
 #include "util/simd_ops.hpp"
 
