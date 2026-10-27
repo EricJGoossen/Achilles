@@ -67,7 +67,7 @@ const char* const kAxleInertia = "[2, 0,0,0, 2,3,4, 0,0,0]";   // Izz = 4
 const char* const kWheelInertia = "[1, 0,0,0, 1,1,1, 0,0,0]";  // Izz = 1
 
 std::size_t Row(const RegisteredSim& sim, std::size_t joint) {
-  return sim.LayoutFor<TopologicalOrdering>().ToSorted(0, joint);
+  return sim.LayoutFor<TopologicalOrdering>().ToSorted({0, joint});
 }
 
 // Two hinges on one axis: the wheel's frame sits on the axle's.

@@ -45,7 +45,7 @@ using MaskBatch = achilles::util::MaskStorageFor<B>;
 
 // The one joint's row, scalar-indexed.
 std::size_t JointRow(const RegisteredSim& sim) {
-  return sim.LayoutFor<TopologicalOrdering>().ToSorted(0, 0);
+  return sim.LayoutFor<TopologicalOrdering>().ToSorted({0, 0});
 }
 
 }  // namespace

@@ -1,0 +1,104 @@
+# One two-wheeled self-balancing robot: a tall body on a free joint, a tray
+# welded on top of it to catch a box on, and two wheels on revolute joints,
+# like an inverted pendulum on wheels. With no torque on its wheels it
+# simply falls over; balancers.cpp keeps it up.
+# Every copy starts identical, here at the world origin; balancers.cpp
+# spreads them along +x after Init().
+#
+# The body's frame sits on the wheel axle, its box rising 0.6 from there,
+# and it starts pitched 5 degrees forward (toward +z) so every robot has to
+# catch itself. Each wheel turns about its own local X (the axle, along the
+# body's width), collides as a sphere of radius 0.1, and is drawn as a
+# single spoke so you can see it turn. Every joint_torque is zero: the only
+# torque comes from the actuators, and since a wheel's torque pushes back
+# on the body, driving the wheels is also what tips the body.
+archetype: balancer
+copies: 8
+attach:
+  archetype: world
+  joint: world
+joints:
+  # 3 kg box, half-extents (0.12, 0.3, 0.06), its center 0.3 above the
+  # frame: h = m * c = (0, 0.9, 0), and the box's own inertia about its
+  # center (m/3 (b^2 + c^2), ...) raised to the frame by the parallel axis
+  # theorem. Frame at axle height (0.1); rotation is 5 degrees about +x.
+  - name: body
+    parent: null
+    fields:
+      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]
+      joint_activation_mask: [63]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [3, 0, 0.9, 0, 0.3636, 0.018, 0.3744, 0, 0, 0]
+      joint_position: {translation: [0, 0.102, 0], rotation: [0.999048, 0.043619, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.12, 0.3, 0.06]
+      visual_color: [0.2, 0.5, 0.85]
+      collision_pose: {translation: [0, 0.3, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.1, 0.28, 0.04]
+      collision_radius: [0.02]
+      collision_margin: [0.005]
+      collision_group: [2]
+      collision_mask: [5]
+  # A 0.3 kg tray, half-extents (0.16, 0.015, 0.16), welded (no free
+  # coordinates) to the top of the body. Its frame sits on the body's top
+  # face, its plate rising 0.03 from there: h = m * c = (0, 0.0045, 0), and
+  # the plate's inertia about its center raised to the frame by the
+  # parallel axis theorem.
+  - name: tray
+    parent: body
+    fields:
+      joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [0, 0.6, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [0.3, 0, 0.0045, 0, 0.00265, 0.00512, 0.00265, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.16, 0.015, 0.16]
+      visual_color: [0.75, 0.75, 0.78]
+      collision_pose: {translation: [0, 0.015, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.15, 0.005, 0.15]
+      collision_radius: [0.01]
+      collision_margin: [0.005]
+      collision_group: [2]
+      collision_mask: [5]
+  # Wheels: 0.3 kg solid spheres of radius 0.1 (I = 2/5 m r^2 = 0.0012),
+  # centered on their frames, free to turn only about their axle (column 0
+  # of the subspace: roll, about local X).
+  - name: left_wheel
+    parent: body
+    fields:
+      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [1]
+      fixed_joint_transform: {translation: [-0.17, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [0.3, 0, 0, 0, 0.0012, 0.0012, 0.0012, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.02, 0.05, 0.02]
+      visual_color: [0.15, 0.15, 0.17]
+      collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0, 0, 0]
+      collision_radius: [0.1]
+      collision_margin: [0.005]
+      collision_group: [2]
+      collision_mask: [5]
+  - name: right_wheel
+    parent: body
+    fields:
+      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [1]
+      fixed_joint_transform: {translation: [0.17, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [0.3, 0, 0, 0, 0.0012, 0.0012, 0.0012, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.02, 0.05, 0.02]
+      visual_color: [0.15, 0.15, 0.17]
+      collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0, 0, 0]
+      collision_radius: [0.1]
+      collision_margin: [0.005]
+      collision_group: [2]
+      collision_mask: [5]

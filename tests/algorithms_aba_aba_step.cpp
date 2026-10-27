@@ -10,8 +10,8 @@
 #include "algorithms/conventions.hpp"
 #include "algorithms/sim_config.hpp"
 #include "domain/archetype.hpp"
+#include "domain/joint_layout.hpp"
 #include "engine/memory/sim_allocator.hpp"
-#include "engine/topology/layout.hpp"
 #include "engine/topology/ordering_policy.hpp"
 #include "support/aba_reference.hpp"
 #include "util/simd_ops.hpp"
@@ -23,12 +23,12 @@
 // called with TargetScalar = MathematicalT = xsimd::batch<float>, so a
 // View index here is always a batch-GROUP index (Stride raw rows per
 // group), never a raw row -- every helper below that turns a real
-// Layout::ToSorted() row into a View index divides by `lane` for exactly
+// JointLayout::ToSorted() row into a View index divides by `lane` for exactly
 // this reason.
 //
 // TopologicalOrdering (ABAFieldTraits' own choice for every ABA field, see
 // aba_data.hpp) guarantees no parent/child pair ever shares a lane group
-// (Layout::IsForwardSafe), which is what makes a real multi-joint tree
+// (JointTopology::IsForwardSafe), which is what makes a real multi-joint tree
 // safe to batch at all -- that guarantee, plus Stride, is what a hand-fed
 // fixture had no way to provide, and why the multi-joint tests below were
 // blocked until both existed.
@@ -70,7 +70,7 @@ std::size_t Lane() { return B::size; }
 // that single instance's real joints (parent-per-joint,
 // ArchetypeTreeStructure::kNoParent for the instance's own root). Every ABA
 // field's own TopologicalOrdering pads a single instance up to a full lane,
-// so Layout::ToSorted(0, j) always comes out as an exact multiple of
+// so Layout::ToSorted({0, j}) always comes out as an exact multiple of
 // Lane() here -- BatchGroup() below turns that back into the View index
 // ABA's batched Store/Load actually need (see this file's header comment).
 SimAllocator<ABAAlgorithm> MakeSim(std::vector<std::size_t> tree_structure) {
@@ -82,9 +82,9 @@ SimAllocator<ABAAlgorithm> MakeSim(std::vector<std::size_t> tree_structure) {
 }
 
 std::size_t BatchGroup(
-    const achilles::engine::topology::Layout& layout, std::size_t joint
+    const achilles::domain::JointLayout& layout, std::size_t joint
 ) {
-  return layout.ToSorted(0, joint) / Lane();
+  return layout.ToSorted({0, joint}) / Lane();
 }
 
 void PopulateRevoluteZJoint(

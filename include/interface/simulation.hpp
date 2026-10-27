@@ -1,17 +1,22 @@
 #pragma once
 
+#include <cstddef>
 #include <optional>
+#include <stdexcept>
 #include <string>
+#include <utility>
 
 #include "algorithms/integrators.hpp"
 #include "algorithms/registry.hpp"
 #include "algorithms/sim_config.hpp"
 #include "algorithms/viz/viz_step.hpp"
 #include "domain/archetype.hpp"
+#include "domain/joint_layout.hpp"
 #include "domain/joint_topology.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/layout_policy.hpp"
 #include "engine/topology/ordering_policy.hpp"
+#include "interface/actuator.hpp"
 #include "interface/archetype_loader.hpp"
 #include "interface/sim_config_loader.hpp"
 #include "render/scene_renderer.hpp"
@@ -71,7 +76,14 @@ class Simulation {
   // Advances the physics by one tick of the selected integrator (see
   // SetIntegrator) over `dt`. Never renders -- see Render(). Returns false
   // (after warning) if the sim isn't initialized or the step throws.
+  //
+  // Swaps every double-buffered field first (SimContext::SwapBuffers), so
+  // the tick reads exactly what actuators Apply()ed since the previous
+  // Step() -- however many times its step list evaluates ABA.
   bool Step(algorithms::ScalarOperationT dt) {
+    if (state_.has_value()) {
+      state_->context.SwapBuffers();
+    }
     return RunStepList(integrator_step_, dt);
   }
 
@@ -79,7 +91,9 @@ class Simulation {
   // once, over the same state Step() advances -- e.g.
   // StepWith<util::TypeList<algorithms::aba::ABAStep>>(0) re-evaluates the
   // dynamics at the current (q, qd) without integrating anything. Same
-  // return contract as Step().
+  // return contract as Step(). Does not swap buffers: it reads the same
+  // actuator torque the last Step() did, and leaves pending Apply()s for
+  // the next Step().
   template <typename StepList>
   bool StepWith(algorithms::ScalarOperationT dt) {
     return RunStepList(&algorithms::StepIntegrator<StepList>, dt);
@@ -115,6 +129,46 @@ class Simulation {
     return true;
   }
 
+  // Attaches an actuator to `joint`, driving it along `axis` -- any
+  // direction in the joint's own frame (see JointActuator::Attach) -- and
+  // returns it as T: LinearActuator/AngularActuator itself,
+  // or a class deriving from one, built as T(base, args...) where `base` is
+  // the attached LinearActuator/AngularActuator -- so a user's actuator
+  // model comes back as its own type, no cast. e.g.
+  //
+  //   class DcMotor : public AngularActuator {
+  //    public:
+  //     DcMotor(AngularActuator base, float kt)
+  //         : AngularActuator(std::move(base)), kt_(kt) {}
+  //     void Command(float amps) const { Apply(kt_ * amps); }
+  //    private:
+  //     float kt_;
+  //   };
+  //   DcMotor elbow = sim.AttachActuator<DcMotor>({"arm", "elbow"},
+  //                                               {1, 0, 0}, 0.05F);
+  //
+  // Only after a successful Init(), against the archetypes it was built
+  // from; the actuator is valid until this Simulation is re-Init()ed or
+  // destroyed. Throws std::invalid_argument for an unknown archetype or
+  // joint, an out-of-range instance, or an axis the joint can't move along.
+  template <ActuatorLike T, typename... Args>
+  T AttachActuator(
+      const JointAddress& joint, const ActuatorAxis& axis, Args&&... args
+  ) const {
+    if (!state_.has_value()) {
+      throw std::runtime_error(
+          "Simulation::AttachActuator() called before Simulation::Init() -- "
+          "the sim is not yet initialized."
+      );
+    }
+    return T(
+        JointActuator<T::kKind>::Attach(
+            state_->context, domain::ResolveJoint(archetypes_, joint), axis
+        ),
+        std::forward<Args>(args)...
+    );
+  }
+
   // Read-only access to one hosted Algorithm's own View, once Init() has
   // run -- the same ViewFor<AlgorithmT>() forwarding SimAllocator/SimContext
   // already expose, for a caller (or a test) that needs to inspect state
@@ -148,6 +202,26 @@ class Simulation {
       );
     }
     return state_->context.template TopologyFor<PolicyT>();
+  }
+
+  // The row `joint` lives at in every View whose fields PolicyT orders --
+  // e.g. RowFor<TopologicalOrdering>() for ABA's -- once Init() has run.
+  // Resolved against the archetypes Init() was built from and the
+  // JointLayout the context already keeps, so a caller never re-loads the
+  // scene or rebuilds an ordering plan to find a joint. Throws
+  // std::invalid_argument for an unknown archetype or joint, or an
+  // out-of-range instance (see domain::ResolveJoint).
+  template <engine::topology::LayoutPolicyLike PolicyT>
+  std::size_t RowFor(const JointAddress& joint) const {
+    if (!state_.has_value()) {
+      throw std::runtime_error(
+          "Simulation::RowFor() called before Simulation::Init() -- "
+          "the sim is not yet initialized."
+      );
+    }
+    return state_->context.template LayoutFor<PolicyT>().ToSorted(
+        domain::ResolveJoint(archetypes_, joint)
+    );
   }
 
  private:

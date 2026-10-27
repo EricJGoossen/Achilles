@@ -9,14 +9,16 @@
 #include <vector>
 
 #include "domain/archetype.hpp"
+#include "domain/joint_layout.hpp"
 #include "domain/math/vector3.hpp"
 #include "engine/algorithm_contract.hpp"
 #include "engine/field_contract.hpp"
 #include "engine/memory/binding.hpp"
+#include "engine/memory/buffering_policy.hpp"
 #include "engine/memory/sim_allocator.hpp"
-#include "engine/topology/layout.hpp"
 #include "engine/topology/layout_policy.hpp"
 #include "engine/topology/ordering_policy.hpp"
+#include "support/toy_buffered_field.hpp"
 #include "util/tmp.hpp"
 
 using achilles::domain::Archetype;
@@ -130,8 +132,7 @@ TEST(SimAllocatorPopulate, CopiesArchetypeDataIntoTheRightSortedRow) {
 
   for (std::size_t i = 0; i < 2; ++i) {
     for (std::size_t j = 0; j < 2; ++j) {
-      std::size_t row =
-          sim.LayoutFor<TopologicalOrdering>().ToSorted(0, (i * 2) + j);
+      std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted({i, j});
       auto base = static_cast<float>((100 * i) + (10 * j));
       EXPECT_TRUE((view.Load<SharedField::kSharedInput, float>(row).IsApprox(
           Vector3<float>(base, base + 1.0F, base + 2.0F)
@@ -154,7 +155,7 @@ TEST(SimAllocatorPopulate, LeavesFieldsWithNoKNameZeroed) {
   Sim sim(archetypes);
   auto view = sim.ViewFor<Algorithm<SharedField, SharedFieldTraits>>();
 
-  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted(0, 0);
+  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted({0, 0});
   EXPECT_TRUE((view.Load<SharedField::kOutput, float>(row).IsZero()));
 }
 
@@ -211,8 +212,8 @@ TEST(SimAllocatorTopology, ChildResolvesToParentsRowWithinSameInstance) {
   Sim sim(archetypes);
 
   const auto& layout = sim.LayoutFor<TopologicalOrdering>();
-  std::size_t instance0_joint0 = layout.ToSorted(0, 0);
-  std::size_t instance0_joint1 = layout.ToSorted(0, 1);
+  std::size_t instance0_joint0 = layout.ToSorted({0, 0});
+  std::size_t instance0_joint1 = layout.ToSorted({0, 1});
   EXPECT_EQ(
       sim.TopologyFor<TopologicalOrdering>()[instance0_joint1],
       instance0_joint0
@@ -238,9 +239,7 @@ TEST(SimAllocatorSharedAs, CrossAlgorithmFieldsAliasTheSameBlock) {
   auto second_view =
       sim.ViewFor<Algorithm<SecondField, SecondFieldTraits>>();
 
-  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted(
-      0, (1 * 2) + 1
-  );  // instance 1, joint 1
+  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted({1, 1});
   Vector3<float> via_shared =
       shared_view.Load<SharedField::kSharedInput, float>(row);
   Vector3<float> via_second =
@@ -285,9 +284,7 @@ TEST(SimAllocatorForRegisteredList, BehavesIdenticallyToDirectSimAllocator) {
   auto second_view =
       sim.ViewFor<Algorithm<SecondField, SecondFieldTraits>>();
 
-  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted(
-      0, (1 * 2) + 1
-  );  // instance 1, joint 1
+  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted({1, 1});
   Vector3<float> via_shared =
       shared_view.Load<SharedField::kSharedInput, float>(row);
   Vector3<float> via_second =
@@ -350,8 +347,8 @@ TEST(
   using Sim = SimAllocator<Algorithm<MixedField, MixedFieldTraits>>;
   Sim sim(archetypes);
 
-  std::size_t topo_row = sim.LayoutFor<TopologicalOrdering>().ToSorted(0, 0);
-  std::size_t linear_row = sim.LayoutFor<LinearOrdering>().ToSorted(0, 0);
+  std::size_t topo_row = sim.LayoutFor<TopologicalOrdering>().ToSorted({0, 0});
+  std::size_t linear_row = sim.LayoutFor<LinearOrdering>().ToSorted({0, 0});
   EXPECT_NE(topo_row, linear_row);
 }
 
@@ -414,5 +411,62 @@ TEST(SimAllocatorSharedAs, DiesOnIncompatibleOrderingForSameSharedTag) {
   using Sim = SimAllocator<
       Algorithm<SharedField, SharedFieldTraits>,
       Algorithm<MismatchedOrderingField, MismatchedOrderingFieldTraits>>;
+  EXPECT_DEATH(Sim sim(archetypes), "unsound");
+}
+
+namespace {
+
+// Same SharedInputSlot tag, Assembler and Ordering as
+// SharedField::kSharedInput, but double-buffered -- the two can't share a
+// block, since one carves three copies of it and reads at an offset.
+enum class MismatchedBufferingField : std::uint8_t { kSharedAgain, kCount };
+template <MismatchedBufferingField F>
+struct MismatchedBufferingFieldTraits;
+template <>
+struct MismatchedBufferingFieldTraits<MismatchedBufferingField::kSharedAgain> {
+  using Assembler = Vector3Assembler<float>;
+  using SharedAs = SharedInputSlot;
+  using Ordering = TopologicalOrdering;
+  using Buffering = achilles::engine::memory::DoubleBuffered;
+  using Layout = PlanarLayout;
+};
+static_assert(achilles::engine::FieldTraitsLike<
+              MismatchedBufferingField,
+              MismatchedBufferingFieldTraits>);
+
+}  // namespace
+
+// A swap resets the write half from the rest block, so the rest block must
+// hold the populated archetype data, not zero-fill: scribble on the read
+// half, swap it out (reset) and back in, and the archetype value is back.
+TEST(SimAllocatorBuffering, RestBlockHoldsThePopulatedArchetypeData) {
+  using achilles::test_support::ToyBufferedAlgorithm;
+  using achilles::test_support::ToyBufferedField;
+  auto sim = achilles::test_support::MakeToyBufferedSim(2);
+  auto view = sim.ViewFor<ToyBufferedAlgorithm>();
+  view.Store<ToyBufferedField::kCommand, float>(1, Vector3<float>::Zero());
+
+  auto context = sim.SimContext();
+  context.SwapBuffers();
+  context.SwapBuffers();
+  Vector3<float> value = view.Load<ToyBufferedField::kCommand, float>(1);
+  Vector3<float> rest = achilles::test_support::ToyCommandRest(1);
+  EXPECT_FLOAT_EQ(value.X(), rest.X());
+  EXPECT_FLOAT_EQ(value.Y(), rest.Y());
+  EXPECT_FLOAT_EQ(value.Z(), rest.Z());
+}
+
+// Carve's reused-slot check compares buffering too: two algorithms sharing
+// a block they disagree on the copy count of would read different memory
+// for the same row. Byte size necessarily differs as well (one block vs
+// three), so this proves the mismatch is caught, not which field of the
+// check caught it.
+TEST(SimAllocatorSharedAs, DiesOnIncompatibleBufferingForSameSharedTag) {
+  Archetype arm = MakeArmArchetype();
+  std::array<Archetype, 1> archetypes = {std::move(arm)};
+
+  using Sim = SimAllocator<
+      Algorithm<SharedField, SharedFieldTraits>,
+      Algorithm<MismatchedBufferingField, MismatchedBufferingFieldTraits>>;
   EXPECT_DEATH(Sim sim(archetypes), "unsound");
 }

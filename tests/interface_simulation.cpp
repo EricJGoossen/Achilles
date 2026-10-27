@@ -4,7 +4,9 @@
 #include <cstddef>
 #include <filesystem>
 #include <sstream>
+#include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "algorithms/aba/aba_data.hpp"
@@ -16,6 +18,7 @@
 #include "domain/archetype.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/ordering_policy.hpp"
+#include "interface/actuator.hpp"
 #include "interface/archetype_loader.hpp"
 #include "interface/simulation.hpp"
 #include "support/aba_reference.hpp"
@@ -38,6 +41,9 @@ using achilles::algorithms::aba::ABAStep;
 using achilles::domain::Archetype;
 using achilles::engine::memory::SimAllocator;
 using achilles::engine::topology::TopologicalOrdering;
+using achilles::interface::ActuatorLike;
+using achilles::interface::AngularActuator;
+using achilles::interface::LinearActuator;
 using achilles::interface::LoadArchetypes;
 using achilles::interface::Simulation;
 using achilles::test_support::AccumulateAbaInertia;
@@ -630,14 +636,14 @@ TEST(Simulation, ReloadingADifferentArowFileAndReinitializingUsesTheNewData) {
 // mechanism interface_archetype_loader.cpp's own
 // LoadArchetypes.RecursiveIncludeAndBroadcastAttachToSingleParentInstance
 // exercises directly). Simulation itself has no way to say "give me the
-// View index for this specific joint" (Layout is construction-only -- see
-// SimAllocator's own comment -- and Simulation never keeps one past Init()),
-// so this test goes around Simulation and builds the SimAllocator directly
-// from the same real LoadArchetypes(...) output Simulation::LoadArowFile
-// would produce, giving it LayoutFor<TopologicalOrdering>().ToSorted(...)
-// to resolve each joint's own real row exactly -- not a guessed index, and
-// not a scan. LoadArchetypes' own contract (root archetype first) plus
-// ToSorted give an exact, verified row for each of the two real joints.
+// View index for this specific joint" (it keeps the JointLayout inside its
+// SimContext but doesn't expose it), so this test goes around Simulation and
+// builds the SimAllocator directly from the same real LoadArchetypes(...)
+// output Simulation::LoadArowFile would produce, giving it
+// LayoutFor<TopologicalOrdering>().ToSorted(...) to resolve each joint's own
+// real row exactly -- not a guessed index, and not a scan. LoadArchetypes' own
+// contract (root archetype first) plus ToSorted give an exact, verified row for
+// each of the two real joints.
 TEST(
     Simulation,
     MultiArchetypeChainAcrossIncludedArowFilesPropagatesVelocityExactly
@@ -671,8 +677,8 @@ TEST(
   auto view = sim.ViewFor<ABAAlgorithm>();
   const auto& layout = sim.LayoutFor<TopologicalOrdering>();
   std::size_t lane = B::size;
-  std::size_t root_group = layout.ToSorted(0, 0) / lane;
-  std::size_t child_group = layout.ToSorted(1, 0) / lane;
+  std::size_t root_group = layout.ToSorted({0, 0}) / lane;
+  std::size_t child_group = layout.ToSorted({1, 0}) / lane;
   ASSERT_NE(root_group, child_group);
 
   SimConfig sim_config;
@@ -806,4 +812,149 @@ TEST(Simulation, JointLimitFromArowStopsTheJoint) {
   }
 
   EXPECT_NEAR(JointAngleZ(sim), 0.5F, 0.01F);
+}
+
+namespace {
+
+// qdd of the single real joint -- tau / Izz, with Izz = 4 (SimpleInertia).
+float JointAccelerationZ(Simulation& sim) {
+  return sim.ViewFor<ABAAlgorithm>().Load<ABAField::kJointAcceleration, float>(0
+  )[0];
+}
+
+AngularActuator AttachYaw(const Simulation& sim) {
+  return sim.AttachActuator<AngularActuator>({"base", "joint"}, {0, 0, 1});
+}
+
+// A user's actuator model, returned by AttachActuator as its own type.
+class GearedMotor : public AngularActuator {
+ public:
+  GearedMotor(AngularActuator base, float ratio)
+      : AngularActuator(std::move(base)), ratio_(ratio) {}
+  void Command(float motor_torque) const { Apply(ratio_ * motor_torque); }
+
+ private:
+  float ratio_;
+};
+
+// Exactly what ActuatorLike and AttachActuator require: derived from a base
+// handle, built from it alone -- no members, no extra arguments.
+class ActuatorArchetype : public AngularActuator {
+ public:
+  explicit ActuatorArchetype(AngularActuator base)
+      : AngularActuator(std::move(base)) {}
+};
+static_assert(ActuatorLike<ActuatorArchetype>);
+
+}  // namespace
+
+// The end-to-end contract: an effort Apply()ed before Step drives that
+// Step exactly like the same torque written in the .arow file.
+TEST(SimulationActuator, EffortDrivesTheNextStepLikeArowTorque) {
+  TempDir actuated_dir;
+  Simulation actuated = MakeInitializedSim(actuated_dir, 0.0F);
+  AttachYaw(actuated).Apply(5.0F);
+  ASSERT_TRUE(actuated.Step(0.0F));
+
+  TempDir arow_dir;
+  Simulation from_arow = MakeInitializedSim(arow_dir, 0.0F, 0.0F, 5.0F);
+  ASSERT_TRUE(from_arow.Step(0.0F));
+
+  EXPECT_FLOAT_EQ(JointAccelerationZ(actuated), 5.0F / 4.0F);
+  EXPECT_FLOAT_EQ(JointAccelerationZ(actuated), JointAccelerationZ(from_arow));
+}
+
+// Effort is per tick: a Step with nothing Apply()ed sees none of the last
+// tick's.
+TEST(SimulationActuator, EffortLastsExactlyOneStep) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.0F);
+  AngularActuator actuator = AttachYaw(sim);
+  actuator.Apply(4.0F);
+  ASSERT_TRUE(sim.Step(0.0F));
+  EXPECT_FLOAT_EQ(JointAccelerationZ(sim), 1.0F);
+  ASSERT_TRUE(sim.Step(0.0F));
+  EXPECT_FLOAT_EQ(JointAccelerationZ(sim), 0.0F);
+}
+
+// The .arow joint_torque is the baseline every tick starts from: effort
+// adds to it, and it's still there once the effort is gone.
+TEST(SimulationActuator, EffortAddsOnTopOfTheArowTorque) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.0F, 0.0F, 2.0F);
+  AttachYaw(sim).Apply(3.0F);
+  ASSERT_TRUE(sim.Step(0.0F));
+  EXPECT_FLOAT_EQ(JointAccelerationZ(sim), 5.0F / 4.0F);
+  ASSERT_TRUE(sim.Step(0.0F));
+  EXPECT_FLOAT_EQ(JointAccelerationZ(sim), 2.0F / 4.0F);
+}
+
+// RK4 evaluates ABA four times per tick; every evaluation must see the
+// same effort (the swap is per Step, not per ABAStep), so the joint moves
+// exactly as far as under the same torque from the .arow file.
+TEST(SimulationActuator, EveryAbaEvaluationInATickSeesTheSameEffort) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.0F);
+  sim.SetIntegrator(Simulation::Integrator::kRungeKutta4);
+  AttachYaw(sim).Apply(4.0F);
+  ASSERT_TRUE(sim.Step(kOneTickDt));
+  EXPECT_NEAR(JointAngleZ(sim), kExactOneTickAngle, 1e-6F);
+}
+
+// StepWith re-evaluates at the current state without starting a tick, so
+// it neither sees nor consumes effort pending for the next Step.
+TEST(SimulationActuator, StepWithLeavesPendingEffortForTheNextStep) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.0F);
+  AttachYaw(sim).Apply(4.0F);
+  ASSERT_TRUE(sim.StepWith<TypeList<ABAStep>>(0.0F));
+  EXPECT_FLOAT_EQ(JointAccelerationZ(sim), 0.0F);
+  ASSERT_TRUE(sim.Step(0.0F));
+  EXPECT_FLOAT_EQ(JointAccelerationZ(sim), 1.0F);
+}
+
+// AttachActuator<T> hands back the caller's own model, built from the base
+// handle plus its own arguments -- no cast.
+TEST(SimulationActuator, AttachActuatorReturnsTheCallersOwnType) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.0F);
+  auto motor =
+      sim.AttachActuator<GearedMotor>({"base", "joint"}, {0, 0, 1}, 8.0F);
+  motor.Command(0.5F);
+  ASSERT_TRUE(sim.Step(0.0F));
+  EXPECT_FLOAT_EQ(JointAccelerationZ(sim), 1.0F);
+}
+
+// AttachActuator relies only on what ActuatorLike promises: a derived type
+// with nothing but a constructor from its base handle (an empty Args pack).
+TEST(SimulationActuator, AttachActuatorBuildsTheMinimalActuatorLikeType) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.0F);
+  auto actuator =
+      sim.AttachActuator<ActuatorArchetype>({"base", "joint"}, {0, 0, 1});
+  actuator.Apply(4.0F);
+  ASSERT_TRUE(sim.Step(0.0F));
+  EXPECT_FLOAT_EQ(JointAccelerationZ(sim), 1.0F);
+}
+
+// Attaching needs the built sim (its layout and its torque buffers), so
+// doing it first is a catchable error, like ViewFor's.
+TEST(SimulationActuator, AttachActuatorThrowsBeforeInit) {
+  Simulation sim;
+  EXPECT_THROW(AttachYaw(sim), std::runtime_error);
+}
+
+// Bad user input -- an unknown joint, or an axis the joint can't move
+// along -- surfaces as std::invalid_argument through Simulation.
+TEST(SimulationActuator, AttachActuatorThrowsOnBadInput) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.0F);
+  EXPECT_THROW(
+      sim.AttachActuator<AngularActuator>({"base", "nope"}, {0, 0, 1}),
+      std::invalid_argument
+  );
+  EXPECT_THROW(
+      sim.AttachActuator<LinearActuator>({"base", "joint"}, {0, 0, 1}),
+      std::invalid_argument
+  );
 }

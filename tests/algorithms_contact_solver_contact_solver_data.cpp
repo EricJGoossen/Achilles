@@ -44,7 +44,7 @@ using B = MathematicalT;
 using F = ScalarOperationT;
 
 std::size_t JointRow(const RegisteredSim& sim) {
-  return sim.LayoutFor<TopologicalOrdering>().ToSorted(0, 0);
+  return sim.LayoutFor<TopologicalOrdering>().ToSorted({0, 0});
 }
 
 RegisteredSim MakeHinge(const TempDir& dir, const std::string& extra = "") {

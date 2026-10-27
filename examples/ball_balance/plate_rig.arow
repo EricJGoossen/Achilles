@@ -1,0 +1,79 @@
+# One tilting plate: a post welded to the ground, and on top of it a plate
+# on a two-axis pivot -- a gimbal joint turning about X, and the plate on
+# it turning about the gimbal's Z -- so the plate can tip any way. Both
+# pivots are driven by ball_balance.cpp's actuators; with no torque the
+# plate just flops. ball_balance.cpp sets the plate's starting tilt after
+# Init(). One copy (tests/examples_ball_balance.cpp raises it to two).
+# The post's quarter turn about x stands the rig up in the Z-up world
+# (see ball_balance.arow).
+archetype: plate_rig
+copies: 1
+attach:
+  archetype: world
+  joint: world
+joints:
+  # The post: welded, purely visual (it collides with nothing), drawn from
+  # the ground up to the pivot 0.5 above it.
+  - name: post
+    parent: null
+    fields:
+      joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [0.70710678, 0.70710678, 0, 0]}
+      rigid_body_inertia: [1, 0, 0, 0, 0.1, 0.1, 0.1, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.025, 0.24, 0.025]
+      visual_color: [0.25, 0.27, 0.32]
+      collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0, 0, 0]
+      collision_radius: [0]
+      collision_margin: [0]
+      collision_group: [0]
+      collision_mask: [0]
+  # The gimbal: a small 0.1 kg body turning about X (subspace column 0:
+  # roll, about local X) at the top of the post. Not drawn. Its inertia is
+  # nominal, but not tiny: a debug build rejects a body with much under
+  # 1e-3 kg m^2 per axis as singular.
+  - name: gimbal
+    parent: post
+    fields:
+      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [1]
+      fixed_joint_transform: {translation: [0, 0.5, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [0.1, 0, 0, 0, 0.01, 0.01, 0.01, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0, 0, 0]
+      visual_color: [0, 0, 0]
+      collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0, 0, 0]
+      collision_radius: [0]
+      collision_margin: [0]
+      collision_group: [0]
+      collision_mask: [0]
+  # The plate: 1 kg, half-extents (0.2, 0.01, 0.2), turning about the
+  # gimbal's Z (subspace S(2, 0): yaw, about local Z). Its frame sits on the
+  # pivot, its slab rising 0.02 from there: h = m * c = (0, 0.01, 0), and
+  # the slab's inertia about its center raised to the frame by the parallel
+  # axis theorem.
+  - name: plate
+    parent: gimbal
+    fields:
+      joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [1]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [1, 0, 0.01, 0, 0.013467, 0.026667, 0.013467, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.2, 0.01, 0.2]
+      visual_color: [0.75, 0.75, 0.78]
+      collision_pose: {translation: [0, 0.01, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.2, 0.01, 0.2]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [2]
+      collision_mask: [4]

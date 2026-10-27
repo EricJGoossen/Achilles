@@ -3,7 +3,9 @@
 #include <cassert>
 #include <cstddef>
 #include <limits>
+#include <optional>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -111,13 +113,21 @@ class Archetype {
       std::vector<std::size_t> tree_structure,
       std::vector<ArchetypeJointHandle> root_parents,
       bool is_root_archetype,
-      std::vector<ArchetypeField> fields
+      std::vector<ArchetypeField> fields,
+      std::vector<std::string> joint_names = {}
   )
       : name_(std::move(name)),
         tree_structure_(std::move(tree_structure)),
         root_parents_(std::move(root_parents)),
         is_root_archetype_(is_root_archetype),
-        fields_(std::move(fields)) {}
+        fields_(std::move(fields)),
+        joint_names_(std::move(joint_names)) {
+    assert(
+        (joint_names_.empty() || joint_names_.size() == tree_structure_.size()
+        ) &&
+        "Archetype: joint_names, if given, must name every joint."
+    );
+  }
 
   const std::string& Name() const { return name_; }
   std::size_t JointCount() const { return tree_structure_.size(); }
@@ -146,12 +156,68 @@ class Archetype {
     return nullptr;
   }
 
+  // The local joint index named `joint_name`, or nullopt -- always nullopt
+  // for an Archetype built without joint names.
+  std::optional<std::size_t> JointIndex(std::string_view joint_name) const {
+    for (std::size_t j = 0; j < joint_names_.size(); ++j) {
+      if (joint_names_[j] == joint_name) {
+        return j;
+      }
+    }
+    return std::nullopt;
+  }
+
  private:
   std::string name_;
   std::vector<std::size_t> tree_structure_;
   std::vector<ArchetypeJointHandle> root_parents_;
   bool is_root_archetype_;
   std::vector<ArchetypeField> fields_;
+  std::vector<std::string> joint_names_;
 };
+
+// One joint of one instance of one archetype, by the names the .arow files
+// use: `instance` counts that archetype's copies from 0.
+struct JointAddress {
+  std::string archetype;
+  std::string joint;
+  std::size_t instance = 0;
+};
+
+// The ArchetypeJointHandle `address` names among `archetypes` -- whose
+// instances are numbered end to end, in order, the same global numbering
+// every ordering policy and JointLayout use. Throws std::invalid_argument
+// for an unknown archetype or joint, or an out-of-range instance: this
+// resolves user input, so a miss is an expected error, not a bug.
+inline ArchetypeJointHandle ResolveJoint(
+    std::span<const Archetype> archetypes, const JointAddress& address
+) {
+  std::size_t first_instance = 0;
+  for (const Archetype& archetype : archetypes) {
+    if (archetype.Name() != address.archetype) {
+      first_instance += archetype.InstanceCount();
+      continue;
+    }
+    std::optional<std::size_t> joint = archetype.JointIndex(address.joint);
+    if (!joint.has_value()) {
+      throw std::invalid_argument(
+          "archetype '" + address.archetype + "' has no joint named '" +
+          address.joint + "'."
+      );
+    }
+    if (address.instance >= archetype.InstanceCount()) {
+      throw std::invalid_argument(
+          "archetype '" + address.archetype + "' has " +
+          std::to_string(archetype.InstanceCount()) +
+          " instance(s); instance " + std::to_string(address.instance) +
+          " is out of range."
+      );
+    }
+    return {first_instance + address.instance, *joint};
+  }
+  throw std::invalid_argument(
+      "no archetype named '" + address.archetype + "'."
+  );
+}
 
 }  // namespace achilles::domain

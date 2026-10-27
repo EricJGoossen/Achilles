@@ -1,6 +1,9 @@
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstddef>
+#include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -10,6 +13,8 @@ using achilles::domain::Archetype;
 using achilles::domain::ArchetypeField;
 using achilles::domain::ArchetypeJointHandle;
 using achilles::domain::ArchetypeTreeStructure;
+using achilles::domain::JointAddress;
+using achilles::domain::ResolveJoint;
 
 namespace {
 
@@ -38,6 +43,19 @@ Archetype MakeTwoJointArchetype() {
       std::move(root_parents),
       true,
       std::move(fields)
+  };
+}
+
+// A named archetype of `copies` instances, each a two-joint chain named
+// "a" -> "b" -- no field data, which nothing here reads.
+Archetype MakeNamedChain(std::string name, std::size_t copies) {
+  return {
+      std::move(name),
+      {ArchetypeTreeStructure::kNoParent, 0},
+      std::vector<ArchetypeJointHandle>(copies),
+      copies == 1,
+      {},
+      {"a", "b"}
   };
 }
 
@@ -108,4 +126,66 @@ TEST(ArchetypeFieldAt, DiesOnOutOfRangeIndex) {
   ASSERT_NE(field, nullptr);
 
   EXPECT_DEATH(ArchetypeFieldAt(*field, 5, 5, 5, 2), "out of range");
+}
+
+// JointIndex is the name -> local index lookup ResolveJoint is built on.
+TEST(ArchetypeJointNames, JointIndexFindsEachNamedJoint) {
+  Archetype chain = MakeNamedChain("chain", 1);
+  EXPECT_EQ(chain.JointIndex("a"), 0U);
+  EXPECT_EQ(chain.JointIndex("b"), 1U);
+  EXPECT_FALSE(chain.JointIndex("c").has_value());
+}
+
+// Joint names are optional (a hand-built Archetype, as in most tests, has
+// none) -- every lookup is then a miss, not an out-of-range read.
+TEST(ArchetypeJointNames, JointIndexMissesOnAnArchetypeBuiltWithoutNames) {
+  Archetype unnamed = MakeTwoJointArchetype();
+  EXPECT_FALSE(unnamed.JointIndex("a").has_value());
+}
+
+// Proves the constructor's shape check fires: a name list that doesn't line
+// up with the tree would silently map names onto the wrong joints.
+TEST(ArchetypeJointNames, DiesWhenNamesDoNotCoverEveryJoint) {
+  EXPECT_DEATH(
+      Archetype(
+          "short",
+          {ArchetypeTreeStructure::kNoParent, 0},
+          {ArchetypeJointHandle{0, 0}},
+          true,
+          {},
+          {"only_one"}
+      ),
+      "must name every joint"
+  );
+}
+
+// Instances are numbered end to end across archetypes, in order -- the same
+// global numbering JointLayout::ToSorted takes. A later archetype's
+// instance 0 is therefore offset by every earlier archetype's copies.
+TEST(ResolveJoint, NumbersInstancesEndToEndAcrossArchetypes) {
+  std::array<Archetype, 2> archetypes = {
+      MakeNamedChain("root", 1), MakeNamedChain("leg", 3)
+  };
+  ArchetypeJointHandle root = ResolveJoint(archetypes, {"root", "b", 0});
+  EXPECT_EQ(root.instance_index, 0U);
+  EXPECT_EQ(root.joint_index, 1U);
+
+  ArchetypeJointHandle leg = ResolveJoint(archetypes, {"leg", "a", 2});
+  EXPECT_EQ(leg.instance_index, 3U);
+  EXPECT_EQ(leg.joint_index, 0U);
+}
+
+// User input, so each kind of miss is a catchable error naming the problem
+// rather than a crash.
+TEST(ResolveJoint, ThrowsOnEachKindOfMiss) {
+  std::array<Archetype, 1> archetypes = {MakeNamedChain("chain", 2)};
+  EXPECT_THROW(
+      ResolveJoint(archetypes, {"nope", "a", 0}), std::invalid_argument
+  );
+  EXPECT_THROW(
+      ResolveJoint(archetypes, {"chain", "nope", 0}), std::invalid_argument
+  );
+  EXPECT_THROW(
+      ResolveJoint(archetypes, {"chain", "a", 2}), std::invalid_argument
+  );
 }

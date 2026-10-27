@@ -1,0 +1,33 @@
+# The boxes dropped on the balancers, one per robot. Every copy starts at
+# the same spot; balancers.cpp holds each above its own robot until its
+# drop, then lets it fall onto the robot's tray.
+#
+# 3.0 kg cube -- as heavy as the robot's body, so catching it is real work
+# -- half-extent 0.05, its center 0.05 above the frame (the viewer draws
+# from the frame up): h = m * c = (0, 0.15, 0), and its inertia about its
+# center (m/3 (b^2 + c^2) = 0.005 on each axis) raised to the frame by the
+# parallel axis theorem.
+archetype: box
+copies: 8
+attach:
+  archetype: world
+  joint: world
+joints:
+  - name: box
+    parent: null
+    fields:
+      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]
+      joint_activation_mask: [63]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [3, 0, 0.15, 0, 0.0125, 0.005, 0.0125, 0, 0, 0]
+      joint_position: {translation: [0, 2, -2.5], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      joint_torque: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.05, 0.05, 0.05]
+      visual_color: [0.85, 0.3, 0.2]
+      collision_pose: {translation: [0, 0.05, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.035, 0.035, 0.035]
+      collision_radius: [0.015]
+      collision_margin: [0.005]
+      collision_group: [4]
+      collision_mask: [3]

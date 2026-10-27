@@ -92,6 +92,15 @@ target_link_libraries(achilles_lib ${ACHILLES_LIB_TYPE} yaml-cpp::yaml-cpp glfw 
 add_executable(achilles "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
 target_link_libraries(achilles PRIVATE achilles_lib)
 
+# Examples that bring their own program (a controller, a custom loop) --
+# each is its own executable on the library, like achilles itself.
+add_executable(box_robot "${CMAKE_CURRENT_SOURCE_DIR}/examples/box_robot/box_robot.cpp")
+target_link_libraries(box_robot PRIVATE achilles_lib)
+add_executable(balancers "${CMAKE_CURRENT_SOURCE_DIR}/examples/balancers/balancers.cpp")
+target_link_libraries(balancers PRIVATE achilles_lib)
+add_executable(ball_balance "${CMAKE_CURRENT_SOURCE_DIR}/examples/ball_balance/ball_balance.cpp")
+target_link_libraries(ball_balance PRIVATE achilles_lib)
+
 option(BUILD_TESTS "Build test suite" ON)
 if(BUILD_TESTS)
     enable_testing()

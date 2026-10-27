@@ -3,9 +3,11 @@
 #include <concepts>
 #include <string_view>
 
+#include "engine/memory/buffering_policy.hpp"
 #include "engine/topology/indexing_policy.hpp"
 #include "engine/topology/layout_policy.hpp"
 #include "engine/topology/ordering_policy.hpp"
+#include "util/tmp.hpp"
 
 namespace achilles::engine::memory {
 
@@ -22,12 +24,14 @@ namespace achilles::engine::memory {
 //     using SharedAs  = FixedJointTransformSlot;                     // opt
 //     using Ordering  = topology::TopologicalOrdering;               // opt
 //     using Indexing  = topology::RowIndexing;                       // opt
+//     using Buffering = memory::DoubleBuffered;                      // opt
 //     using Layout    = topology::PlanarLayout;                // mandatory
 //   };
 //
 // No SharedAs -> private to this field. No Ordering -> topology::
 // LinearOrdering (every instance stands alone -- see ordering_policy.hpp).
 // No Indexing -> topology::RowIndexing (see indexing_policy.hpp).
+// No Buffering -> SingleBuffered (see buffering_policy.hpp).
 // Layout has no default -- omitting it is a compile error. None of these
 // require touching engine/.
 //
@@ -50,51 +54,50 @@ constexpr const void* SlotId() noexcept {
 template <typename EnumT, template <EnumT> class Traits, EnumT F>
 concept FieldIsShared = requires { typename Traits<F>::SharedAs; };
 
-template <typename EnumT, template <EnumT> class Traits, EnumT F>
-concept FieldHasOrdering = requires { typename Traits<F>::Ordering; };
+namespace detail {
+
+// Each optional policy a Traits<F> may declare, as the util::DetectedOrT
+// probe for it (util/tmp.hpp).
+template <typename T>
+using DeclaredOrdering = typename T::Ordering;
+template <typename T>
+using DeclaredIndexing = typename T::Indexing;
+template <typename T>
+using DeclaredBuffering = typename T::Buffering;
+
+// Identity aliases whose constraint rejects a declared policy that doesn't
+// satisfy its concept, naming that concept in the error.
+template <topology::OrderingPolicyLike P>
+using CheckedOrdering = P;
+template <topology::IndexingPolicyLike P>
+using CheckedIndexing = P;
+template <BufferingPolicyLike P>
+using CheckedBuffering = P;
+
+}  // namespace detail
 
 template <typename EnumT, template <EnumT> class Traits, EnumT F>
-struct ResolvedFieldOrdering {
-  using Type = topology::LinearOrdering;
-};
-
-template <typename EnumT, template <EnumT> class Traits, EnumT F>
-  requires FieldHasOrdering<EnumT, Traits, F>
-struct ResolvedFieldOrdering<EnumT, Traits, F> {
-  using Type = typename Traits<F>::Ordering;
-  static_assert(
-      topology::OrderingPolicyLike<Type>,
-      "Traits<F>::Ordering, if declared, must satisfy OrderingPolicyLike."
-  );
-};
-
-template <typename EnumT, template <EnumT> class Traits, EnumT F>
-using FieldOrderingT = typename ResolvedFieldOrdering<EnumT, Traits, F>::Type;
+using FieldOrderingT = detail::CheckedOrdering<util::DetectedOrT<
+    topology::LinearOrdering,
+    detail::DeclaredOrdering,
+    Traits<F>>>;
 
 // Optional, like Ordering: no Indexing -> topology::RowIndexing (one value
 // per row, every field's shape before index spaces existed). A field that
 // holds one value per pair of rows (e.g. a broad phase's overlap result)
 // names topology::PairGroupIndexing instead -- see indexing_policy.hpp.
 template <typename EnumT, template <EnumT> class Traits, EnumT F>
-concept FieldHasIndexing = requires { typename Traits<F>::Indexing; };
+using FieldIndexingT = detail::CheckedIndexing<util::DetectedOrT<
+    topology::RowIndexing,
+    detail::DeclaredIndexing,
+    Traits<F>>>;
 
+// Optional, like Indexing: no Buffering -> SingleBuffered (one block, read in
+// place). A field written from outside the sim between ticks names
+// DoubleBuffered instead -- see buffering_policy.hpp.
 template <typename EnumT, template <EnumT> class Traits, EnumT F>
-struct ResolvedFieldIndexing {
-  using Type = topology::RowIndexing;
-};
-
-template <typename EnumT, template <EnumT> class Traits, EnumT F>
-  requires FieldHasIndexing<EnumT, Traits, F>
-struct ResolvedFieldIndexing<EnumT, Traits, F> {
-  using Type = typename Traits<F>::Indexing;
-  static_assert(
-      topology::IndexingPolicyLike<Type>,
-      "Traits<F>::Indexing, if declared, must satisfy IndexingPolicyLike."
-  );
-};
-
-template <typename EnumT, template <EnumT> class Traits, EnumT F>
-using FieldIndexingT = typename ResolvedFieldIndexing<EnumT, Traits, F>::Type;
+using FieldBufferingT = detail::CheckedBuffering<
+    util::DetectedOrT<SingleBuffered, detail::DeclaredBuffering, Traits<F>>>;
 
 template <typename EnumT, template <EnumT> class Traits, EnumT F>
 concept FieldHasLayout = requires { typename Traits<F>::Layout; };
