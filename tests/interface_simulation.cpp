@@ -38,6 +38,7 @@ using achilles::algorithms::Velocity;
 using achilles::algorithms::aba::ABAAlgorithm;
 using achilles::algorithms::aba::ABAField;
 using achilles::algorithms::aba::ABAStep;
+using achilles::algorithms::aba::SwapTorqueStep;
 using achilles::domain::Archetype;
 using achilles::engine::memory::SimAllocator;
 using achilles::engine::topology::TopologicalOrdering;
@@ -67,9 +68,7 @@ namespace {
 // entry (2, 0) lands at flat index 12; rotation is [w,x,y,z] (Quaternion::
 // ToTuple() is (W(),X(),Y(),Z()), scalar-first -- see domain/archetype.hpp),
 // so identity is [1,0,0,0], not [0,0,0,1].
-std::string RevoluteZFieldsYaml(
-    float q0, float qd0 = 0.0F, float tau0 = 0.0F, int mask = 1
-) {
+std::string RevoluteZFieldsYaml(float q0, float qd0 = 0.0F, int mask = 1) {
   std::ostringstream out;
   // joint_position is x_joint itself (an SE(3) pose), not a raw
   // generalized coordinate -- q0 is a yaw angle about Z (this joint's own
@@ -85,8 +84,7 @@ std::string RevoluteZFieldsYaml(
       << "      rigid_body_inertia: [2, 0,0,0, 2,3,4, 0,0,0]\n"
       << "      joint_position: [0,0,0, " << std::cos(half_q0) << ", 0,0, "
       << std::sin(half_q0) << "]\n"
-      << "      joint_velocity: [" << qd0 << ", 0,0,0,0,0]\n"
-      << "      joint_torque: [" << tau0 << ", 0,0,0,0,0]\n";
+      << "      joint_velocity: [" << qd0 << ", 0,0,0,0,0]\n";
   return out.str();
 }
 
@@ -97,29 +95,31 @@ std::string RevoluteZFieldsYaml(
 // own tests do -- and, since the physical setup is identical to that
 // file's, a real Simulation's own output can be checked against the exact
 // same tests/support/aba_reference.hpp helpers those tests use.
-std::string MakeRevoluteZArow(
-    float q0, float qd0 = 0.0F, float tau0 = 0.0F, int mask = 1
-) {
+std::string MakeRevoluteZArow(float q0, float qd0 = 0.0F, int mask = 1) {
   std::ostringstream out;
   out << "archetype: base\n"
          "joints:\n"
          "  - name: joint\n"
          "    fields:\n"
-      << RevoluteZFieldsYaml(q0, qd0, tau0, mask);
+      << RevoluteZFieldsYaml(q0, qd0, mask);
   return out.str();
 }
 
 // A Simulation loaded and initialized from a single real revolute-Z .arow
 // file -- the common setup every test below starts from.
-Simulation MakeInitializedSim(
-    const TempDir& dir, float q0, float qd0 = 0.0F, float tau0 = 0.0F
-) {
+Simulation MakeInitializedSim(const TempDir& dir, float q0, float qd0 = 0.0F) {
   std::filesystem::path file =
-      dir.Write("base.arow", MakeRevoluteZArow(q0, qd0, tau0));
+      dir.Write("base.arow", MakeRevoluteZArow(q0, qd0));
   Simulation sim;
   [[maybe_unused]] bool loaded = sim.LoadArowFile(file.string());
   [[maybe_unused]] bool initialized = sim.Init();
   return sim;
+}
+
+// An actuator about the joint's own Z axis -- the only way torque reaches
+// the joint (the .arow carries none).
+AngularActuator AttachYaw(const Simulation& sim) {
+  return sim.AttachActuator<AngularActuator>({"base", "joint"}, {0, 0, 1});
 }
 
 Transform WorldTransform(Simulation& sim) {
@@ -429,17 +429,18 @@ base_velocity:
   EXPECT_TRUE(Lane0Approx(SpatialVelocity(sim), expected));
 }
 
-// A nonzero joint_torque from the .arow file must change the resulting
-// acceleration relative to the same joint with zero torque -- proving
-// torque genuinely reaches PropagateInertiaOp's own `u = tau - S^T p`
-// through the real archetype-loading path, not just that Step() runs.
-TEST(Simulation, TorqueFromArowChangesAcceleration) {
+// A nonzero torque must change the resulting acceleration relative to the
+// same joint with zero torque -- proving torque genuinely reaches
+// PropagateInertiaOp's own `u = tau - S^T p` through the real stack, not
+// just that Step() runs.
+TEST(Simulation, TorqueChangesAcceleration) {
   TempDir no_torque_dir;
   Simulation no_torque = MakeInitializedSim(no_torque_dir, 0.0F);
   ASSERT_TRUE(no_torque.Step(0.0F));
 
   TempDir torque_dir;
-  Simulation with_torque = MakeInitializedSim(torque_dir, 0.0F, 0.0F, 5.0F);
+  Simulation with_torque = MakeInitializedSim(torque_dir, 0.0F);
+  AttachYaw(with_torque).Apply(5.0F);
   ASSERT_TRUE(with_torque.Step(0.0F));
 
   EXPECT_FALSE(achilles::util::AllTrue(
@@ -471,7 +472,8 @@ TEST(
 ) {
   TempDir dir;
   constexpr float kTau0 = 5.0F;
-  Simulation sim = MakeInitializedSim(dir, 0.0F, 0.0F, kTau0);
+  Simulation sim = MakeInitializedSim(dir, 0.0F);
+  AngularActuator actuator = AttachYaw(sim);
 
   Matrix6x6 s = RevoluteZSubspace();
   auto velocity =
@@ -500,6 +502,7 @@ TEST(
       << "Test premise violated: torque produced zero acceleration.";
 
   constexpr float kDt = 0.1F;
+  actuator.Apply(kTau0);
   ASSERT_TRUE(sim.Step(kDt));
 
   Velocity qd_after_1(qdd_expected.AsVector6() * B(kDt));
@@ -513,6 +516,7 @@ TEST(
   );
   EXPECT_TRUE(Lane0Approx(JointPosition(sim).Rotation(), x_after_1.Rotation()));
 
+  actuator.Apply(kTau0);
   ASSERT_TRUE(sim.Step(kDt));
 
   Velocity qd_after_2(
@@ -702,17 +706,18 @@ TEST(
   ));
 }
 
-// StepWith runs exactly the list it's given: an ABA-only list evaluates the
-// dynamics at the current state (qdd = tau / Izz = 5 / 4 for this joint)
-// without integrating -- q and qd must come out unchanged. This is what the
-// long-horizon validation relies on to read qdd at a committed state.
+// StepWith runs exactly the list it's given: a swap-then-ABA list evaluates
+// the dynamics at the current state (qdd = tau / Izz = 5 / 4 for this
+// joint) without integrating -- q and qd must come out unchanged. This is what
+// the long-horizon validation relies on to read qdd at a committed state.
 TEST(Simulation, StepWithRunsOnlyTheGivenList) {
   TempDir dir;
-  Simulation sim = MakeInitializedSim(dir, 0.3F, 1.0F, 5.0F);
+  Simulation sim = MakeInitializedSim(dir, 0.3F, 1.0F);
+  AttachYaw(sim).Apply(5.0F);
   Transform q_before = JointPosition(sim);
   Velocity qd_before = JointVelocityField(sim);
 
-  ASSERT_TRUE(sim.StepWith<TypeList<ABAStep>>(0.5F));
+  ASSERT_TRUE((sim.StepWith<TypeList<SwapTorqueStep, ABAStep>>(0.5F)));
 
   EXPECT_TRUE(BatchApprox(JointPosition(sim), q_before));
   EXPECT_TRUE(BatchApprox(JointVelocityField(sim), qd_before));
@@ -735,7 +740,8 @@ constexpr float kExactOneTickAngle = 0.5F * kOneTickDt * kOneTickDt;
 // the original behavior unless they ask for something else.
 TEST(Simulation, DefaultIntegratorIsSemiImplicitEuler) {
   TempDir dir;
-  Simulation sim = MakeInitializedSim(dir, 0.0F, 0.0F, 4.0F);
+  Simulation sim = MakeInitializedSim(dir, 0.0F);
+  AttachYaw(sim).Apply(4.0F);
 
   ASSERT_TRUE(sim.Step(kOneTickDt));
 
@@ -746,12 +752,12 @@ TEST(Simulation, DefaultIntegratorIsSemiImplicitEuler) {
 // state, and the selection mustn't be part of what it throws away.
 TEST(Simulation, SetIntegratorBeforeInitIsUsedByStep) {
   TempDir dir;
-  std::filesystem::path file =
-      dir.Write("base.arow", MakeRevoluteZArow(0.0F, 0.0F, 4.0F));
+  std::filesystem::path file = dir.Write("base.arow", MakeRevoluteZArow(0.0F));
   Simulation sim;
   sim.SetIntegrator(Simulation::Integrator::kRungeKutta4);
   ASSERT_TRUE(sim.LoadArowFile(file.string()));
   ASSERT_TRUE(sim.Init());
+  AttachYaw(sim).Apply(4.0F);
 
   ASSERT_TRUE(sim.Step(kOneTickDt));
 
@@ -761,8 +767,9 @@ TEST(Simulation, SetIntegratorBeforeInitIsUsedByStep) {
 // SetIntegrator after Init (between Steps) takes effect on the next Step.
 TEST(Simulation, SetIntegratorAfterInitTakesEffectOnTheNextStep) {
   TempDir dir;
-  Simulation sim = MakeInitializedSim(dir, 0.0F, 0.0F, 4.0F);
+  Simulation sim = MakeInitializedSim(dir, 0.0F);
   sim.SetIntegrator(Simulation::Integrator::kRungeKutta4);
+  AttachYaw(sim).Apply(4.0F);
 
   ASSERT_TRUE(sim.Step(kOneTickDt));
 
@@ -790,14 +797,14 @@ TEST(Simulation, InitRunsTheSetupListBeforeAnyStep) {
   );
 }
 
-// End to end from an .arow file: a constant torque spins a joint up
-// without bound (qdd = tau / Izz), but a joint_range_upper of 0.5 stops it
-// there, through Simulation::Step's default tick.
+// End to end from an .arow file: a constant torque (re-applied every tick)
+// spins a joint up without bound (qdd = tau / Izz), but a joint_range_upper
+// of 0.5 stops it there, through Simulation::Step's default tick.
 TEST(Simulation, JointLimitFromArowStopsTheJoint) {
   TempDir dir;
   std::filesystem::path file = dir.Write(
       "base.arow",
-      MakeRevoluteZArow(0.0F, 0.0F, 4.0F) +
+      MakeRevoluteZArow(0.0F) +
           "      joint_limited: [1]\n"
           "      joint_range_lower: [-0.5, 0,0,0,0,0]\n"
           "      joint_range_upper: [0.5, 0,0,0,0,0]\n"
@@ -807,7 +814,9 @@ TEST(Simulation, JointLimitFromArowStopsTheJoint) {
   ASSERT_TRUE(sim.LoadArowFile(file.string()));
   ASSERT_TRUE(sim.Init());
 
+  AngularActuator actuator = AttachYaw(sim);
   for (int tick = 0; tick < 1000; ++tick) {
+    actuator.Apply(4.0F);
     ASSERT_TRUE(sim.Step(0.002F));
   }
 
@@ -820,10 +829,6 @@ namespace {
 float JointAccelerationZ(Simulation& sim) {
   return sim.ViewFor<ABAAlgorithm>().Load<ABAField::kJointAcceleration, float>(0
   )[0];
-}
-
-AngularActuator AttachYaw(const Simulation& sim) {
-  return sim.AttachActuator<AngularActuator>({"base", "joint"}, {0, 0, 1});
 }
 
 // A user's actuator model, returned by AttachActuator as its own type.
@@ -849,19 +854,13 @@ static_assert(ActuatorLike<ActuatorArchetype>);
 }  // namespace
 
 // The end-to-end contract: an effort Apply()ed before Step drives that
-// Step exactly like the same torque written in the .arow file.
-TEST(SimulationActuator, EffortDrivesTheNextStepLikeArowTorque) {
-  TempDir actuated_dir;
-  Simulation actuated = MakeInitializedSim(actuated_dir, 0.0F);
-  AttachYaw(actuated).Apply(5.0F);
-  ASSERT_TRUE(actuated.Step(0.0F));
-
-  TempDir arow_dir;
-  Simulation from_arow = MakeInitializedSim(arow_dir, 0.0F, 0.0F, 5.0F);
-  ASSERT_TRUE(from_arow.Step(0.0F));
-
-  EXPECT_FLOAT_EQ(JointAccelerationZ(actuated), 5.0F / 4.0F);
-  EXPECT_FLOAT_EQ(JointAccelerationZ(actuated), JointAccelerationZ(from_arow));
+// Step, at qdd = tau / Izz.
+TEST(SimulationActuator, EffortDrivesTheNextStep) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.0F);
+  AttachYaw(sim).Apply(5.0F);
+  ASSERT_TRUE(sim.Step(0.0F));
+  EXPECT_FLOAT_EQ(JointAccelerationZ(sim), 5.0F / 4.0F);
 }
 
 // Effort is per tick: a Step with nothing Apply()ed sees none of the last
@@ -877,21 +876,9 @@ TEST(SimulationActuator, EffortLastsExactlyOneStep) {
   EXPECT_FLOAT_EQ(JointAccelerationZ(sim), 0.0F);
 }
 
-// The .arow joint_torque is the baseline every tick starts from: effort
-// adds to it, and it's still there once the effort is gone.
-TEST(SimulationActuator, EffortAddsOnTopOfTheArowTorque) {
-  TempDir dir;
-  Simulation sim = MakeInitializedSim(dir, 0.0F, 0.0F, 2.0F);
-  AttachYaw(sim).Apply(3.0F);
-  ASSERT_TRUE(sim.Step(0.0F));
-  EXPECT_FLOAT_EQ(JointAccelerationZ(sim), 5.0F / 4.0F);
-  ASSERT_TRUE(sim.Step(0.0F));
-  EXPECT_FLOAT_EQ(JointAccelerationZ(sim), 2.0F / 4.0F);
-}
-
 // RK4 evaluates ABA four times per tick; every evaluation must see the
 // same effort (the swap is per Step, not per ABAStep), so the joint moves
-// exactly as far as under the same torque from the .arow file.
+// exactly as far as under a constant torque.
 TEST(SimulationActuator, EveryAbaEvaluationInATickSeesTheSameEffort) {
   TempDir dir;
   Simulation sim = MakeInitializedSim(dir, 0.0F);

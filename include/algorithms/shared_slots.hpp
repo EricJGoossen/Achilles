@@ -25,6 +25,10 @@ struct JointSubspaceSlot;
 struct JointPositionSlot;
 struct JointVelocitySlot;
 struct JointAccelerationSlot;
+// ABA's double-buffered joint torque (aba/aba_data.hpp) -- its read side
+// (kJointTorque) and write side (kJointTorqueNext) are one block, and this
+// is also the buffer group whose parity SwapTorqueStep flips.
+struct JointTorqueSlot;
 // ABA's own kWorldTransform (aba_data.hpp) -- shared so a read-only
 // consumer (e.g. algorithms::viz's own kWorldTransform, viz/viz_data.hpp,
 // or algorithms::broad_phase's, broad_phase/broad_phase_data.hpp) can see the

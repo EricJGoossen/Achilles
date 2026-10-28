@@ -232,4 +232,28 @@ static_assert(
     "PropagateAccelerationOp must satisfy OpHasInit concept"
 );
 
+// Zeroes the write half of kJointTorque (the one actuators accumulate into).
+// Run by SwapTorqueStep right after the halves swap, so it clears what ABA
+// read last tick.
+struct ZeroJointTorqueOp {
+  using FieldEnum = ABAField;
+  using ArgData = engine::ArgData<FieldEnum>;
+  using ArgIndex = engine::ArgIndex;
+
+  static constexpr std::array<ArgData, 0> kInputs = {};
+  static constexpr std::array<ArgData, 1> kOutputs = {
+      ArgData{FieldEnum::kJointTorqueNext, ArgIndex::kTarget},
+  };
+
+  void operator()(Force* next_out) const { *next_out = Force::Zero(); }
+};
+static_assert(
+    engine::OpLike<ZeroJointTorqueOp>,
+    "ZeroJointTorqueOp must satisfy OpLike concept"
+);
+static_assert(
+    engine::OpArgsMatchView<ZeroJointTorqueOp, ABAView>,
+    "ZeroJointTorqueOp's operator() must line up with kInputs/kOutputs"
+);
+
 }  // namespace achilles::algorithms::aba

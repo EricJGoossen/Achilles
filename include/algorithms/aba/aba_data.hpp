@@ -30,6 +30,7 @@ enum class ABAField : uint8_t {
   kJointPosition,        // q
   kJointVelocity,        // qd
   kJointTorque,          // tau
+  kJointTorqueNext,      // tau, next tick's (actuators write it)
 
   // --- Per-body state, propagated outward then inward  ---
   kParentToBodyTransform,  // x_up (Op1 out; Op2/Op3 in)
@@ -125,15 +126,29 @@ template <>
 struct ABAFieldTraits<ABAField::kJointTorque> {
   // Double-buffered (engine/memory/buffering_policy.hpp) so actuators
   // (interface/actuator.hpp) accumulate next tick's torque into one half
-  // while this tick's ABA passes read the other. The archetype's own
-  // joint_torque is the rest value both halves reset to, i.e. a constant
-  // baseline every actuator adds on top of. Each element is one generalized
-  // joint coordinate (a column of kJointSubspace), not a spatial axis.
+  // while this tick's ABA passes read the other; SwapTorqueStep
+  // (aba_step.hpp) swaps them and zeroes the half handed back, so a tick's
+  // torque is exactly what actuators applied for it. Each element is one
+  // generalized joint coordinate (a column of kJointSubspace), not a
+  // spatial axis. Not loaded from the .arow: a force that's always there is
+  // a property of the mechanism (a passive actuator), not a command.
   using Assembler = spatial::SpatialForceAssembler<ScalarOperationT>;
-  using Buffering = engine::memory::DoubleBuffered;
+  using SharedAs = JointTorqueSlot;
+  using Buffering = engine::memory::
+      DoubleBuffered<JointTorqueSlot, engine::memory::BufferSide::kRead>;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
-  static constexpr std::string_view kName = "joint_torque";
+};
+template <>
+struct ABAFieldTraits<ABAField::kJointTorqueNext> {
+  // The same block as kJointTorque, seen from its write side: the half
+  // actuators are accumulating into, which SwapTorqueStep zeroes.
+  using Assembler = spatial::SpatialForceAssembler<ScalarOperationT>;
+  using SharedAs = JointTorqueSlot;
+  using Buffering = engine::memory::
+      DoubleBuffered<JointTorqueSlot, engine::memory::BufferSide::kWrite>;
+  using Ordering = engine::topology::TopologicalOrdering;
+  using Layout = engine::topology::PlanarLayout;
 };
 template <>
 struct ABAFieldTraits<ABAField::kParentToBodyTransform> {

@@ -77,13 +77,11 @@ class Simulation {
   // SetIntegrator) over `dt`. Never renders -- see Render(). Returns false
   // (after warning) if the sim isn't initialized or the step throws.
   //
-  // Swaps every double-buffered field first (SimContext::SwapBuffers), so
-  // the tick reads exactly what actuators Apply()ed since the previous
-  // Step() -- however many times its step list evaluates ABA.
+  // Every integrator starts by swapping actuator torque
+  // (aba::SwapTorqueStep), so the tick reads exactly what actuators
+  // Apply()ed since the previous Step() -- however many times its step list
+  // evaluates ABA.
   bool Step(algorithms::ScalarOperationT dt) {
-    if (state_.has_value()) {
-      state_->context.SwapBuffers();
-    }
     return RunStepList(integrator_step_, dt);
   }
 
@@ -91,9 +89,10 @@ class Simulation {
   // once, over the same state Step() advances -- e.g.
   // StepWith<util::TypeList<algorithms::aba::ABAStep>>(0) re-evaluates the
   // dynamics at the current (q, qd) without integrating anything. Same
-  // return contract as Step(). Does not swap buffers: it reads the same
-  // actuator torque the last Step() did, and leaves pending Apply()s for
-  // the next Step().
+  // return contract as Step(). Swaps actuator torque only if StepList
+  // starts with aba::SwapTorqueStep (an integrator does); otherwise it
+  // reads the same torque the last Step() did, and leaves pending Apply()s
+  // for the next Step().
   template <typename StepList>
   bool StepWith(algorithms::ScalarOperationT dt) {
     return RunStepList(&algorithms::StepIntegrator<StepList>, dt);

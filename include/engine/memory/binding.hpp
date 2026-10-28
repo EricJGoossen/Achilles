@@ -24,7 +24,7 @@ namespace achilles::engine::memory {
 //     using SharedAs  = FixedJointTransformSlot;                     // opt
 //     using Ordering  = topology::TopologicalOrdering;               // opt
 //     using Indexing  = topology::RowIndexing;                       // opt
-//     using Buffering = memory::DoubleBuffered;                      // opt
+//     using Buffering = memory::DoubleBuffered<Group, Side>;         // opt
 //     using Layout    = topology::PlanarLayout;                // mandatory
 //   };
 //
@@ -93,8 +93,8 @@ using FieldIndexingT = detail::CheckedIndexing<util::DetectedOrT<
     Traits<F>>>;
 
 // Optional, like Indexing: no Buffering -> SingleBuffered (one block, read in
-// place). A field written from outside the sim between ticks names
-// DoubleBuffered instead -- see buffering_policy.hpp.
+// place). A field one side writes while another reads the previous value
+// names DoubleBuffered<Group, Side> instead -- see buffering_policy.hpp.
 template <typename EnumT, template <EnumT> class Traits, EnumT F>
 using FieldBufferingT = detail::CheckedBuffering<
     util::DetectedOrT<SingleBuffered, detail::DeclaredBuffering, Traits<F>>>;

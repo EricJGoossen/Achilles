@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cassert>
 #include <cstddef>
 #include <tuple>
 #include <type_traits>
@@ -37,6 +36,34 @@ auto CollectFieldOrderings(std::index_sequence<Is...>)
 template <typename AlgorithmT>
 struct AlgorithmOrderings;
 
+// A field's buffer group as a TypeList: its group if it's double-buffered,
+// nothing otherwise.
+template <typename Buffering>
+struct BufferGroupsOf {
+  using Type = util::TypeList<>;
+};
+
+template <memory::GroupBufferedLike Buffering>
+struct BufferGroupsOf<Buffering> {
+  using Type = util::TypeList<typename Buffering::BufferGroup>;
+};
+
+template <typename EnumT, template <EnumT> class Traits, std::size_t... Is>
+auto CollectFieldBufferGroups(std::index_sequence<Is...>)
+    -> util::ConcatT<typename BufferGroupsOf<
+        memory::FieldBufferingT<EnumT, Traits, static_cast<EnumT>(Is)>>::
+                         Type...>;
+
+template <typename AlgorithmT>
+struct AlgorithmBufferGroups;
+
+template <typename EnumT, template <EnumT> class Traits>
+struct AlgorithmBufferGroups<Algorithm<EnumT, Traits>> {
+  using Type = decltype(CollectFieldBufferGroups<EnumT, Traits>(
+      std::make_index_sequence<static_cast<std::size_t>(EnumT::kCount)>{}
+  ));
+};
+
 template <typename EnumT, template <EnumT> class Traits>
 struct AlgorithmOrderings<Algorithm<EnumT, Traits>> {
   using Type = decltype(CollectFieldOrderings<EnumT, Traits>(
@@ -57,6 +84,27 @@ struct AlgorithmOrderings<Algorithm<EnumT, Traits>> {
 template <AlgorithmLike... Algorithms>
 using UsedOrderingsFor = util::UniqueT<
     util::ConcatT<typename detail::AlgorithmOrderings<Algorithms>::Type...>>;
+
+// Every distinct buffer group named by any double-buffered field
+// (memory::DoubleBuffered<Group, Side>) of any of Algorithms... -- one
+// parity each, however many fields and algorithms share the group.
+template <AlgorithmLike... Algorithms>
+using UsedBufferGroupsFor = util::UniqueT<
+    util::ConcatT<typename detail::AlgorithmBufferGroups<Algorithms>::Type...>>;
+
+// Group's parity: carved once in the Arena by SimAllocator, so every View
+// over a field in Group, every BufferedScalar handle into one, and every
+// copy of the SimContext all point at the same value.
+template <typename Group>
+struct BufferParitySlot {
+  memory::BufferParity* parity;
+};
+
+// The concrete tuple type SimContext<Algorithms...> stores its parities in
+// -- one BufferParitySlot<Group> per entry of UsedBufferGroupsFor.
+template <AlgorithmLike... Algorithms>
+using ParityTupleFor = util::ToTupleT<
+    util::TransformT<BufferParitySlot, UsedBufferGroupsFor<Algorithms...>>>;
 
 // One JointTopology per distinct ordering policy, wrapped so each entry gets
 // its own distinct tuple-element type even though every wrapped value is the
@@ -106,18 +154,14 @@ using TopologyTupleFor = util::ToTupleT<
 template <AlgorithmLike... Algorithms>
 class SimContext {
  public:
-  // `parity` is the sim-wide memory::BufferParity every View in `views` was
-  // built over (see memory/buffering_policy.hpp) -- only needed by
-  // SwapBuffers, so a context hosting no double-buffered field may leave it
-  // null.
   SimContext(
       TopologyTupleFor<Algorithms...> topologies,
       std::tuple<typename Algorithms::View...> views,
-      memory::BufferParity* parity = nullptr
+      ParityTupleFor<Algorithms...> parities = {}
   )
       : topologies_(std::move(topologies)),
         views_(std::move(views)),
-        parity_(parity) {}
+        parities_(std::move(parities)) {}
 
   // Keyed by the Policy type itself, via std::get on topologies_ -- a Step
   // function names its own ordering policy the same way it names its own
@@ -159,28 +203,16 @@ class SimContext {
     return std::get<ViewT>(views_);
   }
 
-  // Swaps every double-buffered field's halves (memory::DoubleBuffered):
-  // what outside writers accumulated since the last swap becomes what every
-  // View reads, and the half the sim was reading -- including anything it
-  // wrote there as scratch -- is reset to the field's rest contents and
-  // handed back to the writers. One flip of the shared parity covers every
-  // View, including copies of this context or of its Views taken earlier,
-  // since they all read that same parity. A shared field visited through
-  // several Views is reset once per View, which is harmless (the same
-  // copy, repeated).
-  //
-  // Not part of Step: a tick swaps once, at its start, however many times
-  // its step list reads the field -- interface::Simulation::Step owns that.
-  void SwapBuffers() {
-    assert(
-        parity_ != nullptr &&
-        "SimContext::SwapBuffers: this context was built without a "
-        "BufferParity."
-    );
-    parity_->value ^= 1U;
-    std::apply(
-        [](const auto&... views) { (views.ResetWriteBuffers(), ...); }, views_
-    );
+  // Swaps Group's halves (memory::DoubleBuffered): every field in Group
+  // reads the half it was writing, and vice versa. One flip covers every
+  // View over the group, including copies of this context or of its Views
+  // taken earlier, since they all point at the same parity. A Step flips
+  // its own groups before its passes; what the new write half starts from
+  // is up to those passes. Naming a group no hosted field is in fails to
+  // compile.
+  template <typename Group>
+  void FlipParity() const {
+    std::get<BufferParitySlot<Group>>(parities_).parity->value ^= 1U;
   }
 
   // Runs every Step in StepList (a util::TypeList of StepLike types, see
@@ -221,7 +253,7 @@ class SimContext {
  private:
   TopologyTupleFor<Algorithms...> topologies_;
   std::tuple<typename Algorithms::View...> views_;
-  memory::BufferParity* parity_;
+  ParityTupleFor<Algorithms...> parities_;
 };
 
 // Nominal (not duck-typed) check that SimStateT is actually some

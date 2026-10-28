@@ -30,7 +30,10 @@ namespace achilles::algorithms {
 // Ops; aba::ABAStep is the dynamics evaluation qdd = f(q, qd), and each
 // integrator is just where it evaluates that and what it does with the
 // result. ABA's fields are SharedAs-aliased with every integrator's, so
-// each ABAStep reads whatever state the Step before it wrote.
+// each ABAStep reads whatever state the Step before it wrote. Every
+// integrator starts with aba::SwapTorqueStep, so a tick reads exactly the
+// actuator torque Apply()ed since the previous tick, however many times it
+// evaluates ABA.
 
 // The collision pipeline: the broad phase's candidate pairs, then the
 // narrow phase's contacts for them (algorithms/broad_phase,
@@ -49,13 +52,14 @@ using Collision = util::TypeList<
 // integrates that into qd, and PI integrates the updated qd into q for the
 // next tick's ABA to read.
 using SemiImplicitEuler = util::ConcatT<
-    util::TypeList<aba::ABAStep>,
+    util::TypeList<aba::SwapTorqueStep, aba::ABAStep>,
     Collision,
     contact_solver::Solve,
     util::TypeList<vi::VIStep, pi::PIStep>>;
 
 // See algorithms/verlet.
 using VelocityVerlet = util::TypeList<
+    aba::SwapTorqueStep,
     aba::ABAStep,
     verlet::KickStep<std::ratio<1, 2>>,
     verlet::DriftStep,
@@ -65,7 +69,7 @@ using VelocityVerlet = util::TypeList<
 // See algorithms/midpoint. Four fixed-point iterations per tick.
 inline constexpr std::size_t kImplicitMidpointIterations = 4;
 using ImplicitMidpoint = util::ConcatT<
-    util::TypeList<midpoint::BeginStep>,
+    util::TypeList<aba::SwapTorqueStep, midpoint::BeginStep>,
     util::RepeatListT<
         util::TypeList<midpoint::TrialStep, aba::ABAStep, midpoint::UpdateStep>,
         kImplicitMidpointIterations>,
@@ -74,6 +78,7 @@ using ImplicitMidpoint = util::ConcatT<
 // See algorithms/rk4. Stage weights 1, 2, 2, 1; stages 2-4 advance from the
 // tick's start by dt/2, dt/2, dt.
 using RungeKutta4 = util::TypeList<
+    aba::SwapTorqueStep,
     rk4::BeginStep,
     aba::ABAStep,
     rk4::AccumulateStep<std::ratio<1>>,

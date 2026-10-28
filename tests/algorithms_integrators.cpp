@@ -23,6 +23,7 @@
 #include "algorithms/registry.hpp"
 #include "algorithms/sim_config.hpp"
 #include "engine/memory/sim_allocator.hpp"
+#include "interface/actuator.hpp"
 #include "interface/archetype_loader.hpp"
 #include "support/registered_sim.hpp"
 #include "support/temp_dir.hpp"
@@ -59,6 +60,8 @@ using achilles::algorithms::StepFnFor;
 using achilles::algorithms::aba::ABAAlgorithm;
 using achilles::algorithms::aba::ABAField;
 using achilles::algorithms::aba::ABAStep;
+using achilles::algorithms::aba::SwapTorqueStep;
+using achilles::interface::AngularActuator;
 using achilles::interface::LoadArchetypes;
 using achilles::test_support::TempDir;
 using achilles::util::TypeList;
@@ -74,10 +77,7 @@ using B = achilles::algorithms::MathematicalT;
 // `inertia` is the rigid_body_inertia leaf: [m, h_x, h_y, h_z, Ixx, Iyy,
 // Izz, Ixy, Ixz, Iyz], h the first moment of mass, I about the joint.
 std::string RevoluteZArow(
-    const std::string& inertia,
-    ScalarOperationT q0,
-    ScalarOperationT qd0,
-    ScalarOperationT tau0
+    const std::string& inertia, ScalarOperationT q0, ScalarOperationT qd0
 ) {
   std::ostringstream out;
   out << "archetype: base\n"
@@ -95,10 +95,7 @@ std::string RevoluteZArow(
       << std::cos(q0 * 0.5F) << ", 0,0, " << std::sin(q0 * 0.5F)
       << "]\n"
          "      joint_velocity: ["
-      << qd0
-      << ", 0,0,0,0,0]\n"
-         "      joint_torque: ["
-      << tau0 << ", 0,0,0,0,0]\n";
+      << qd0 << ", 0,0,0,0,0]\n";
   return out.str();
 }
 
@@ -115,9 +112,12 @@ const char* const kCenteredInertia = "[2, 0,0,0, 2,3,4, 0,0,0]";
 const char* const kPendulumInertia = "[1, 0.5,0,0, 0.01,0.26,0.26, 0,0,0]";
 constexpr double kPendulumK = 0.5 * 9.8 / 0.26;
 
+// `torque` about Z is applied through an actuator before every tick, the
+// way a controller would hold it constant.
 struct Sim {
   Allocator::State state;
   SimConfig config;
+  ScalarOperationT torque;
 };
 
 Sim MakeSim(
@@ -129,8 +129,8 @@ Sim MakeSim(
     const SimConfig& config
 ) {
   std::filesystem::path file =
-      dir.Write("joint.arow", RevoluteZArow(inertia, q0, qd0, tau0));
-  return {Allocator::Build(LoadArchetypes(file.string())), config};
+      dir.Write("joint.arow", RevoluteZArow(inertia, q0, qd0));
+  return {Allocator::Build(LoadArchetypes(file.string())), config, tau0};
 }
 
 SimConfig PendulumConfig() {
@@ -148,10 +148,16 @@ Sim MakePendulum(
   return MakeSim(dir, kPendulumInertia, q0, qd0, 0.0F, PendulumConfig());
 }
 
+void ApplyTorque(const Sim& sim) {
+  AngularActuator::Attach(sim.state.context, {0, 0}, {0, 0, 1})
+      .Apply(sim.torque);
+}
+
 void StepTicks(
     Sim& sim, Integrator integrator, ScalarOperationT dt, int ticks
 ) {
   for (int i = 0; i < ticks; ++i) {
+    ApplyTorque(sim);
     StepFnFor(integrator)(sim.state.context, sim.config, dt);
   }
 }
@@ -170,7 +176,8 @@ ScalarOperationT Rate(const Sim& sim) {
 
 // ABA's qdd at the sim's current state, without integrating anything.
 ScalarOperationT EvaluateAcceleration(Sim& sim) {
-  sim.state.context.Step<TypeList<ABAStep>>(0.0F, sim.config);
+  ApplyTorque(sim);
+  sim.state.context.Step<TypeList<SwapTorqueStep, ABAStep>>(0.0F, sim.config);
   return sim.state.context.ViewFor<ABAAlgorithm>()
       .Load<ABAField::kJointAcceleration, ScalarOperationT>(0)[0];
 }
@@ -456,7 +463,11 @@ TEST(IntegratorJointLimit, SemiImplicitEulerHoldsAPendulumAtItsLimit) {
   RegisteredSim sim = MakeRegisteredSim(
       dir,
       RevoluteZJointArow(
-          "joint", "", kPendulumInertia, 0.0F, 0.0F,
+          "joint",
+          "",
+          kPendulumInertia,
+          0.0F,
+          0.0F,
           Dof0LimitFields(-0.5F, 0.5F)
       )
   );

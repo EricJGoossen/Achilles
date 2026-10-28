@@ -19,17 +19,20 @@
 
 namespace achilles::test_support {
 
-// A two-field FieldEnum with one double-buffered field -- the smallest real
-// Algorithm that exercises memory::DoubleBuffered through SimAllocator,
-// View and SimContext, without ABA's eighteen fields in the way. kCommand is
-// populated from archetype data (its rest value), so a test can tell the
-// rest block apart from a zero-filled half; kState is an ordinary
-// single-buffered field, the control that must not be affected by a swap.
+// A FieldEnum with one double-buffered field -- the smallest real Algorithm
+// that exercises memory::DoubleBuffered through SimAllocator, View and
+// SimContext, without ABA's fields in the way. kCommand (the read side) is
+// populated from archetype data (its rest value), so a test can tell it
+// apart from a zero-filled half; kState is an ordinary single-buffered
+// field, the control that must not be affected by a swap.
 enum class ToyBufferedField : std::uint8_t {
   kCommand,
   kState,
   kCount,
 };
+
+// The buffer group (and shared slot) kCommand belongs to.
+struct ToyCommandSlot;
 
 template <ToyBufferedField F>
 struct ToyBufferedFieldTraits;
@@ -37,7 +40,9 @@ struct ToyBufferedFieldTraits;
 template <>
 struct ToyBufferedFieldTraits<ToyBufferedField::kCommand> {
   using Assembler = domain::math::Vector3Assembler<float>;
-  using Buffering = engine::memory::DoubleBuffered;
+  using SharedAs = ToyCommandSlot;
+  using Buffering = engine::memory::
+      DoubleBuffered<ToyCommandSlot, engine::memory::BufferSide::kRead>;
   using Layout = engine::topology::PlanarLayout;
   static constexpr std::string_view kName = "command";
 };
@@ -84,6 +89,13 @@ inline engine::memory::SimAllocator<ToyBufferedAlgorithm> MakeToyBufferedSim(
       std::move(fields)
   )};
   return engine::memory::SimAllocator<ToyBufferedAlgorithm>(archetypes);
+}
+
+// Swaps kCommand's halves the way an Algorithm's own Step would.
+inline void SwapToyBuffers(
+    const engine::memory::SimAllocator<ToyBufferedAlgorithm>& sim
+) {
+  sim.SimContext().FlipParity<ToyCommandSlot>();
 }
 
 }  // namespace achilles::test_support

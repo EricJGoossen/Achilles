@@ -12,6 +12,7 @@
 #include "engine/topology/ordering_policy.hpp"
 
 using achilles::domain::math::Vector3Assembler;
+using achilles::engine::memory::BufferSide;
 using achilles::engine::memory::DoubleBuffered;
 using achilles::engine::memory::FieldBufferingT;
 using achilles::engine::memory::FieldHasName;
@@ -25,6 +26,8 @@ using achilles::engine::topology::RowIndexing;
 using achilles::engine::topology::TopologicalOrdering;
 
 namespace {
+
+struct BindingTestGroup;
 
 // A minimal enum exercising every combination binding.hpp's optional traits
 // (Ordering, Indexing, Buffering, kName) support: kDefault declares none of
@@ -59,7 +62,7 @@ template <>
 struct BindingTestTraits<BindingTestField::kGlobalBuffered> {
   using Assembler = Vector3Assembler<float>;
   using Indexing = GlobalIndexing;
-  using Buffering = DoubleBuffered;
+  using Buffering = DoubleBuffered<BindingTestGroup, BufferSide::kRead>;
   using Layout = PlanarLayout;
 };
 
@@ -136,7 +139,7 @@ TEST(ResolvedFieldBuffering, UsesExplicitlyDeclaredBuffering) {
                    BindingTestField,
                    BindingTestTraits,
                    BindingTestField::kGlobalBuffered>,
-               DoubleBuffered>));
+               DoubleBuffered<BindingTestGroup, BufferSide::kRead>>));
 }
 
 // A declared Buffering that isn't a BufferingPolicyLike must be rejected,

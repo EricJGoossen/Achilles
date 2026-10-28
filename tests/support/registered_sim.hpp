@@ -54,9 +54,7 @@ inline std::string RevoluteZJointArow(
       << std::cos(q0 * 0.5F) << ", 0,0, " << std::sin(q0 * 0.5F)
       << "]\n"
          "      joint_velocity: ["
-      << qd0
-      << ", 0,0,0,0,0]\n"
-         "      joint_torque: [0,0,0,0,0,0]\n"
+      << qd0 << ", 0,0,0,0,0]\n"
       << extra;
   return out.str();
 }

@@ -77,19 +77,18 @@ class View {
   // elements, i.e. num_instances for an ordinary row-indexed field --
   // independently placed by the allocator regardless of which Layout policy
   // it uses -- there is no shared arena to compute cross-field offsets into.
-  // A double-buffered field's base is the start of its whole
-  // [rest | half 0 | half 1] region (see memory::DoubleBuffered), and
-  // `parity` is the sim-wide flag saying which half is read this tick --
-  // only ever dereferenced for such a field, so a View with none may leave
-  // it null.
+  // A double-buffered field's base is the start of its two-half region
+  // (see memory::DoubleBuffered), and its entry in `parities` is its
+  // group's parity, saying which half it addresses; a single-buffered
+  // field's entry is ignored (null).
   View(
       std::array<std::byte*, kNumTypes> type_bases,
       size_t num_instances,
-      const memory::BufferParity* parity = nullptr
+      std::array<const memory::BufferParity*, kNumTypes> parities = {}
   )
       : type_bases_(type_bases),
         num_instances_(num_instances),
-        parity_(parity) {}
+        parities_(parities) {}
 
   template <EnumT F>
   using Binding = std::tuple_element_t<static_cast<size_t>(F), BindingTuple>;
@@ -246,29 +245,22 @@ class View {
   }
 
   // A handle to (row, leaf) of double-buffered field F's write half -- the
-  // half the sim is not reading this tick (see memory::BufferedScalar).
+  // half its group's read side is not on (see memory::BufferedScalar).
   // `leaf` is the scalar's position in F's Assembler flattening order.
   template <EnumT F>
-    requires std::same_as<FieldBuffering<F>, memory::DoubleBuffered>
+    requires memory::GroupBufferedLike<FieldBuffering<F>>
   memory::BufferedScalar<Scalar<F>> WriteSlot(size_t row, size_t leaf) const {
     assert(row < FieldIndexing<F>::Count(num_instances_));
     assert(leaf < Assembler<F>::kNumFields);
-    std::byte* rest_element = FieldLayout<F>::LeafAt(
+    std::byte* first_element = FieldLayout<F>::LeafAt(
         type_bases_[static_cast<size_t>(F)] +
             (row * FieldLayout<F>::template ElementStrideBytes<Assembler<F>>()),
         leaf,
         FieldStrideBytes<F>()
     );
     return memory::BufferedScalar<Scalar<F>>(
-        rest_element, FieldBlockBytes<F>(), parity_
+        first_element, FieldBlockBytes<F>(), parities_[static_cast<size_t>(F)]
     );
-  }
-
-  // Resets every double-buffered field's write half to its rest contents
-  // (memory::DoubleBuffered::ResetWrite); a no-op for every other field.
-  // Called by pass::SimContext::SwapBuffers right after the parity flips.
-  void ResetWriteBuffers() const {
-    ResetWriteBuffers(std::make_index_sequence<kNumTypes>{});
   }
 
  private:
@@ -288,19 +280,21 @@ class View {
   // policy-dependent (e.g. topology::PlanarLayout's ElementStrideBytes<A>()
   // is one scalar wide, sizeof(Scalar<F>), but a different policy answers
   // this however its own storage shape requires).
-  // For a double-buffered field, offset into whichever half the sim reads
-  // this tick (FieldBuffering<F>::ReadOffset -- always 0 for any other
-  // field).
+  // For a double-buffered field, offset into whichever half this field's
+  // side addresses right now (FieldBuffering<F>::ReadOffset -- always 0 for
+  // any other field).
   template <EnumT F>
   std::byte* FieldZero(size_t instance) const {
     return type_bases_[static_cast<size_t>(F)] +
-           FieldBuffering<F>::ReadOffset(parity_, FieldBlockBytes<F>()) +
+           FieldBuffering<F>::ReadOffset(
+               parities_[static_cast<size_t>(F)], FieldBlockBytes<F>()
+           ) +
            instance *
                FieldLayout<F>::template ElementStrideBytes<Assembler<F>>();
   }
 
   // Bytes of ONE copy of field F's block -- the distance between a
-  // double-buffered field's rest block and each of its halves.
+  // double-buffered field's two halves.
   template <EnumT F>
   size_t FieldBlockBytes() const {
     return FieldLayout<F>::template BlockBytes<Assembler<F>>(
@@ -308,17 +302,9 @@ class View {
     );
   }
 
-  template <size_t... Is>
-  void ResetWriteBuffers(std::index_sequence<Is...> /*fields*/) const {
-    (FieldBuffering<static_cast<EnumT>(Is)>::ResetWrite(
-         type_bases_[Is], parity_, FieldBlockBytes<static_cast<EnumT>(Is)>()
-     ),
-     ...);
-  }
-
   std::array<std::byte*, kNumTypes> type_bases_;
   size_t num_instances_;
-  const memory::BufferParity* parity_;
+  std::array<const memory::BufferParity*, kNumTypes> parities_;
 };
 
 }  // namespace achilles::engine::view

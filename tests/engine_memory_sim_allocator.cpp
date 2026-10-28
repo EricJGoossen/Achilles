@@ -215,8 +215,7 @@ TEST(SimAllocatorTopology, ChildResolvesToParentsRowWithinSameInstance) {
   std::size_t instance0_joint0 = layout.ToSorted({0, 0});
   std::size_t instance0_joint1 = layout.ToSorted({0, 1});
   EXPECT_EQ(
-      sim.TopologyFor<TopologicalOrdering>()[instance0_joint1],
-      instance0_joint0
+      sim.TopologyFor<TopologicalOrdering>()[instance0_joint1], instance0_joint0
   );
 }
 
@@ -234,10 +233,8 @@ TEST(SimAllocatorSharedAs, CrossAlgorithmFieldsAliasTheSameBlock) {
       Algorithm<SecondField, SecondFieldTraits>>;
   Sim sim(archetypes);
 
-  auto shared_view =
-      sim.ViewFor<Algorithm<SharedField, SharedFieldTraits>>();
-  auto second_view =
-      sim.ViewFor<Algorithm<SecondField, SecondFieldTraits>>();
+  auto shared_view = sim.ViewFor<Algorithm<SharedField, SharedFieldTraits>>();
+  auto second_view = sim.ViewFor<Algorithm<SecondField, SecondFieldTraits>>();
 
   std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted({1, 1});
   Vector3<float> via_shared =
@@ -279,10 +276,8 @@ TEST(SimAllocatorForRegisteredList, BehavesIdenticallyToDirectSimAllocator) {
   using Sim = SimAllocatorForT<Registered>;
   Sim sim(archetypes);
 
-  auto shared_view =
-      sim.ViewFor<Algorithm<SharedField, SharedFieldTraits>>();
-  auto second_view =
-      sim.ViewFor<Algorithm<SecondField, SecondFieldTraits>>();
+  auto shared_view = sim.ViewFor<Algorithm<SharedField, SharedFieldTraits>>();
+  auto second_view = sim.ViewFor<Algorithm<SecondField, SecondFieldTraits>>();
 
   std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted({1, 1});
   Vector3<float> via_shared =
@@ -418,7 +413,7 @@ namespace {
 
 // Same SharedInputSlot tag, Assembler and Ordering as
 // SharedField::kSharedInput, but double-buffered -- the two can't share a
-// block, since one carves three copies of it and reads at an offset.
+// block, since one carves two copies of it and reads at an offset.
 enum class MismatchedBufferingField : std::uint8_t { kSharedAgain, kCount };
 template <MismatchedBufferingField F>
 struct MismatchedBufferingFieldTraits;
@@ -427,7 +422,9 @@ struct MismatchedBufferingFieldTraits<MismatchedBufferingField::kSharedAgain> {
   using Assembler = Vector3Assembler<float>;
   using SharedAs = SharedInputSlot;
   using Ordering = TopologicalOrdering;
-  using Buffering = achilles::engine::memory::DoubleBuffered;
+  using Buffering = achilles::engine::memory::DoubleBuffered<
+      SharedInputSlot,
+      achilles::engine::memory::BufferSide::kRead>;
   using Layout = PlanarLayout;
 };
 static_assert(achilles::engine::FieldTraitsLike<
@@ -436,19 +433,17 @@ static_assert(achilles::engine::FieldTraitsLike<
 
 }  // namespace
 
-// A swap resets the write half from the rest block, so the rest block must
-// hold the populated archetype data, not zero-fill: scribble on the read
-// half, swap it out (reset) and back in, and the archetype value is back.
-TEST(SimAllocatorBuffering, RestBlockHoldsThePopulatedArchetypeData) {
+// Both halves must hold the populated archetype data, not zero-fill:
+// scribble on the read half, swap it out, and the other half still reads
+// the archetype value.
+TEST(SimAllocatorBuffering, BothHalvesHoldThePopulatedArchetypeData) {
   using achilles::test_support::ToyBufferedAlgorithm;
   using achilles::test_support::ToyBufferedField;
   auto sim = achilles::test_support::MakeToyBufferedSim(2);
   auto view = sim.ViewFor<ToyBufferedAlgorithm>();
   view.Store<ToyBufferedField::kCommand, float>(1, Vector3<float>::Zero());
 
-  auto context = sim.SimContext();
-  context.SwapBuffers();
-  context.SwapBuffers();
+  achilles::test_support::SwapToyBuffers(sim);
   Vector3<float> value = view.Load<ToyBufferedField::kCommand, float>(1);
   Vector3<float> rest = achilles::test_support::ToyCommandRest(1);
   EXPECT_FLOAT_EQ(value.X(), rest.X());
@@ -459,7 +454,7 @@ TEST(SimAllocatorBuffering, RestBlockHoldsThePopulatedArchetypeData) {
 // Carve's reused-slot check compares buffering too: two algorithms sharing
 // a block they disagree on the copy count of would read different memory
 // for the same row. Byte size necessarily differs as well (one block vs
-// three), so this proves the mismatch is caught, not which field of the
+// two), so this proves the mismatch is caught, not which field of the
 // check caught it.
 TEST(SimAllocatorSharedAs, DiesOnIncompatibleBufferingForSameSharedTag) {
   Archetype arm = MakeArmArchetype();

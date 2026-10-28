@@ -35,7 +35,6 @@ joints:
         translation: [0, 0, 0]
         rotation: [1, 0, 0, 0]
       joint_velocity: [0, 0, 0, 0, 0, 0]
-      joint_torque: [0, 0, 0, 0, 0, 0]
       visual_extents: [0.15, 0.5, 0.15]
       visual_color: [0.85, 0.3, 0.2]
   - name: elbow
@@ -59,7 +58,6 @@ joints:
         translation: [0, 0, 0]
         rotation: [1, 0, 0, 0]
       joint_velocity: [0, 0, 0, 0, 0, 0]
-      joint_torque: [0, 0, 0, 0, 0, 0]
       visual_extents: [0.12, 0.4, 0.12]
       visual_color: [0.2, 0.55, 0.9]
   - name: wrist
@@ -91,6 +89,5 @@ joints:
         translation: [0, 0, 0]
         rotation: [1, 0, 0, 0]
       joint_velocity: [0, 0, 0, 0, 0, 0]
-      joint_torque: [0, 0, 0, 0, 0, 0]
       visual_extents: [0.09, 0.32, 0.09]
       visual_color: [0.9, 0.8, 0.2]

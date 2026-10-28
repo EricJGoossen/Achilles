@@ -23,6 +23,7 @@
 #include "engine/field_contract.hpp"
 #include "engine/memory/arena.hpp"
 #include "engine/memory/binding.hpp"
+#include "engine/memory/buffering_policy.hpp"
 #include "engine/pass/sim_context.hpp"
 #include "engine/topology/layout_policy.hpp"
 #include "engine/topology/ordering_plan.hpp"
@@ -62,6 +63,23 @@ struct SlotRecord {
   const void* buffering_id = nullptr;
 };
 using SlotMap = std::unordered_map<const void*, SlotRecord>;
+
+// The parity a field's View reads: none for a single-buffered field, its
+// group's for a double-buffered one -- looked up by group in the parities
+// SimAllocator carved before any View (see pass::ParityTupleFor).
+template <BufferingPolicyLike Buffering, typename ParityTuple>
+  requires(!GroupBufferedLike<Buffering>)
+const BufferParity* ParityFor(const ParityTuple& /*parities*/) {
+  return nullptr;
+}
+
+template <GroupBufferedLike Buffering, typename ParityTuple>
+const BufferParity* ParityFor(const ParityTuple& parities) {
+  return std::get<pass::BufferParitySlot<typename Buffering::BufferGroup>>(
+             parities
+  )
+      .parity;
+}
 
 // Per-field operations, parameterized directly on EnumT/Traits/F (no
 // deduction needed -- the caller already knows all three).
@@ -123,7 +141,7 @@ struct FieldVisitor {
     std::size_t lanes = LaneCount();
     const void* ordering_id = SlotId<FieldOrdering>();
     const void* indexing_id = SlotId<FieldIndexing>();
-    const void* buffering_id = SlotId<FieldBuffering>();
+    const void* buffering_id = SlotId<BufferStorageT<FieldBuffering>>();
 
     if constexpr (FieldIsShared<EnumT, Traits, F>) {
       using Tag = typename FieldTraits::SharedAs;
@@ -454,7 +472,7 @@ struct AlgorithmVisitor<Algorithm<EnumT, Traits>> {
     );
   }
 
-  template <std::size_t... Is>
+  template <typename ParityTuple, std::size_t... Is>
   static View CarveView(
       std::index_sequence<Is...>,
       Arena& arena,
@@ -462,7 +480,7 @@ struct AlgorithmVisitor<Algorithm<EnumT, Traits>> {
       std::size_t padded_instances,
       const PlanMap& plans,
       std::span<const domain::Archetype> archetypes,
-      const BufferParity* parity
+      const ParityTuple& parities
   ) {
     std::array<std::byte*, sizeof...(Is)> type_bases{
         FieldVisitor<EnumT, Traits, static_cast<EnumT>(Is)>::Carve(
@@ -497,16 +515,21 @@ struct AlgorithmVisitor<Algorithm<EnumT, Traits>> {
          type_bases[Is], padded_instances
      ),
      ...);
-    return View(type_bases, padded_instances, parity);
+    std::array<const BufferParity*, sizeof...(Is)> field_parities{
+        ParityFor<typename FieldVisitor<EnumT, Traits, static_cast<EnumT>(Is)>::
+                      FieldBuffering>(parities)...
+    };
+    return View(type_bases, padded_instances, field_parities);
   }
 
+  template <typename ParityTuple>
   static View Carve(
       Arena& arena,
       SlotMap& slots,
       std::size_t padded_instances,
       const PlanMap& plans,
       std::span<const domain::Archetype> archetypes,
-      const BufferParity* parity
+      const ParityTuple& parities
   ) {
     return CarveView(
         std::make_index_sequence<static_cast<std::size_t>(EnumT::kCount)>{},
@@ -515,7 +538,7 @@ struct AlgorithmVisitor<Algorithm<EnumT, Traits>> {
         padded_instances,
         plans,
         archetypes,
-        parity
+        parities
     );
   }
 };
@@ -618,33 +641,41 @@ class SimAllocator {
     for (const auto& [id, plan] : plans_) {
       total += plan.AllocatedBytes();
     }
-    total += sizeof(BufferParity) + (alignof(BufferParity) - 1);
+    total += std::tuple_size_v<pass::ParityTupleFor<Algorithms...>> *
+             (sizeof(BufferParity) + (alignof(BufferParity) - 1));
     return total;
   }
 
   // Everything SimContext holds, carved out of state_.arena (already
   // constructed by the time state_'s second member is -- see the
-  // constructor): the topologies, the one sim-wide BufferParity, then every
-  // View, each handed that same parity.
+  // constructor): the topologies, one parity per buffer group, then every
+  // View, each handed its fields' groups' parities.
   pass::SimContext<Algorithms...> BuildContext(
       std::span<const domain::Archetype> archetypes
   ) {
     auto topologies = BuildTopologies();
-    BufferParity* parity = CarveParity();
+    auto parities = std::apply(
+        [this](auto... slots) {
+          return pass::ParityTupleFor<Algorithms...>{CarveParity(slots)...};
+        },
+        pass::ParityTupleFor<Algorithms...>{}
+    );
     auto views = BuildViews(
-        archetypes, parity, std::make_index_sequence<sizeof...(Algorithms)>{}
+        archetypes, parities, std::make_index_sequence<sizeof...(Algorithms)>{}
     );
     return pass::SimContext<Algorithms...>(
-        std::move(topologies), std::move(views), parity
+        std::move(topologies), std::move(views), parities
     );
   }
 
-  // Value-initialized, so the sim starts out reading half 0 of every
-  // double-buffered field.
-  BufferParity* CarveParity() {
+  // Value-initialized, so every group starts out reading half 0.
+  template <typename Group>
+  pass::BufferParitySlot<Group> CarveParity(
+      pass::BufferParitySlot<Group> /*group*/
+  ) {
     std::byte* bytes =
         state_.arena.Allocate(sizeof(BufferParity), alignof(BufferParity));
-    return std::construct_at(std::bit_cast<BufferParity*>(bytes));
+    return {std::construct_at(std::bit_cast<BufferParity*>(bytes))};
   }
 
   // Allocates one JointTopology and JointLayout per distinct ordering
@@ -660,13 +691,13 @@ class SimAllocator {
   template <std::size_t... Is>
   std::tuple<typename Algorithms::View...> BuildViews(
       std::span<const domain::Archetype> archetypes,
-      const BufferParity* parity,
+      const pass::ParityTupleFor<Algorithms...>& parities,
       std::index_sequence<Is...> /*algorithms*/
   ) {
     detail::SlotMap slots;
     return std::tuple<typename Algorithms::View...>(
         detail::AlgorithmVisitor<Algorithms>::Carve(
-            state_.arena, slots, padded_instances_, plans_, archetypes, parity
+            state_.arena, slots, padded_instances_, plans_, archetypes, parities
         )...
     );
   }

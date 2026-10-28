@@ -1,7 +1,5 @@
 #include <gtest/gtest.h>
 
-#include <tuple>
-
 #include "domain/math/vector3.hpp"
 #include "engine/algorithm_contract.hpp"
 #include "engine/memory/sim_allocator.hpp"
@@ -12,9 +10,9 @@
 #include "util/tmp.hpp"
 
 // Covers SimContext::Step<StepList> -- the one engine entry point every
-// integrator tick goes through (algorithms/integrators.hpp) -- and
-// SimContext::SwapBuffers, the once-per-tick flip of every double-buffered
-// field (engine/memory/buffering_policy.hpp). What it
+// integrator tick goes through (algorithms/integrators.hpp) -- and that a
+// buffer swap (SimContext::FlipParity, engine/memory/buffering_policy.hpp)
+// reaches every copy of the context. What Step
 // promises: every Step in the list runs exactly once per appearance, left to
 // right, each handed the same context, config and dt. The other half of its
 // contract -- a Step whose FieldEnum isn't hosted fails to compile -- is a
@@ -33,6 +31,7 @@ using achilles::engine::pass::TopologySlot;
 using achilles::engine::topology::LinearOrdering;
 using achilles::test_support::MakeToyBufferedSim;
 using achilles::test_support::MakeToySim;
+using achilles::test_support::SwapToyBuffers;
 using achilles::test_support::ToyAlgorithm;
 using achilles::test_support::ToyBufferedAlgorithm;
 using achilles::test_support::ToyBufferedField;
@@ -143,58 +142,16 @@ TEST(SimContextStep, ForwardsDtAndConfigToEachStep) {
   EXPECT_FLOAT_EQ(recorded[1], 3.0F);
 }
 
-namespace {
-
-float CommandX(const SimAllocator<ToyBufferedAlgorithm>& sim) {
-  return sim.ViewFor<ToyBufferedAlgorithm>()
-      .Load<ToyBufferedField::kCommand, float>(0)
-      .X();
-}
-
-}  // namespace
-
-// The tick-by-tick contract, over enough ticks to land on both parities
-// twice: what was written since the last swap is exactly what the next tick
-// reads -- the rest value plus this tick's writes, with the previous tick's
-// writes gone.
-TEST(SimContextSwapBuffers, EachTickReadsOnlyWhatWasWrittenSinceTheLastSwap) {
-  auto sim = MakeToyBufferedSim(1);
-  auto context = sim.SimContext();
-  auto slot =
-      sim.ViewFor<ToyBufferedAlgorithm>().WriteSlot<ToyBufferedField::kCommand>(
-          0, 0
-      );
-  const float rest = ToyCommandRest(0).X();
-  for (int tick = 1; tick <= 4; ++tick) {
-    slot.Add(static_cast<float>(tick));
-    context.SwapBuffers();
-    EXPECT_FLOAT_EQ(CommandX(sim), rest + static_cast<float>(tick));
-  }
-}
-
-// Whatever the sim wrote into the half it was reading is scratch: once that
-// half is handed back to writers, it starts again from the rest value.
-TEST(SimContextSwapBuffers, DiscardsTheSimsScratchOnTheHalfItHandsBack) {
-  auto sim = MakeToyBufferedSim(1);
-  auto context = sim.SimContext();
-  sim.ViewFor<ToyBufferedAlgorithm>().Store<ToyBufferedField::kCommand, float>(
-      0, Vector3<float>(-1.0F, -1.0F, -1.0F)
-  );
-  context.SwapBuffers();
-  context.SwapBuffers();
-  EXPECT_FLOAT_EQ(CommandX(sim), ToyCommandRest(0).X());
-}
-
-// The parity is shared, not copied: a context or View copied before the
-// swap (every Step takes a fresh ViewFor copy; Simulation::ViewFor hands
-// copies out) must read the new half too.
-TEST(SimContextSwapBuffers, CopiesTakenBeforeTheSwapSeeIt) {
+// The parity lives in the Arena, not in any one View: a context or View
+// copied before the swap (every Step takes a fresh ViewFor copy;
+// Simulation::ViewFor hands copies out) must read the new half too.
+TEST(SimContextBufferSwap, CopiesTakenBeforeTheSwapSeeIt) {
   auto sim = MakeToyBufferedSim(1);
   auto early_context = sim.SimContext();
   auto early_view = early_context.ViewFor<ToyBufferedAlgorithm>();
   early_view.WriteSlot<ToyBufferedField::kCommand>(0, 0).Add(2.0F);
 
-  sim.SimContext().SwapBuffers();
+  SwapToyBuffers(sim);
   const float expected = ToyCommandRest(0).X() + 2.0F;
   EXPECT_FLOAT_EQ(
       (early_view.Load<ToyBufferedField::kCommand, float>(0).X()), expected
@@ -205,18 +162,4 @@ TEST(SimContextSwapBuffers, CopiesTakenBeforeTheSwapSeeIt) {
            .X()),
       expected
   );
-}
-
-// Proves SwapBuffers' precondition fires: a context built without the
-// sim's parity (the constructor allows it, for sims with no double-buffered
-// field) has nothing to flip.
-TEST(SimContextSwapBuffers, DiesOnAContextBuiltWithoutAParity) {
-  SimAllocator<ToyAlgorithm> sim = MakeToySim(1);
-  SimContext<ToyAlgorithm> context(
-      std::tuple<TopologySlot<LinearOrdering>>{TopologySlot<LinearOrdering>{
-          sim.TopologyFor<LinearOrdering>(), sim.LayoutFor<LinearOrdering>()
-      }},
-      std::tuple<ToyView>{sim.ViewFor<ToyAlgorithm>()}
-  );
-  EXPECT_DEATH(context.SwapBuffers(), "built without a");
 }

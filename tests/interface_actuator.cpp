@@ -11,6 +11,7 @@
 #include "algorithms/aba/aba_data.hpp"
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
+#include "algorithms/sim_config.hpp"
 #include "domain/archetype.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/ordering_policy.hpp"
@@ -20,15 +21,17 @@
 // onto a joint's generalized coordinates (effort * S^T e), the errors it
 // raises, and Apply's accumulation into the write half of ABA's
 // double-buffered kJointTorque. Runs against a real ABA-only SimAllocator
-// built from hand-made archetypes -- only joint_subspace (and, for the
-// baseline case, joint_torque) matter to an actuator, and nothing here is
-// stepped, so every other field is left zero. Torque is read back the way
-// ABA reads it: through the View, after a SwapBuffers. End-to-end behavior
+// built from hand-made archetypes -- only joint_subspace matters to an
+// actuator, and nothing here is stepped, so every other field is left
+// zero. Torque is read back the way
+// ABA reads it: through the View, after a SwapTorqueStep. End-to-end behavior
 // through Simulation (and a real ABA step) is in interface_simulation.cpp.
 
 using achilles::algorithms::ScalarOperationT;
+using achilles::algorithms::SimConfig;
 using achilles::algorithms::aba::ABAAlgorithm;
 using achilles::algorithms::aba::ABAField;
+using achilles::algorithms::aba::SwapTorqueStep;
 using achilles::domain::Archetype;
 using achilles::domain::ArchetypeField;
 using achilles::domain::ArchetypeJointHandle;
@@ -64,16 +67,10 @@ std::vector<double> Subspace(const std::vector<SpatialAxis>& columns) {
   return flat;
 }
 
-// One single-joint root archetype whose joint moves along `columns`, with
-// `tau` as its archetype joint_torque (the rest value actuators add to).
-Archetype MakeJoint(
-    const std::vector<SpatialAxis>& columns, const Torque& tau = {}
-) {
+// One single-joint root archetype whose joint moves along `columns`.
+Archetype MakeJoint(const std::vector<SpatialAxis>& columns) {
   std::vector<ArchetypeField> fields;
   fields.push_back(ArchetypeField{"joint_subspace", 36, Subspace(columns)});
-  fields.push_back(ArchetypeField{
-      "joint_torque", 6, std::vector<double>(tau.begin(), tau.end())
-  });
   return {
       "body",
       {ArchetypeTreeStructure::kNoParent},
@@ -111,9 +108,14 @@ Torque ReadTorque(const Sim& sim, ArchetypeJointHandle joint = kJoint) {
   return {t0, t1, t2, t3, t4, t5};
 }
 
+// Starts the next tick the way every integrator does (SwapTorqueStep).
+void SwapTorque(const Sim& sim) {
+  SwapTorqueStep::Step(sim.SimContext(), SimConfig{}, 0.0F);
+}
+
 // What the next tick reads: swap, then read.
 Torque NextTickTorque(const Sim& sim) {
-  sim.SimContext().SwapBuffers();
+  SwapTorque(sim);
   return ReadTorque(sim);
 }
 
@@ -235,9 +237,9 @@ TEST(JointActuator, ThrowsOnAZeroAxis) {
 
 // Applies within one tick accumulate -- from one actuator, from a copy of
 // it (handles share their target), and from a second actuator on the same
-// joint -- all on top of the archetype's joint_torque baseline.
-TEST(JointActuator, EffortsAccumulateOnTopOfTheArchetypeBaseline) {
-  Sim sim = MakeSim(MakeJoint({kYaw}, {0.5F, 0, 0, 0, 0, 0}));
+// joint.
+TEST(JointActuator, EffortsAccumulateWithinATick) {
+  Sim sim = MakeSim(MakeJoint({kYaw}));
   AngularActuator first = Attach<ActuatorKind::kAngular>(sim, {0, 0, 1});
   // The copy is what's under test: copied handles share their target.
   // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
@@ -247,7 +249,7 @@ TEST(JointActuator, EffortsAccumulateOnTopOfTheArchetypeBaseline) {
   first.Apply(2.0F);
   copy.Apply(4.0F);
   second.Apply(8.0F);
-  ExpectTorqueEq(NextTickTorque(sim), {15.5F, 0, 0, 0, 0, 0});
+  ExpectTorqueEq(NextTickTorque(sim), {15.0F, 0, 0, 0, 0, 0});
 }
 
 // A user's model derived from the base handle drives it through Apply.
@@ -286,7 +288,7 @@ TEST(JointActuator, WritesOnlyTheTargetedInstancesRow) {
   // Global instances: 0 is the root, 1..3 the child's copies.
   constexpr ArchetypeJointHandle kTarget{2, 0};
   Attach<ActuatorKind::kAngular>(sim, {0, 0, 1}, kTarget).Apply(1.0F);
-  sim.SimContext().SwapBuffers();
+  SwapTorque(sim);
   for (std::size_t instance = 0; instance < 4; ++instance) {
     float expected = instance == kTarget.instance_index ? 1.0F : 0.0F;
     EXPECT_FLOAT_EQ(ReadTorque(sim, {instance, 0})[0], expected)
