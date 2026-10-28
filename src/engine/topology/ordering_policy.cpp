@@ -6,9 +6,11 @@
 #include <cstdint>
 #include <numeric>
 #include <span>
+#include <string_view>
 #include <utility>
 #include <vector>
 
+#include "domain/archetype.hpp"
 #include "domain/joint_layout.hpp"
 #include "engine/topology/ordering_plan.hpp"
 
@@ -156,13 +158,24 @@ OrderingPlan Ordering::BuildFromLocalOrders(
         consolidated.physical_to_sorted[a].end()
     );
   }
-  return {
+  OrderingPlan plan{
       std::move(parents),
       std::move(instance_offsets),
       std::move(sorted_rows),
       std::move(consolidated.sorted_to_physical),
       lane_size
   };
+  // Checked here rather than by every JointTopology: these rows are
+  // parents in their own row space, which is the only case where sharing a
+  // lane group with your source is a hazard (a batched TreeTraversal would
+  // read a parent its own group is still writing).
+  assert(
+      plan.Topology().IsBatchSafe() &&
+      "A parent and child joint land in the same SIMD batch -- the "
+      "topological sort must pad each dependency level to a multiple "
+      "of lane_size so batching never crosses a parent/child edge."
+  );
+  return plan;
 }
 
 Ordering::ConsolidatedOrder Ordering::Consolidate(
@@ -411,6 +424,61 @@ OrderingPlan LinearOrdering::Build(
   return BuildFromLocalOrders(
       tree, local_topo_orders, placement_order, lane_size
   );
+}
+
+std::vector<ArchetypeJointHandle> CollectAttachments(
+    std::span<ArchetypeTreeStructure> tree, std::string_view list
+) {
+  std::vector<ArchetypeJointHandle> links;
+  std::size_t first_instance = 0;
+  for (const ArchetypeTreeStructure& archetype : tree) {
+    const std::size_t instances = archetype.root_parents.size();
+    for (std::size_t i = 0; i < instances; ++i) {
+      for (const domain::ArchetypeAttachment& attachment :
+           archetype.attachments) {
+        if (attachment.list == list) {
+          links.push_back({first_instance + i, attachment.joint});
+        }
+      }
+    }
+    first_instance += instances;
+  }
+  return links;
+}
+
+OrderingPlan BuildListPlan(
+    std::span<const ArchetypeJointHandle> links,
+    const domain::JointLayout& link_layout,
+    std::size_t lane_size
+) {
+  const std::size_t count = links.size();
+  const std::size_t padded = RoundUpToLane(count, lane_size);
+
+  // Padding rows link to the link ordering's base row: always a valid,
+  // seeded row to read, the same reasoning BuildFromLocalOrders gives for
+  // defaulting a padding row's parent to its own base row.
+  std::vector<std::size_t> link_rows(padded, link_layout.BaseRowIndex());
+  std::vector<std::size_t> instance_offsets(count + 1);
+  std::vector<std::size_t> sorted_rows(count);
+  std::vector<ArchetypeJointHandle> entries(
+      padded,
+      ArchetypeJointHandle{
+          domain::JointLayout::kNoInstance, domain::JointLayout::kNoInstance
+      }
+  );
+  for (std::size_t i = 0; i < count; ++i) {
+    link_rows[i] = link_layout.ToSorted(links[i]);
+    instance_offsets[i + 1] = i + 1;
+    sorted_rows[i] = i;
+    entries[i] = ArchetypeJointHandle{i, 0};
+  }
+  return {
+      std::move(link_rows),
+      std::move(instance_offsets),
+      std::move(sorted_rows),
+      std::move(entries),
+      lane_size
+  };
 }
 
 }  // namespace achilles::engine::topology

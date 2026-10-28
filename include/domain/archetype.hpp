@@ -26,6 +26,17 @@ struct ArchetypeJointHandle {
   std::size_t joint_index;
 };
 
+// Something an archetype carries on one of its joints that isn't a joint
+// itself -- a sensor, say: every instance of the archetype gets one, linked
+// to that instance's copy of `joint`. `list` names which list it belongs
+// to; an ordering planning that list (engine::topology::ListOrdering) gives
+// each one a row. What an entry *is* stays out of here: the archetype only
+// records the name, so new kinds never change this type.
+struct ArchetypeAttachment {
+  std::string list;
+  std::size_t joint = 0;
+};
+
 // One archetype's own local joint ordering, bundled with what Ordering::
 // Build needs to place and wire up its block -- moved here from
 // ordering_policy.hpp (formerly "ordering policy") since it's really a
@@ -49,6 +60,9 @@ struct ArchetypeTreeStructure {
   // The external attachment of the root of each instance of this
   // archetype -- root_parents.size() is this archetype's instance count.
   std::span<const ArchetypeJointHandle> root_parents;
+  // Every list entry one instance carries, in declaration order -- the
+  // same for every instance.
+  std::span<const ArchetypeAttachment> attachments;
 };
 
 // One named field's flattened per-(instance, joint) scalar data for one
@@ -100,7 +114,8 @@ inline double ArchetypeFieldAt(
 
 // Everything read from the user about one archetype: its tree shape (owned
 // here, unlike ArchetypeTreeStructure's borrowed spans, which TreeStructure()
-// hands out on demand) plus every field's per-instance-per-joint data.
+// hands out on demand), every field's per-instance-per-joint data, and the
+// list entries (ArchetypeAttachment) each instance carries.
 // Built by whatever reads the user's archetype description (see
 // archetype_loader.hpp); consumed by SimAllocator's Archetype-taking
 // constructor, which accumulates every hosted Algorithm's field orderings,
@@ -114,19 +129,27 @@ class Archetype {
       std::vector<ArchetypeJointHandle> root_parents,
       bool is_root_archetype,
       std::vector<ArchetypeField> fields,
-      std::vector<std::string> joint_names = {}
+      std::vector<std::string> joint_names = {},
+      std::vector<ArchetypeAttachment> attachments = {}
   )
       : name_(std::move(name)),
         tree_structure_(std::move(tree_structure)),
         root_parents_(std::move(root_parents)),
         is_root_archetype_(is_root_archetype),
         fields_(std::move(fields)),
-        joint_names_(std::move(joint_names)) {
+        joint_names_(std::move(joint_names)),
+        attachments_(std::move(attachments)) {
     assert(
         (joint_names_.empty() || joint_names_.size() == tree_structure_.size()
         ) &&
         "Archetype: joint_names, if given, must name every joint."
     );
+    for (const ArchetypeAttachment& attachment : attachments_) {
+      assert(
+          attachment.joint < tree_structure_.size() &&
+          "Archetype: an attachment names a joint this archetype doesn't have."
+      );
+    }
   }
 
   const std::string& Name() const { return name_; }
@@ -141,8 +164,13 @@ class Archetype {
     return ArchetypeTreeStructure{
         is_root_archetype_,
         std::span<const std::size_t>(tree_structure_),
-        std::span<const ArchetypeJointHandle>(root_parents_)
+        std::span<const ArchetypeJointHandle>(root_parents_),
+        std::span<const ArchetypeAttachment>(attachments_)
     };
+  }
+
+  std::span<const ArchetypeAttachment> Attachments() const {
+    return attachments_;
   }
 
   std::span<const ArchetypeField> Fields() const { return fields_; }
@@ -174,6 +202,7 @@ class Archetype {
   bool is_root_archetype_;
   std::vector<ArchetypeField> fields_;
   std::vector<std::string> joint_names_;
+  std::vector<ArchetypeAttachment> attachments_;
 };
 
 // One joint of one instance of one archetype, by the names the .arow files
