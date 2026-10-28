@@ -86,10 +86,14 @@ class OrderingPlan {
     return (values.size() * sizeof(T)) + (alignof(T) - 1);
   }
 
+  // An empty array (a list ordering with no entries) takes no Arena space.
   template <typename T>
   static std::span<const T> CopyInto(
       memory::Arena& arena, const std::vector<T>& values
   ) {
+    if (values.empty()) {
+      return {};
+    }
     auto* storage =
         std::bit_cast<T*>(arena.Allocate(values.size() * sizeof(T), alignof(T))
         );
