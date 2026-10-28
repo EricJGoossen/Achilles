@@ -258,6 +258,6 @@ class Quaternion {
 template <typename T>
 using QuaternionAssembler =
     engine::Assembler<Quaternion, T, engine::RepeatTypes<4>>;
-static_assert(engine::AssemblerLike<QuaternionAssembler<float>>);
+static_assert(engine::BatchAssemblerLike<QuaternionAssembler<float>>);
 
 }  // namespace achilles::domain::math

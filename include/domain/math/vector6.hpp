@@ -157,6 +157,6 @@ class Vector6 {
 
 template <typename T>
 using Vector6Assembler = engine::Assembler<Vector6, T, engine::RepeatTypes<6>>;
-static_assert(engine::AssemblerLike<Vector6Assembler<float>>);
+static_assert(engine::BatchAssemblerLike<Vector6Assembler<float>>);
 
 }  // namespace achilles::domain::math

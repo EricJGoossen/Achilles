@@ -756,27 +756,27 @@ struct MatrixFor {
 template <typename T, std::size_t M, std::size_t N>
 using MatrixAssembler = engine::
     Assembler<MatrixFor<M, N>::template Target, T, engine::RepeatTypes<M * N>>;
-static_assert(engine::AssemblerLike<MatrixAssembler<float, 3, 4>>);
+static_assert(engine::BatchAssemblerLike<MatrixAssembler<float, 3, 4>>);
 
 template <typename T>
 using Matrix6x6 = Matrix<T, 6, 6>;
 template <typename T>
 using Matrix6x6Assembler =
     engine::Assembler<Matrix6x6, T, engine::RepeatTypes<36>>;
-static_assert(engine::AssemblerLike<Matrix6x6Assembler<float>>);
+static_assert(engine::BatchAssemblerLike<Matrix6x6Assembler<float>>);
 
 template <typename T>
 using Matrix3x3 = Matrix<T, 3, 3>;
 template <typename T>
 using Matrix3x3Assembler =
     engine::Assembler<Matrix3x3, T, engine::RepeatTypes<9>>;
-static_assert(engine::AssemblerLike<Matrix3x3Assembler<float>>);
+static_assert(engine::BatchAssemblerLike<Matrix3x3Assembler<float>>);
 
 template <typename T>
 using Matrix2x2 = Matrix<T, 2, 2>;
 template <typename T>
 using Matrix2x2Assembler =
     engine::Assembler<Matrix2x2, T, engine::RepeatTypes<4>>;
-static_assert(engine::AssemblerLike<Matrix2x2Assembler<float>>);
+static_assert(engine::BatchAssemblerLike<Matrix2x2Assembler<float>>);
 
 }  // namespace achilles::domain::math

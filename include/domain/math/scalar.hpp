@@ -100,7 +100,7 @@ class Scalar {
 
 template <typename T>
 using ScalarAssembler = engine::Assembler<Scalar, T, engine::RepeatTypes<1>>;
-static_assert(engine::AssemblerLike<ScalarAssembler<float>>);
-static_assert(engine::AssemblerLike<ScalarAssembler<std::int32_t>>);
+static_assert(engine::BatchAssemblerLike<ScalarAssembler<float>>);
+static_assert(engine::BatchAssemblerLike<ScalarAssembler<std::int32_t>>);
 
 }  // namespace achilles::domain::math

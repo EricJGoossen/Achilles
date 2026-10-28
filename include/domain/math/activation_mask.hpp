@@ -178,6 +178,6 @@ using ActivationMaskAssembler = engine::Assembler<
     ActivationMaskFor<N>::template Target,
     util::MaskStorageFor<PairedT>,
     engine::RepeatTypes<1>>;
-static_assert(engine::AssemblerLike<ActivationMaskAssembler<8>>);
+static_assert(engine::BatchAssemblerLike<ActivationMaskAssembler<8>>);
 
 }  // namespace achilles::domain::math

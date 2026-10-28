@@ -205,7 +205,7 @@ class SpatialPosition : public Dual<SpatialPosition, T> {
 template <typename T>
 using SpatialPositionAssembler =
     engine::Assembler<SpatialPosition, T, math::Vector6Assembler<T>>;
-static_assert(engine::AssemblerLike<SpatialPositionAssembler<float>>);
+static_assert(engine::BatchAssemblerLike<SpatialPositionAssembler<float>>);
 
 template <util::ArithmeticLike T>
 class SpatialVelocity : public Dual<SpatialVelocity, T> {
@@ -230,7 +230,7 @@ class SpatialVelocity : public Dual<SpatialVelocity, T> {
 template <typename T>
 using SpatialVelocityAssembler =
     engine::Assembler<SpatialVelocity, T, math::Vector6Assembler<T>>;
-static_assert(engine::AssemblerLike<SpatialVelocityAssembler<float>>);
+static_assert(engine::BatchAssemblerLike<SpatialVelocityAssembler<float>>);
 
 template <util::ArithmeticLike T>
 class SpatialAcceleration : public Dual<SpatialAcceleration, T> {
@@ -244,7 +244,7 @@ class SpatialAcceleration : public Dual<SpatialAcceleration, T> {
 template <typename T>
 using SpatialAccelerationAssembler =
     engine::Assembler<SpatialAcceleration, T, math::Vector6Assembler<T>>;
-static_assert(engine::AssemblerLike<SpatialAccelerationAssembler<float>>);
+static_assert(engine::BatchAssemblerLike<SpatialAccelerationAssembler<float>>);
 
 template <util::ArithmeticLike T>
 class SpatialMomentum : public Dual<SpatialMomentum, T> {
@@ -254,7 +254,7 @@ class SpatialMomentum : public Dual<SpatialMomentum, T> {
 template <typename T>
 using SpatialMomentumAssembler =
     engine::Assembler<SpatialMomentum, T, math::Vector6Assembler<T>>;
-static_assert(engine::AssemblerLike<SpatialMomentumAssembler<float>>);
+static_assert(engine::BatchAssemblerLike<SpatialMomentumAssembler<float>>);
 
 template <util::ArithmeticLike T>
 class SpatialForce : public Dual<SpatialForce, T> {
@@ -269,6 +269,6 @@ class SpatialForce : public Dual<SpatialForce, T> {
 template <typename T>
 using SpatialForceAssembler =
     engine::Assembler<SpatialForce, T, math::Vector6Assembler<T>>;
-static_assert(engine::AssemblerLike<SpatialForceAssembler<float>>);
+static_assert(engine::BatchAssemblerLike<SpatialForceAssembler<float>>);
 
 }  // namespace achilles::domain::spatial
