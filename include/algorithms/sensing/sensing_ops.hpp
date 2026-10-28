@@ -52,7 +52,7 @@ struct ReadOpImpl<S, util::TypeList<Inputs...>> {
     if (sensor.Due(*clock, dt_, last.value)) {
       Reading<typename S::Output> reading;
       sensor.Read(
-          SensorTick{dt_, clock->time, clock->tick, 0},
+          SensorTick{dt_, clock->time, clock->tick, sensor.Stream()},
           inputs...,
           &state->value,
           &reading.value

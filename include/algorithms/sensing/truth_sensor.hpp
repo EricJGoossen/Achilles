@@ -46,6 +46,12 @@ class TruthSensor : public Sensor<
   }
 };
 
+// The truth sensor of AlgorithmT's field F -- e.g.
+// TruthOf<aba::ABAAlgorithm, aba::ABAField::kWorldTransform>, attached in
+// an .arow as kind `world_transform`.
+template <engine::AlgorithmLike AlgorithmT, typename AlgorithmT::Enum F>
+using TruthOf = TruthSensor<SimInput<AlgorithmT, F>>;
+
 namespace detail {
 
 // A field a truth sensor can read: named (kName -- what it's attached

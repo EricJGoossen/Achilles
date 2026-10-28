@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <limits>
@@ -30,11 +31,16 @@ struct ArchetypeJointHandle {
 // itself -- a sensor, say: every instance of the archetype gets one, linked
 // to that instance's copy of `joint`. `list` names which list it belongs
 // to; an ordering planning that list (engine::topology::ListOrdering) gives
-// each one a row. What an entry *is* stays out of here: the archetype only
-// records the name, so new kinds never change this type.
+// each one a row. `name` addresses it (see AttachmentAddress), and `config`
+// is its own settings as named lists of numbers, the same shape a joint's
+// fields take -- read by whatever the list's entries are. What an entry
+// *is* stays out of here: the archetype only records names and numbers, so
+// new kinds never change this type.
 struct ArchetypeAttachment {
   std::string list;
   std::size_t joint = 0;
+  std::string name;
+  std::vector<std::pair<std::string, std::vector<double>>> config;
 };
 
 // One archetype's own local joint ordering, bundled with what Ordering::
@@ -213,40 +219,134 @@ struct JointAddress {
   std::size_t instance = 0;
 };
 
-// The ArchetypeJointHandle `address` names among `archetypes` -- whose
-// instances are numbered end to end, in order, the same global numbering
-// every ordering policy and JointLayout use. Throws std::invalid_argument
-// for an unknown archetype or joint, or an out-of-range instance: this
-// resolves user input, so a miss is an expected error, not a bug.
+// One archetype among `archetypes`, by where it sits: its index there, and
+// the global index of its first instance -- instances are numbered end to
+// end, in archetype order, the same numbering every ordering policy and
+// JointLayout use.
+struct ArchetypeSpan {
+  std::size_t index = 0;
+  std::size_t first_instance = 0;
+};
+
+// The first archetype `matches` accepts; nullopt if none does.
+template <typename Pred>
+std::optional<ArchetypeSpan> FindArchetype(
+    std::span<const Archetype> archetypes, Pred matches
+) {
+  std::size_t first_instance = 0;
+  for (std::size_t i = 0; i < archetypes.size(); ++i) {
+    if (matches(archetypes[i])) {
+      return ArchetypeSpan{i, first_instance};
+    }
+    first_instance += archetypes[i].InstanceCount();
+  }
+  return std::nullopt;
+}
+
+// Throws std::invalid_argument unless `instance` is one of `archetype`'s
+// copies -- `what` names the thing looked up, for the message.
+inline void CheckInstance(
+    const Archetype& archetype, std::size_t instance, const std::string& what
+) {
+  if (instance >= archetype.InstanceCount()) {
+    throw std::invalid_argument(
+        what + " has " + std::to_string(archetype.InstanceCount()) +
+        " instance(s); instance " + std::to_string(instance) +
+        " is out of range."
+    );
+  }
+}
+
+// The ArchetypeJointHandle `address` names among `archetypes`. Throws
+// std::invalid_argument for an unknown archetype or joint, or an
+// out-of-range instance: this resolves user input, so a miss is an
+// expected error, not a bug.
 inline ArchetypeJointHandle ResolveJoint(
     std::span<const Archetype> archetypes, const JointAddress& address
 ) {
-  std::size_t first_instance = 0;
-  for (const Archetype& archetype : archetypes) {
-    if (archetype.Name() != address.archetype) {
-      first_instance += archetype.InstanceCount();
-      continue;
-    }
-    std::optional<std::size_t> joint = archetype.JointIndex(address.joint);
-    if (!joint.has_value()) {
-      throw std::invalid_argument(
-          "archetype '" + address.archetype + "' has no joint named '" +
-          address.joint + "'."
-      );
-    }
-    if (address.instance >= archetype.InstanceCount()) {
-      throw std::invalid_argument(
-          "archetype '" + address.archetype + "' has " +
-          std::to_string(archetype.InstanceCount()) +
-          " instance(s); instance " + std::to_string(address.instance) +
-          " is out of range."
-      );
-    }
-    return {first_instance + address.instance, *joint};
+  const std::optional<ArchetypeSpan> found =
+      FindArchetype(archetypes, [&](const Archetype& archetype) {
+        return archetype.Name() == address.archetype;
+      });
+  if (!found.has_value()) {
+    throw std::invalid_argument(
+        "no archetype named '" + address.archetype + "'."
+    );
   }
-  throw std::invalid_argument(
-      "no archetype named '" + address.archetype + "'."
+  const Archetype& archetype = archetypes[found->index];
+  const std::optional<std::size_t> joint = archetype.JointIndex(address.joint);
+  if (!joint.has_value()) {
+    throw std::invalid_argument(
+        "archetype '" + address.archetype + "' has no joint named '" +
+        address.joint + "'."
+    );
+  }
+  CheckInstance(
+      archetype, address.instance, "archetype '" + address.archetype + "'"
   );
+  return {found->first_instance + address.instance, *joint};
+}
+
+// One instance of a named attachment (a sensor, say): `instance` counts
+// the copies of the archetype it's attached to from 0.
+struct AttachmentAddress {
+  std::string name;
+  std::size_t instance = 0;
+};
+
+// Where an attachment instance sits in its list: the list's name, its
+// entry index there, and the attachment itself. A list numbers its entries
+// archetype by archetype, instance by instance, in each archetype's own
+// declaration order (the order engine::topology::CollectAttachments
+// gives them rows in).
+struct ResolvedAttachment {
+  std::string_view list;
+  std::size_t entry = 0;
+  const ArchetypeAttachment* attachment = nullptr;
+};
+
+// The entry `address` names among `archetypes`. Throws
+// std::invalid_argument for an unknown name or an out-of-range instance:
+// this resolves user input, so a miss is an expected error, not a bug.
+inline ResolvedAttachment ResolveAttachment(
+    std::span<const Archetype> archetypes, const AttachmentAddress& address
+) {
+  const std::optional<ArchetypeSpan> found =
+      FindArchetype(archetypes, [&](const Archetype& archetype) {
+        return std::ranges::any_of(
+            archetype.Attachments(),
+            [&](const ArchetypeAttachment& a) { return a.name == address.name; }
+        );
+      });
+  if (!found.has_value()) {
+    throw std::invalid_argument(
+        "nothing is attached under the name '" + address.name + "'."
+    );
+  }
+  const Archetype& archetype = archetypes[found->index];
+  CheckInstance(archetype, address.instance, "'" + address.name + "'");
+
+  const std::span<const ArchetypeAttachment> own = archetype.Attachments();
+  const auto target = std::ranges::find_if(
+      own, [&](const ArchetypeAttachment& a) { return a.name == address.name; }
+  );
+  const auto in_list = [&](const ArchetypeAttachment& a) {
+    return a.list == target->list;
+  };
+  // Entries of this list before this archetype, then before this instance
+  // of it, then before this attachment within the instance.
+  std::size_t entry = 0;
+  for (std::size_t i = 0; i < found->index; ++i) {
+    entry += archetypes[i].InstanceCount() *
+             static_cast<std::size_t>(
+                 std::ranges::count_if(archetypes[i].Attachments(), in_list)
+             );
+  }
+  entry += address.instance *
+           static_cast<std::size_t>(std::ranges::count_if(own, in_list));
+  entry +=
+      static_cast<std::size_t>(std::count_if(own.begin(), target, in_list));
+  return {target->list, entry, &*target};
 }
 
 }  // namespace achilles::domain

@@ -89,8 +89,8 @@ struct SensorClock {
 // counter-based random generator (domain::random::CounterRng): a draw
 // depends only on (stream, tick, draw index), never on what ran before it,
 // so readings are reproducible whichever thread runs which instance.
-// stream identifies the instance (and, once Init takes one, the sim's
-// seed); it's 0 until instances carry their own index.
+// stream identifies the instance: its index mixed with the sim's seed (see
+// Sensor::Stream).
 struct SensorTick {
   float dt = 0.0F;
   float time = 0.0F;
@@ -145,6 +145,12 @@ class Sensor<Derived, SimInputs<Inputs...>, StateT, OutputT> {
 
   const SensorOptions& Options() const { return options_; }
 
+  // This instance's random stream (SensorTick::stream), set by whatever
+  // places it in the sim (interface::Simulation, from the sim's seed and
+  // the instance's index), so no two instances draw the same noise.
+  std::uint64_t Stream() const { return stream_; }
+  void SetStream(std::uint64_t stream) { stream_ = stream; }
+
   // Whether a sample is due at `clock`, given the last one published:
   // always for the first, then once `period` has elapsed -- within half a
   // tick, so a period that's a whole number of ticks isn't missed to float
@@ -157,6 +163,7 @@ class Sensor<Derived, SimInputs<Inputs...>, StateT, OutputT> {
 
  private:
   SensorOptions options_;
+  std::uint64_t stream_ = 0;
 };
 
 namespace detail {
@@ -230,7 +237,7 @@ template <SensorLike S>
 void InitializeState(const S& sensor, typename S::State* state)
   requires SensorHasInit<S>
 {
-  sensor.Initialize(SensorTick{}, state);
+  sensor.Initialize(SensorTick{0.0F, 0.0F, 0, sensor.Stream()}, state);
 }
 
 template <SensorLike S>

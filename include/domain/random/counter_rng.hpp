@@ -57,6 +57,14 @@ class CounterRng {
 
   std::uint64_t key_;
   std::uint64_t draw_ = 0;
+
+  friend constexpr std::uint64_t StreamKey(std::uint64_t, std::uint64_t);
 };
+
+// The stream for instance `index` of a sim seeded with `seed`: distinct
+// per instance, and a different set for every seed.
+constexpr std::uint64_t StreamKey(std::uint64_t seed, std::uint64_t index) {
+  return CounterRng::Mix(seed ^ CounterRng::Mix(index + CounterRng::kGolden));
+}
 
 }  // namespace achilles::domain::random
