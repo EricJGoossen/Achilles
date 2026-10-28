@@ -71,4 +71,9 @@ struct JointLimitDistanceSlot;
 struct JointLimitSideSlot;
 struct JointLimitActiveSlot;
 
+// The sensing algorithm's output buffer (sensing/sensing_data.hpp): its
+// sim-side (kOutput) and user-side (kPublished) halves are one block, and
+// this is also the buffer group whose parity ReadStep flips.
+struct SensingOutputSlot;
+
 }  // namespace achilles::algorithms

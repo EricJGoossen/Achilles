@@ -7,7 +7,9 @@
 #include <vector>
 
 #include "domain/archetype.hpp"
+#include "domain/joint_topology.hpp"
 #include "engine/topology/ordering_plan.hpp"
+#include "util/tmp.hpp"
 
 namespace achilles::engine::topology {
 
@@ -158,6 +160,19 @@ struct LinearOrdering : public Ordering {
   );
 };
 
+namespace detail {
+template <typename Policy>
+using DeclaredTopology = typename Policy::Topology;
+}  // namespace detail
+
+// The topology type an ordering's rows come with: domain::JointTopology,
+// unless the policy declares another (`using Topology = ...`) -- a list
+// ordering's domain::SegmentedTopology. So only the orderings that need
+// segments pay for them.
+template <typename Policy>
+using TopologyOfT =
+    util::DetectedOrT<domain::JointTopology, detail::DeclaredTopology, Policy>;
+
 // Every attachment (domain::ArchetypeAttachment) whose list is `list`, as
 // the joint it's linked to: archetype by archetype, instance by instance,
 // in each archetype's own declaration order -- the order ListOrdering
@@ -166,12 +181,14 @@ std::vector<ArchetypeJointHandle> CollectAttachments(
     std::span<ArchetypeTreeStructure> tree, std::string_view list
 );
 
-// Shared by every ListOrdering<Tag, ...>: one row per entry of a list,
-// linked to the row `links` names in `link_layout` (the link ordering's own
-// JointLayout). Entry i is "instance i, joint 0" of the list's own
-// JointLayout; padding rows link to the link ordering's base row.
+// Shared by every ListOrdering: one row per entry of each of `lists`, list
+// by list, each linked to the row its entry names in `link_layout` (the
+// link ordering's own JointLayout). List k's rows are segment k of the
+// plan's topology, and its entry j is "instance k, joint j" of the plan's
+// own JointLayout. Padding rows, after every list, link to the link
+// ordering's base row.
 OrderingPlan BuildListPlan(
-    std::span<const ArchetypeJointHandle> links,
+    std::span<const std::vector<ArchetypeJointHandle>> lists,
     const domain::JointLayout& link_layout,
     std::size_t lane_size
 );
@@ -184,26 +201,40 @@ concept ListTagLike = requires {
 };
 
 // Rows that aren't joints: one per attachment the archetypes declare under
-// Tag::kListName (see CollectAttachments for the order), padded to a lane
-// multiple -- sensors, say, rather than bodies. Each row's topology entry
-// is its *link*: the row, in LinkOrdering's own row space, of the joint
-// that entry is attached to. LinkedTraversal (engine/pass/traversals.hpp)
-// hands that link as a pass's source index, so an Op over a list can read
-// any field ordered by LinkOrdering at the entry's joint, the way a
-// TreeTraversal hands a joint's parent.
+// each of Lists' kListName (see CollectAttachments for the order within a
+// list), list by list in Lists' order, padded to a lane multiple --
+// sensors, say, rather than bodies. Lists is a util::TypeList of tags. Each
+// list's rows are one segment of the topology
+// (domain::JointTopology::SegmentBegin), so a pass can walk one list's rows
+// alone (SegmentTraversal, engine/pass/traversals.hpp). Each row's topology
+// entry is its *link*: the row, in LinkOrdering's own row space, of the
+// joint that entry is attached to -- handed as a pass's source index, so an
+// Op over a list can read any field ordered by LinkOrdering at the entry's
+// joint, the way a TreeTraversal hands a joint's parent.
 //
 // Plans LinkOrdering again to find those rows rather than looking up its
 // plan: a policy's Build is a pure function of the archetypes, so this
 // lands on the exact rows the sim's own LinkOrdering plan does.
-template <ListTagLike Tag, OrderingPolicyLike LinkOrdering>
-struct ListOrdering {
+template <OrderingPolicyLike LinkOrdering, typename Lists>
+struct ListOrdering;
+
+template <OrderingPolicyLike LinkOrdering, ListTagLike... Tags>
+  requires(sizeof...(Tags) > 0)
+struct ListOrdering<LinkOrdering, util::TypeList<Tags...>> {
+  // Its rows come in segments, one per list -- the only topology that
+  // carries them (see TopologyOfT). List k is instance k of its JointLayout,
+  // its entries in order, so the layout's instance offsets are the segment
+  // boundaries.
+  using Topology = domain::SegmentedTopology;
+
   static OrderingPlan Build(
       std::span<ArchetypeTreeStructure> tree, std::size_t lane_size
   ) {
     const OrderingPlan link_plan = LinkOrdering::Build(tree, lane_size);
-    return BuildListPlan(
-        CollectAttachments(tree, Tag::kListName), link_plan.Layout(), lane_size
-    );
+    const std::vector<std::vector<ArchetypeJointHandle>> lists = {
+        CollectAttachments(tree, Tags::kListName)...
+    };
+    return BuildListPlan(lists, link_plan.Layout(), lane_size);
   }
 };
 

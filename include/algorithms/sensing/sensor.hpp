@@ -3,7 +3,6 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
-#include <tuple>
 #include <type_traits>
 
 #include "engine/algorithm_contract.hpp"
@@ -18,7 +17,7 @@ namespace achilles::algorithms::sensing {
 // AlgorithmT, at the joint the sensor is mounted on. F must be shared
 // (Traits<F>::SharedAs) and ordered by joint (TopologicalOrdering): the
 // sensor's own Algorithm names that same slot to read the exact block
-// AlgorithmT keeps, never a copy (see SensingFields, sensing_data.hpp).
+// AlgorithmT keeps, never a copy (see SensingFieldTraits, sensing_data.hpp).
 template <engine::AlgorithmLike AlgorithmT, typename AlgorithmT::Enum F>
 struct SimInput {
   using Source = AlgorithmT;
@@ -160,10 +159,6 @@ class Sensor<Derived, SimInputs<Inputs...>, StateT, OutputT> {
   SensorOptions options_;
 };
 
-// A kind's input I.
-template <typename S, std::size_t I>
-using InputAtT = std::tuple_element_t<I, util::ToTupleT<typename S::InputList>>;
-
 namespace detail {
 
 template <typename S, typename InputList>
@@ -214,10 +209,42 @@ concept SensorLike =
       static_cast<typename detail::SignaturesOf<S>::ReadFn>(&S::Read);
     };
 
+// One of kind S's records, as stored in the sensing algorithm's segmented
+// fields (sensing_data.hpp): R itself, tagged with its kind, so two kinds
+// whose records share a type (two that keep NoState, say) still name
+// different segments. Same size and bytes as R.
+template <typename S, typename R>
+struct KindRecord {
+  R value{};
+};
+
 // The optional Initialize, matched the same exact way.
 template <typename S>
 concept SensorHasInit = SensorLike<S> && requires {
   static_cast<typename detail::SignaturesOf<S>::InitializeFn>(&S::Initialize);
 };
+
+// Seeds an instance's state at Init: its kind's own Initialize if it
+// declares one; otherwise the state stays value-initialized.
+template <SensorLike S>
+void InitializeState(const S& sensor, typename S::State* state)
+  requires SensorHasInit<S>
+{
+  sensor.Initialize(SensorTick{}, state);
+}
+
+template <SensorLike S>
+void InitializeState(const S& /*sensor*/, typename S::State* /*state*/)
+  requires(!SensorHasInit<S>)
+{}
+
+// A kind's records as the sensing algorithm stores them, and its inputs --
+// what sensor_kinds.hpp collects across every registered kind.
+template <typename S>
+using KindState = KindRecord<S, typename S::State>;
+template <typename S>
+using KindOutput = KindRecord<S, Reading<typename S::Output>>;
+template <typename S>
+using KindInputs = typename S::InputList;
 
 }  // namespace achilles::algorithms::sensing

@@ -193,7 +193,7 @@ class Simulation {
   // parent (e.g. to draw a bone from a joint to its parent's world
   // position) the same way ABAStep itself does.
   template <engine::topology::LayoutPolicyLike PolicyT>
-  domain::JointTopology TopologyFor() const {
+  engine::topology::TopologyOfT<PolicyT> TopologyFor() const {
     if (!state_.has_value()) {
       throw std::runtime_error(
           "Simulation::TopologyFor() called before Simulation::Init() -- "

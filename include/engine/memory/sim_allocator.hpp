@@ -106,17 +106,49 @@ struct FieldVisitor {
   static constexpr std::size_t Elements(std::size_t padded_instances) {
     return FieldIndexing::Count(padded_instances);
   }
-  static std::size_t BlockBytes(std::size_t padded_instances) {
+  static std::size_t BlockBytes(
+      std::size_t padded_instances, const std::vector<std::size_t>& segments
+  ) {
     return FieldLayout::template BlockBytes<FieldAssembler>(
-        Elements(padded_instances)
+        Elements(padded_instances), RowTableOf(segments)
     );
   }
   // Every copy of the block this field's Buffering policy keeps (one for a
   // single-buffered field, see memory/buffering_policy.hpp) -- what Carve
   // actually allocates. SeedPadding/Populate only ever fill the first copy;
   // Replicate fans it out to the rest.
-  static std::size_t RegionBytes(std::size_t padded_instances) {
-    return BlockBytes(padded_instances) * FieldBuffering::kBlockCount;
+  static std::size_t RegionBytes(
+      std::size_t padded_instances, const std::vector<std::size_t>& segments
+  ) {
+    return BlockBytes(padded_instances, segments) * FieldBuffering::kBlockCount;
+  }
+
+  // The RowTable a View over this field holds: a segmented field's segment
+  // table, nothing for a planar one.
+  static auto RowTableOf(const std::vector<std::size_t>& segments) {
+    return FieldLayout::template RowTableOf<FieldAssembler>(segments);
+  }
+
+  // This field's slot in a View's RowTables (view::detail::RowTableSlot),
+  // field index I.
+  template <std::size_t I>
+  static auto RowSlot(const std::vector<std::size_t>& segments) {
+    using Table = decltype(RowTableOf(segments));
+    return RowSlot<I, Table>(segments);
+  }
+  template <std::size_t I, typename Table>
+    requires std::is_empty_v<Table>
+  static view::detail::RowTableSlot<I, Table> RowSlot(
+      const std::vector<std::size_t>& /*segments*/
+  ) {
+    return {};
+  }
+  template <std::size_t I, typename Table>
+    requires(!std::is_empty_v<Table>)
+  static view::detail::RowTableSlot<I, Table> RowSlot(
+      const std::vector<std::size_t>& segments
+  ) {
+    return {RowTableOf(segments)};
   }
 
   // This field's own row order -- planned once per distinct policy by
@@ -128,15 +160,41 @@ struct FieldVisitor {
     return plans.at(SlotId<FieldOrdering>()).Layout();
   }
 
+  // The table this field's Layout places rows from, built from its own
+  // plan's segment boundaries (topology::SegmentedLayout) -- empty for
+  // every other layout.
+  static std::vector<std::size_t> SegmentsFor(const PlanMap& plans) {
+    return FieldLayout::template Segments<FieldAssembler>(
+        plans.at(SlotId<FieldOrdering>()).Layout().InstanceOffsets()
+    );
+  }
+
+  // A zeroed block, or null for an empty one (a segmented field whose
+  // ordering has no rows) -- the Arena never hands out zero bytes, and
+  // nothing addresses a block with no rows.
+  static std::byte* AllocateZeroed(
+      Arena& arena, std::size_t bytes, std::size_t alignment
+  ) {
+    if (bytes == 0) {
+      return nullptr;
+    }
+    std::byte* base = arena.Allocate(bytes, alignment);
+    arena.ZeroFill(base, bytes);
+    return base;
+  }
+
   // Carves (or, for a shared field already carved by an earlier algorithm,
   // reuses) this field's block. A reused slot is checked for an exact match
   // on shape -- two algorithms naming the same SharedAs tag with
   // incompatible field shapes is unsound and must fail loudly, not
   // silently alias mismatched memory.
   static std::byte* Carve(
-      Arena& arena, SlotMap& slots, std::size_t padded_instances
+      Arena& arena,
+      SlotMap& slots,
+      std::size_t padded_instances,
+      const std::vector<std::size_t>& segments
   ) {
-    std::size_t bytes = RegionBytes(padded_instances);
+    std::size_t bytes = RegionBytes(padded_instances, segments);
     std::size_t alignment = Alignment();
     std::size_t lanes = LaneCount();
     const void* ordering_id = SlotId<FieldOrdering>();
@@ -163,8 +221,7 @@ struct FieldVisitor {
         );
         return rec.base;
       }
-      std::byte* base = arena.Allocate(bytes, alignment);
-      arena.ZeroFill(base, bytes);
+      std::byte* base = AllocateZeroed(arena, bytes, alignment);
       slots.emplace(
           id,
           SlotRecord{
@@ -179,8 +236,7 @@ struct FieldVisitor {
       );
       return base;
     } else {
-      std::byte* base = arena.Allocate(bytes, alignment);
-      arena.ZeroFill(base, bytes);
+      std::byte* base = AllocateZeroed(arena, bytes, alignment);
       return base;
     }
   }
@@ -202,7 +258,9 @@ struct FieldVisitor {
       std::byte* base,
       std::size_t padded_instances,
       const domain::JointLayout& rows
-  ) {
+  )
+    requires(!topology::SegmentedLayoutLike<FieldLayout>)
+  {
     using ScalarType = typename FieldAssembler::ScalarType;
     const AssembledT<FieldAssembler> seed = FieldAssembler::PaddingSeed();
     const std::size_t stride =
@@ -221,6 +279,16 @@ struct FieldVisitor {
 
     FieldIndexing::SeedPadding(write_element, rows, padded_instances);
   }
+
+  // A segmented field's padding rows sit in no segment and take no space
+  // (see topology::SegmentedLayout): nothing to seed.
+  static void SeedPadding(
+      std::byte* /*base*/,
+      std::size_t /*padded_instances*/,
+      const domain::JointLayout& /*rows*/
+  )
+    requires topology::SegmentedLayoutLike<FieldLayout>
+  {}
 
   // Copies this field's data out of whichever of `archetypes` declares a
   // field named Traits<F>::kName, into the sorted rows this field's own
@@ -299,8 +367,15 @@ struct FieldVisitor {
 
   // Copies the seeded+populated first block into every other copy this
   // field's Buffering policy keeps -- a no-op for a single-buffered field.
-  static void Replicate(std::byte* base, std::size_t padded_instances) {
-    FieldBuffering::Replicate(base, BlockBytes(padded_instances));
+  static void Replicate(
+      std::byte* base,
+      std::size_t padded_instances,
+      const std::vector<std::size_t>& segments
+  ) {
+    const std::size_t block_bytes = BlockBytes(padded_instances, segments);
+    if (block_bytes > 0) {
+      FieldBuffering::Replicate(base, block_bytes);
+    }
   }
 };
 
@@ -316,10 +391,10 @@ using MeasureSlotSet = std::unordered_set<const void*>;
 
 template <typename EnumT, template <EnumT> class Traits, EnumT F>
 std::size_t MeasureField(
-    MeasureSlotSet& counted, std::size_t padded_instances
+    MeasureSlotSet& counted, std::size_t padded_instances, const PlanMap& plans
 ) {
   using V = FieldVisitor<EnumT, Traits, F>;
-  std::size_t bytes = V::RegionBytes(padded_instances);
+  std::size_t bytes = V::RegionBytes(padded_instances, V::SegmentsFor(plans));
   std::size_t alignment = V::Alignment();
 
   if constexpr (FieldIsShared<EnumT, Traits, F>) {
@@ -341,11 +416,12 @@ template <typename EnumT, template <EnumT> class Traits, std::size_t... Is>
 std::size_t MeasureAlgorithm(
     MeasureSlotSet& counted,
     std::index_sequence<Is...>,
-    std::size_t padded_instances
+    std::size_t padded_instances,
+    const PlanMap& plans
 ) {
   return (
       MeasureField<EnumT, Traits, static_cast<EnumT>(Is)>(
-          counted, padded_instances
+          counted, padded_instances, plans
       ) +
       ...
   );
@@ -395,10 +471,25 @@ struct BuildTopologyTuple<util::TypeList<Policies...>> {
 
  private:
   template <typename Policy>
+    requires std::same_as<topology::TopologyOfT<Policy>, domain::JointTopology>
   static pass::TopologySlot<Policy> MakeSlot(
       topology::OrderingPlan::Allocated allocated
   ) {
     return {allocated.topology, allocated.layout};
+  }
+
+  template <typename Policy>
+    requires std::
+        same_as<topology::TopologyOfT<Policy>, domain::SegmentedTopology>
+      static pass::TopologySlot<Policy> MakeSlot(
+          topology::OrderingPlan::Allocated allocated
+      ) {
+    return {
+        domain::SegmentedTopology(
+            allocated.topology, allocated.layout.InstanceOffsets()
+        ),
+        allocated.layout
+    };
   }
 };
 
@@ -463,12 +554,15 @@ struct AlgorithmVisitor<Algorithm<EnumT, Traits>> {
   }
 
   static std::size_t MeasureExact(
-      MeasureSlotSet& counted, std::size_t padded_instances
+      MeasureSlotSet& counted,
+      std::size_t padded_instances,
+      const PlanMap& plans
   ) {
     return MeasureAlgorithm<EnumT, Traits>(
         counted,
         std::make_index_sequence<static_cast<std::size_t>(EnumT::kCount)>{},
-        padded_instances
+        padded_instances,
+        plans
     );
   }
 
@@ -482,10 +576,20 @@ struct AlgorithmVisitor<Algorithm<EnumT, Traits>> {
       std::span<const domain::Archetype> archetypes,
       const ParityTuple& parities
   ) {
+    const std::array<std::vector<std::size_t>, sizeof...(Is)> segments{
+        FieldVisitor<EnumT, Traits, static_cast<EnumT>(Is)>::SegmentsFor(plans
+        )...
+    };
     std::array<std::byte*, sizeof...(Is)> type_bases{
         FieldVisitor<EnumT, Traits, static_cast<EnumT>(Is)>::Carve(
-            arena, slots, padded_instances
+            arena, slots, padded_instances, segments[Is]
         )...
+    };
+    // Each field's RowTable: a segmented field's slot is initialized from
+    // its table; an empty one has nothing to initialize.
+    typename View::RowTables row_tables{
+        FieldVisitor<EnumT, Traits, static_cast<EnumT>(Is)>::template RowSlot<
+            Is>(segments[Is])...
     };
     // Seed after every field's block exists, so a shared field carved once
     // by an earlier algorithm still gets seeded exactly once here too (a
@@ -512,14 +616,14 @@ struct AlgorithmVisitor<Algorithm<EnumT, Traits>> {
      ...);
     // Last, once the first block holds its final initial contents.
     (FieldVisitor<EnumT, Traits, static_cast<EnumT>(Is)>::Replicate(
-         type_bases[Is], padded_instances
+         type_bases[Is], padded_instances, segments[Is]
      ),
      ...);
     std::array<const BufferParity*, sizeof...(Is)> field_parities{
         ParityFor<typename FieldVisitor<EnumT, Traits, static_cast<EnumT>(Is)>::
                       FieldBuffering>(parities)...
     };
-    return View(type_bases, padded_instances, field_parities);
+    return View(type_bases, padded_instances, field_parities, row_tables);
   }
 
   template <typename ParityTuple>
@@ -591,7 +695,7 @@ class SimAllocator {
 
   // Forwards to the built SimContext's own TopologyFor.
   template <topology::LayoutPolicyLike PolicyT>
-  domain::JointTopology TopologyFor() const {
+  topology::TopologyOfT<PolicyT> TopologyFor() const {
     return state_.context.template TopologyFor<PolicyT>();
   }
 
@@ -635,7 +739,7 @@ class SimAllocator {
     detail::MeasureSlotSet counted;
     std::size_t total =
         (detail::AlgorithmVisitor<Algorithms>::MeasureExact(
-             counted, padded_instances_
+             counted, padded_instances_, plans_
          ) +
          ...);
     for (const auto& [id, plan] : plans_) {

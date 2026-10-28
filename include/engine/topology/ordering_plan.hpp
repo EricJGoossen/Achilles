@@ -81,9 +81,10 @@ class OrderingPlan {
   }
 
  private:
+  // Nothing for an empty array: CopyInto doesn't allocate one.
   template <typename T>
   static std::size_t ArrayBytes(const std::vector<T>& values) {
-    return (values.size() * sizeof(T)) + (alignof(T) - 1);
+    return values.empty() ? 0 : (values.size() * sizeof(T)) + (alignof(T) - 1);
   }
 
   // An empty array (a list ordering with no entries) takes no Arena space.

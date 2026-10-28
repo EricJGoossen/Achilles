@@ -3,42 +3,26 @@
 #include "algorithms/conventions.hpp"
 #include "algorithms/sensing/sensing_data.hpp"
 #include "algorithms/sensing/sensing_ops.hpp"
-#include "algorithms/sensing/sensor.hpp"
+#include "algorithms/sensing/sensor_kinds.hpp"
+#include "algorithms/shared_slots.hpp"
 #include "engine/algorithm_contract.hpp"
-#include "engine/field_contract.hpp"
-#include "engine/op_contract.hpp"
 #include "engine/pass/algorithm_step.hpp"
 #include "engine/pass/sim_context.hpp"
 #include "engine/pass/traversals.hpp"
-#include "engine/view/view_contract.hpp"
+#include "util/tmp.hpp"
 
 namespace achilles::algorithms::sensing {
 
-template <SensorLike S>
-using SensingAlgorithm =
-    engine::Algorithm<SensingField<S>, SensingFields<S>::template Traits>;
+using SensingAlgorithm = engine::Algorithm<SensingField, SensingFieldTraits>;
+static_assert(engine::AlgorithmLike<SensingAlgorithm>);
 
-// Runs every instance on the sim's current state, then publishes the
-// readings: the flip comes after the pass, so what the user reads once the
-// tick returns is this tick's reading (the mirror of an input buffer like
-// actuator torque, flipped before the passes that read it).
-//
-// Also where a kind's generated algorithm is checked against the same
-// contracts every hand-written one asserts at namespace scope -- once per
-// kind, the first time it's named.
-template <SensorLike S>
+// Runs every sensor on the sim's current state -- one pass per kind, over
+// its own segment (engine::pass::SegmentOps) -- then publishes the
+// readings: the flip comes after the passes, so what the user reads once
+// the tick returns is this tick's reading (the mirror of an input buffer
+// like actuator torque, flipped before the passes that read it).
 struct ReadStep {
-  using FieldEnum = SensingField<S>;
-
-  static_assert(engine::FieldTraitsLike<
-                FieldEnum,
-                SensingFields<S>::template Traits>);
-  static_assert(engine::view::ViewLike<SensingView<S>, FieldEnum>);
-  static_assert(engine::AlgorithmLike<SensingAlgorithm<S>>);
-  static_assert(engine::OpLike<ReadOp<S>>);
-  static_assert(engine::OpArgsMatchView<ReadOp<S>, SensingView<S>>);
-  static_assert(engine::OpLike<InitOp<S>>);
-  static_assert(engine::OpArgsMatchView<InitOp<S>, SensingView<S>>);
+  using FieldEnum = SensingField;
 
   template <engine::pass::SimContextLike SimStateT, typename Config>
   static void Step(
@@ -47,21 +31,17 @@ struct ReadStep {
       ScalarOperationT dt
   ) {
     engine::pass::Step(
-        engine::pass::Ops<
-            engine::pass::Pass<ReadOp<S>, engine::pass::LinkedTraversal>>{
-            ReadOp<S>(dt)
-        },
-        sim_state.template ViewFor<SensingView<S>>(),
-        sim_state.template TopologyFor<SensingOrdering<S>>()
+        engine::pass::SegmentOps<ReadOp, SensorKinds>(dt),
+        sim_state.template ViewFor<SensingView>(),
+        sim_state.template TopologyFor<SensingOrdering>()
     );
-    sim_state.template FlipParity<OutputGroup<S>>();
+    sim_state.template FlipParity<SensingOutputSlot>();
   }
 };
 
-// Once, at Init: resets every instance's clock and seeds its locals.
-template <SensorLike S>
+// Once, at Init: resets every sensor's clock and seeds its state.
 struct InitStep {
-  using FieldEnum = SensingField<S>;
+  using FieldEnum = SensingField;
 
   template <engine::pass::SimContextLike SimStateT, typename Config>
   static void Step(
@@ -70,13 +50,17 @@ struct InitStep {
       ScalarOperationT /*dt*/
   ) {
     engine::pass::Step(
-        engine::pass::Ops<engine::pass::Pass<
-            InitOp<S>,
-            engine::pass::ForwardLinearTraversal>>{InitOp<S>{}},
-        sim_state.template ViewFor<SensingView<S>>(),
-        sim_state.template TopologyFor<SensingOrdering<S>>()
+        engine::pass::SegmentOps<InitOp, SensorKinds, engine::pass::SelfSource>(
+        ),
+        sim_state.template ViewFor<SensingView>(),
+        sim_state.template TopologyFor<SensingOrdering>()
     );
   }
 };
+
+// What the integrators run (integrators.hpp): each tick's sensing, and the
+// once-at-Init setup.
+using Sensing = util::TypeList<ReadStep>;
+using SensingSetup = util::TypeList<InitStep>;
 
 }  // namespace achilles::algorithms::sensing

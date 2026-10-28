@@ -25,6 +25,8 @@ namespace detail {
 struct TraversalProbe {
   size_t Size() const { return 0; }
   size_t operator[](size_t) const { return 0; }
+  size_t SegmentBegin(size_t) const { return 0; }
+  size_t SegmentEnd(size_t) const { return 0; }
   explicit operator size_t() const { return 0; }
 };
 
@@ -157,15 +159,49 @@ constexpr size_t RowCount(const Rows& rows) {
 
 }  // namespace detail
 
-// Every row group of one ordering, one call per group with (target = the
-// group, source = Source's index for it) -- forward or backward. The only
-// thing that distinguishes a tree, linear or linked pass is Source; the
-// loop is the same, and Source is resolved at compile time, so each costs
-// exactly what its own hand-written loop did. Rows is whatever the Step
-// call hands first after the view: a JointTopology, or (SelfSource only) a
-// bare row count -- so a linear pass can share a Step call with a tree
-// pass and its topology.
-template <Direction Dir, size_t Stride, typename Source>
+// Which row groups a RowTraversal walks, [Begin, End) in groups of Stride:
+// every one (AllRows), or only segment K of a topology split into segments
+// (one per list of a topology::ListOrdering -- see
+// domain::JointTopology::SegmentBegin), one row at a time since a segment
+// needn't start on a lane boundary.
+struct AllRows {
+  template <size_t Stride, typename Rows>
+  static constexpr size_t Begin(const Rows& /*rows*/) {
+    return 0;
+  }
+  template <size_t Stride, typename Rows>
+  static constexpr size_t End(const Rows& rows) {
+    return detail::RowCount(rows) / Stride;
+  }
+};
+
+template <size_t K>
+struct Segment {
+  template <size_t Stride, typename Rows>
+    requires(Stride == 1)
+  static constexpr size_t Begin(const Rows& rows) {
+    return rows.SegmentBegin(K);
+  }
+  template <size_t Stride, typename Rows>
+    requires(Stride == 1)
+  static constexpr size_t End(const Rows& rows) {
+    return rows.SegmentEnd(K);
+  }
+};
+
+// Row groups of one ordering, one call per group with (target = the group,
+// source = Source's index for it) -- forward or backward. The only things
+// that distinguish a tree, linear, linked or segment pass are Source and
+// Range; the loop is the same, and both are resolved at compile time, so
+// each costs exactly what its own hand-written loop did. Rows is whatever
+// the Step call hands first after the view: a JointTopology, or
+// (SelfSource only) a bare row count -- so a linear pass can share a Step
+// call with a tree pass and its topology.
+template <
+    Direction Dir,
+    size_t Stride,
+    typename Source,
+    typename Range = AllRows>
   requires(Stride == 1 || Source::kBatchable)
 struct RowTraversal {
   static constexpr Direction kDirection = Dir;
@@ -176,8 +212,8 @@ struct RowTraversal {
   static constexpr void Apply(
       const Callable& callable, const Rows& rows, const Rest&... /*rest*/
   ) {
-    size_t groups = detail::RowCount(rows) / Stride;
-    for (size_t j = 0; j < groups; ++j) {
+    const size_t end = Range::template End<Stride>(rows);
+    for (size_t j = Range::template Begin<Stride>(rows); j < end; ++j) {
       callable(j, Source::template Of<Stride>(rows, j));
     }
   }
@@ -187,8 +223,8 @@ struct RowTraversal {
   static constexpr void Apply(
       const Callable& callable, const Rows& rows, const Rest&... /*rest*/
   ) {
-    size_t groups = detail::RowCount(rows) / Stride;
-    for (size_t j = groups; j-- > 0;) {
+    const size_t begin = Range::template Begin<Stride>(rows);
+    for (size_t j = Range::template End<Stride>(rows); j-- > begin;) {
       callable(j, Source::template Of<Stride>(rows, j));
     }
   }
@@ -197,7 +233,8 @@ struct RowTraversal {
   static constexpr void InitOp(
       const Callable& callable, const Rows& rows, const Rest&... /*rest*/
   ) {
-    if (detail::RowCount(rows) / Stride > 0) {
+    if (Range::template Begin<Stride>(rows) <
+        Range::template End<Stride>(rows)) {
       callable.Initialize(Source::template InitRow<Stride>(rows));
     }
   }
@@ -216,6 +253,13 @@ using LinearTraversal = RowTraversal<Dir, Stride, SelfSource>;
 
 // Every entry of a list ordering, handed its link as ArgIndex::kLink.
 using LinkedTraversal = RowTraversal<Direction::kForward, 1, LinkSource>;
+
+// Only segment K's rows, forward, each handed its source -- by default its
+// link (ArgIndex::kLink) -- so a pass can run an Op written for one list's
+// entries over exactly those rows.
+template <size_t K, typename Source = LinkSource>
+using SegmentTraversal =
+    RowTraversal<Direction::kForward, 1, Source, Segment<K>>;
 
 using ForwardTreeTraversal = TreeTraversal<Direction::kForward, 1>;
 using BackwardTreeTraversal = TreeTraversal<Direction::kBackward, 1>;
@@ -240,6 +284,10 @@ static_assert(
 static_assert(
     TraversalLike<LinkedTraversal>,
     "LinkedTraversal must satisfy TraversalLike concept"
+);
+static_assert(
+    TraversalLike<SegmentTraversal<0>>,
+    "SegmentTraversal must satisfy TraversalLike concept"
 );
 
 // One call, at index 0 -- for an Op whose work is a single value the whole

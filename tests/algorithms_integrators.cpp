@@ -440,12 +440,14 @@ static_assert(std::is_same_v<
                   achilles::algorithms::joint_limit::JointLimitStep>>);
 
 // Setup is mj_setConst: ABA at the initial pose, then the solver's inverse
-// weights from its factors.
+// weights from its factors -- then every sensor kind's InitStep.
 static_assert(std::is_same_v<
               achilles::algorithms::Setup,
-              TypeList<
-                  ABAStep,
-                  achilles::algorithms::contact_solver::InvWeightStep>>);
+              achilles::util::ConcatT<
+                  TypeList<
+                      ABAStep,
+                      achilles::algorithms::contact_solver::InvWeightStep>,
+                  achilles::algorithms::sensing::SensingSetup>>);
 
 // A pendulum dropped from horizontal swings far past 0.5 rad free (see
 // IntegratorPendulum above); with an upper limit at 0.5 rad, semi-implicit

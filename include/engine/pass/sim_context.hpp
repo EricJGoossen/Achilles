@@ -12,6 +12,7 @@
 #include "engine/memory/binding.hpp"
 #include "engine/memory/buffering_policy.hpp"
 #include "engine/topology/layout_policy.hpp"
+#include "engine/topology/ordering_policy.hpp"
 #include "engine/view/view_contract.hpp"
 #include "util/tmp.hpp"
 
@@ -115,13 +116,17 @@ using ParityTupleFor = util::ToTupleT<
 // distinct type per Algorithm, so std::tuple<Algorithms::View...> has no
 // such collision to begin with.
 //
+// The topology is the policy's own type (topology::TopologyOfT): a plain
+// JointTopology for every ordering but a list one, whose rows come in
+// segments.
+//
 // Also carries the policy's JointLayout -- which real (instance, joint)
 // each row holds, and which rows are padding -- for anything that
 // addresses a specific joint after construction. Both are views into the
 // Arena, so the slot stays trivially copyable.
 template <typename Policy>
 struct TopologySlot {
-  domain::JointTopology topology;
+  topology::TopologyOfT<Policy> topology;
   domain::JointLayout layout;
 };
 
@@ -168,7 +173,7 @@ class SimContext {
   // View type below (sim_state.template TopologyFor<TopologicalOrdering>()),
   // rather than having its Topology resolved and handed to it up front.
   template <topology::LayoutPolicyLike Policy>
-  const domain::JointTopology& TopologyFor() const {
+  const topology::TopologyOfT<Policy>& TopologyFor() const {
     return std::get<TopologySlot<Policy>>(topologies_).topology;
   }
 

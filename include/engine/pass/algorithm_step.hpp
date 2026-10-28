@@ -8,6 +8,7 @@
 #include "engine/pass/op_invoker.hpp"
 #include "engine/pass/traversals.hpp"
 #include "engine/view/view_contract.hpp"
+#include "util/tmp.hpp"
 
 namespace achilles::engine::pass {
 
@@ -83,6 +84,56 @@ void Step(const Ops<Passes...>& ops, View view, const Args&... args) {
       },
       ops.instances_
   );
+}
+
+namespace detail {
+
+template <
+    template <typename>
+    class Op,
+    typename Source,
+    typename List,
+    typename Segments>
+struct SegmentOpsFor;
+
+template <
+    template <typename>
+    class Op,
+    typename Source,
+    typename... Ts,
+    size_t... Ks>
+struct SegmentOpsFor<
+    Op,
+    Source,
+    util::TypeList<Ts...>,
+    std::index_sequence<Ks...>> {
+  using Type = Ops<Pass<Op<Ts>, SegmentTraversal<Ks, Source>>...>;
+
+  template <typename... Args>
+  static Type Make(const Args&... args) {
+    return Type(Op<Ts>(args...)...);
+  }
+};
+
+}  // namespace detail
+
+// One pass per type T_K of List, each running Op<T_K> over only segment K
+// of the topology (SegmentTraversal<K, Source>) -- for an algorithm whose
+// rows are a topology::ListOrdering of List, where each list's entries get
+// an Op written for that list alone. Every Op is built from the same
+// `args`. Hand the result to Step like any Ops.
+template <
+    template <typename>
+    class Op,
+    typename List,
+    typename Source = LinkSource,
+    typename... Args>
+auto SegmentOps(const Args&... args) {
+  return detail::SegmentOpsFor<
+      Op,
+      Source,
+      List,
+      std::make_index_sequence<util::kSizeV<List>>>::Make(args...);
 }
 
 }  // namespace achilles::engine::pass

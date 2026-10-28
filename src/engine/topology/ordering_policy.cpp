@@ -447,18 +447,21 @@ std::vector<ArchetypeJointHandle> CollectAttachments(
 }
 
 OrderingPlan BuildListPlan(
-    std::span<const ArchetypeJointHandle> links,
+    std::span<const std::vector<ArchetypeJointHandle>> lists,
     const domain::JointLayout& link_layout,
     std::size_t lane_size
 ) {
-  const std::size_t count = links.size();
+  std::vector<std::size_t> segments(lists.size() + 1, 0);
+  for (std::size_t k = 0; k < lists.size(); ++k) {
+    segments[k + 1] = segments[k] + lists[k].size();
+  }
+  const std::size_t count = segments.back();
   const std::size_t padded = RoundUpToLane(count, lane_size);
 
   // Padding rows link to the link ordering's base row: always a valid,
   // seeded row to read, the same reasoning BuildFromLocalOrders gives for
   // defaulting a padding row's parent to its own base row.
   std::vector<std::size_t> link_rows(padded, link_layout.BaseRowIndex());
-  std::vector<std::size_t> instance_offsets(count + 1);
   std::vector<std::size_t> sorted_rows(count);
   std::vector<ArchetypeJointHandle> entries(
       padded,
@@ -466,15 +469,20 @@ OrderingPlan BuildListPlan(
           domain::JointLayout::kNoInstance, domain::JointLayout::kNoInstance
       }
   );
-  for (std::size_t i = 0; i < count; ++i) {
-    link_rows[i] = link_layout.ToSorted(links[i]);
-    instance_offsets[i + 1] = i + 1;
-    sorted_rows[i] = i;
-    entries[i] = ArchetypeJointHandle{i, 0};
+  for (std::size_t k = 0; k < lists.size(); ++k) {
+    for (std::size_t j = 0; j < lists[k].size(); ++j) {
+      const std::size_t row = segments[k] + j;
+      link_rows[row] = link_layout.ToSorted(lists[k][j]);
+      sorted_rows[row] = row;
+      entries[row] = ArchetypeJointHandle{k, j};
+    }
   }
+  // A list's entries are its JointLayout instance's joints, so the
+  // instance offsets are the segment boundaries themselves (see
+  // ListOrdering).
   return {
       std::move(link_rows),
-      std::move(instance_offsets),
+      std::move(segments),
       std::move(sorted_rows),
       std::move(entries),
       lane_size

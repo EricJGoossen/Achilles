@@ -63,14 +63,13 @@ struct ABAFieldTraits;
 // Ordering = topology::TopologicalOrdering -- there is no ABA field that
 // could safely use the (looser, no-cross-batch-dependency) default.
 //
-// kName is only declared on the "Model/kinematic inputs" fields -- the
-// ones an archetype (domain/archetype.hpp) actually supplies from
-// user data. Every other field is produced or consumed purely at runtime
-// (propagated state, joint-space scratch, final outputs), so it declares
-// no kName: memory::SimAllocator's Populate pass (see
-// engine/memory/sim_allocator.hpp) only ever looks for a name-matched
-// ArchetypeField on a field that has one, and leaves everything else to
-// Carve's zero-fill and each Op's own Initialize/Apply.
+// kName is a field's one name: what an archetype (.arow) field is matched
+// against when loading (memory::SimAllocator's Populate pass), and what a
+// truth sensor of it is attached under (algorithms/sensing). The model
+// inputs and the state ABA computes (world pose, body velocity, the
+// accelerations) are named; ABA's internal scratch terms (articulated
+// inertia, U, D^-1, bias terms, ...) aren't, and are left to Carve's
+// zero-fill and each Op's own Initialize/Apply.
 template <>
 struct ABAFieldTraits<ABAField::kJointSubspace> {
   using Assembler = math::Matrix6x6Assembler<ScalarOperationT>;
@@ -166,6 +165,7 @@ struct ABAFieldTraits<ABAField::kWorldTransform> {
   using SharedAs = WorldTransformSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
+  static constexpr std::string_view kName = "world_transform";
 };
 template <>
 struct ABAFieldTraits<ABAField::kSpatialVelocity> {
@@ -173,6 +173,7 @@ struct ABAFieldTraits<ABAField::kSpatialVelocity> {
   using SharedAs = SpatialVelocitySlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
+  static constexpr std::string_view kName = "spatial_velocity";
 };
 template <>
 struct ABAFieldTraits<ABAField::kBiasAcceleration> {
@@ -220,12 +221,14 @@ struct ABAFieldTraits<ABAField::kJointAcceleration> {
   using SharedAs = JointAccelerationSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
+  static constexpr std::string_view kName = "joint_acceleration";
 };
 template <>
 struct ABAFieldTraits<ABAField::kSpatialAcceleration> {
   using Assembler = spatial::SpatialAccelerationAssembler<ScalarOperationT>;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
+  static constexpr std::string_view kName = "spatial_acceleration";
 };
 static_assert(engine::FieldTraitsLike<ABAField, ABAFieldTraits>);
 
