@@ -10,8 +10,8 @@ namespace achilles::render {
 // A lit, indexed triangle mesh of one unit shape (vertices within
 // [-1, 1]^3, interleaved position(3)/normal(3)) -- the shapes visible
 // joints are drawn as, scaled per joint by its own kVisualExtents
-// half-extents (see mat4.hpp's own FromTransformAndScale). Cube() and
-// Sphere() build the two shapes algorithms::viz::VisualShape names. Built
+// half-extents (see mat4.hpp's own FromTransformAndScale). Cube(), Sphere()
+// and Cylinder() build the shapes algorithms::viz::VisualShape names. Built
 // and uploaded once; Draw() just binds and issues one indexed draw call, so
 // a frame with many joints costs one draw call per joint, not one buffer
 // upload per joint -- plenty fast for the joint counts an articulated-body
@@ -24,6 +24,14 @@ class SolidMesh {
   // A unit sphere, a latitude/longitude grid whose normals are its
   // positions, so it shades smoothly.
   static SolidMesh Sphere();
+  // A unit cylinder about the Y axis (radius 1, y in [-1, 1]): a smoothly
+  // shaded side wall plus two flat-shaded end caps.
+  static SolidMesh Cylinder();
+  // The marking drawn over Cylinder() in a contrasting color so its spin
+  // stays visible: one stripe along the side wall at +X, and a spoke from
+  // the axis out to that stripe on each cap. It sits just outside the
+  // cylinder's own surface, so the two never z-fight.
+  static SolidMesh CylinderStripe();
 
   ~SolidMesh();
 

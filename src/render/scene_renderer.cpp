@@ -20,6 +20,7 @@ namespace {
 
 using achilles::algorithms::ScalarOperationT;
 using achilles::algorithms::viz::ShapeOf;
+using achilles::algorithms::viz::ToVisualPose;
 using achilles::algorithms::viz::VisualShape;
 using achilles::algorithms::viz::VizField;
 using achilles::algorithms::viz::VizView;
@@ -127,6 +128,24 @@ Vec3 FallbackColor(std::size_t row) {
   }
 }
 
+// The color a cylinder's stripe is drawn in: a darker shade of the body's
+// own, or -- for a body already too dark for darker to show, like a black
+// tire -- a lighter one instead.
+Vec3 StripeColor(const Vec3& rgb) {
+  float luminance =
+      (0.2126F * rgb.X()) + (0.7152F * rgb.Y()) + (0.0722F * rgb.Z());
+  if (luminance < 0.3F) {
+    constexpr float kLighten = 0.55F;
+    return {
+        rgb.X() + ((1.0F - rgb.X()) * kLighten),
+        rgb.Y() + ((1.0F - rgb.Y()) * kLighten),
+        rgb.Z() + ((1.0F - rgb.Z()) * kLighten)
+    };
+  }
+  constexpr float kDarken = 0.4F;
+  return {rgb.X() * kDarken, rgb.Y() * kDarken, rgb.Z() * kDarken};
+}
+
 // The ground grid lies in the world XY plane (z = 0): the simulation is
 // Z-up, so that is the plane gravity is normal to.
 std::vector<float> BuildGridLines(float half_extent, float step) {
@@ -147,7 +166,9 @@ SceneRenderer::SceneRenderer(std::string_view title)
       lit_shader_(kLitVertexSource, kLitFragmentSource),
       line_shader_(kLineVertexSource, kLineFragmentSource),
       cube_(SolidMesh::Cube()),
-      sphere_(SolidMesh::Sphere()) {
+      sphere_(SolidMesh::Sphere()),
+      cylinder_(SolidMesh::Cylinder()),
+      cylinder_stripe_(SolidMesh::CylinderStripe()) {
   grid_.Update(BuildGridLines(10.0F, 1.0F));
   axis_x_.Update(std::vector<float>{0, 0, 0, 2, 0, 0});
   axis_y_.Update(std::vector<float>{0, 0, 0, 0, 2, 0});
@@ -209,20 +230,29 @@ void SceneRenderer::RenderFrame(
         view.Load<VizField::kVisualColor, ScalarOperationT>(row);
     Vec3 rgb = color.IsZero() ? FallbackColor(row) : ToRenderVec3(color);
 
+    // The shape is drawn in its own frame, kVisualPose composed onto the
+    // joint's, x_world x_visual -- the same composition broad_phase uses for
+    // kCollisionPose -- so a scene can move or turn a shape off its joint
+    // (e.g. lay a cylinder's axis along a wheel's axle) without touching
+    // the joint itself. An unset kVisualPose reads as identity, leaving the
+    // shape on the joint frame.
+    //
     // Each mesh is centered on the origin (within [-1, 1]^3, see
-    // SolidMesh's own comment), so placing it directly at `transform` would
+    // SolidMesh's own comment), so placing it directly at that frame would
     // draw every joint's shape straddling its own pivot -- centered on the
     // joint rather than extending away from it the way a bone/limb segment
-    // actually should. Offsetting by half the box's own length along its
-    // local +Y (the same axis fixed_joint_transform's own translation uses
+    // actually should. Offsetting by half the box's own length along the
+    // frame's +Y (the same axis fixed_joint_transform's own translation uses
     // to place a child joint, see two_joint_arm.arow's own comment) instead
     // draws it from the joint outward, so a child joint offset by this same
     // convention sits right at the box's far face rather than the middle.
     // `transform` itself -- the real, unshifted joint position -- is still
     // what the bone line below is drawn from/to, so this offset is purely
     // cosmetic (the shape's own placement), never the physics.
+    ScalarTransform visual_pose =
+        ToVisualPose(view.Load<VizField::kVisualPose, ScalarOperationT>(row));
     ScalarTransform shape_pose =
-        transform *
+        transform * visual_pose *
         ScalarTransform(
             ScalarVector3(0, extents.Y(), 0), ScalarQuaternion::Identity()
         );
@@ -234,7 +264,21 @@ void SceneRenderer::RenderFrame(
     VisualShape shape =
         ShapeOf(view.Load<VizField::kVisualShape, ScalarOperationT>(row).Value()
         );
-    (shape == VisualShape::kSphere ? sphere_ : cube_).Draw();
+    switch (shape) {
+      case VisualShape::kSphere:
+        sphere_.Draw();
+        break;
+      case VisualShape::kCylinder: {
+        cylinder_.Draw();
+        Vec3 stripe = StripeColor(rgb);
+        lit_shader_.SetVec3("u_color", stripe.X(), stripe.Y(), stripe.Z());
+        cylinder_stripe_.Draw();
+        break;
+      }
+      case VisualShape::kBox:
+        cube_.Draw();
+        break;
+    }
 
     std::size_t parent_row = topology[row];
     ScalarTransform parent_transform =
