@@ -10,7 +10,7 @@
 #include "engine/memory/binding.hpp"
 #include "engine/memory/buffering_policy.hpp"
 #include "engine/topology/indexing_policy.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "util/tmp.hpp"
 
 namespace achilles::algorithms::sensing {

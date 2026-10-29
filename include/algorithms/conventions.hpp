@@ -43,8 +43,8 @@ using Mat6Mask = math::ActivationMask<util::MaskStorageFor<MathematicalT>, 6>;
 
 // One bit per lane of a MathematicalT, packed into a plain int32 rather than
 // a batch -- what a whole batch's worth of per-lane yes/no answers packs into
-// (a compare's movemask, a GPU warp ballot), e.g. one word per (source row,
-// target lane group) of a pair pass (see topology::PairGroupIndexing).
+// (a compare's movemask, a GPU warp ballot), e.g. one word per lane group of
+// a pair pass (see topology::LaneGroupIndexing).
 using LaneMask = math::ActivationMask<std::int32_t, kLanes>;
 static_assert(
     util::LaneCountOf<util::MaskStorageFor<MathematicalT>>() == kLanes,

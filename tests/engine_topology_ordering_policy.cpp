@@ -10,7 +10,7 @@
 #include "domain/joint_topology.hpp"
 #include "engine/memory/arena.hpp"
 #include "engine/topology/ordering_plan.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 
 using achilles::domain::ArchetypeJointHandle;
 using achilles::domain::ArchetypeTreeStructure;

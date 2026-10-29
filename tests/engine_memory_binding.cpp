@@ -9,7 +9,7 @@
 #include "engine/memory/buffering_policy.hpp"
 #include "engine/topology/indexing_policy.hpp"
 #include "engine/topology/layout_policy.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 
 using achilles::domain::math::Vector3Assembler;
 using achilles::engine::memory::BufferSide;

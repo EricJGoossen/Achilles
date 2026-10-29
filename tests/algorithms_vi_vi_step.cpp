@@ -13,7 +13,7 @@
 #include "domain/archetype.hpp"
 #include "domain/joint_layout.hpp"
 #include "engine/memory/sim_allocator.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "util/simd_ops.hpp"
 
 // VIStep::Step wires IntegrateVelocityOp into a real VIView via a real
@@ -69,7 +69,7 @@ std::size_t Lane() { return B::size; }
 // One archetype, `instance_count` independent single-joint instances, every
 // one its own root (VI never reads a parent, so there's no tree to build
 // beyond satisfying TopologicalOrdering::Build's own single-root-per-
-// instance precondition -- see ordering_policy.hpp's SortTree comment).
+// instance precondition -- see orderings.hpp's SortTree comment).
 SimAllocator<VIAlgorithm> MakeSim(std::size_t instance_count) {
   std::vector<ArchetypeJointHandle> root_parents(
       instance_count, ArchetypeJointHandle{0, 0}

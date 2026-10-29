@@ -64,7 +64,7 @@ static_assert(
 );
 
 // Tests one source body's world bound (kSource, the same value in every
-// lane) against a whole lane group of target bodies' (kTarget) at once: two
+// lane) against a whole lane group of target bodies' (kPartner) at once: two
 // world-axis-aligned boxes overlap when, on every axis, their centers are no
 // further apart than their half-extents summed, |c_t - c_s| <= h_t + h_s.
 // A pair also has to pass the group filter both ways (see broad_phase_data.hpp)
@@ -79,10 +79,10 @@ struct TestBoundsOverlapOp {
   using ArgIndex = engine::ArgIndex;
 
   static constexpr std::array<ArgData, 8> kInputs = {
-      ArgData{FieldEnum::kWorldBoundCenter, ArgIndex::kTarget},
-      ArgData{FieldEnum::kWorldBoundExtents, ArgIndex::kTarget},
-      ArgData{FieldEnum::kCollisionGroup, ArgIndex::kTarget},
-      ArgData{FieldEnum::kCollisionMask, ArgIndex::kTarget},
+      ArgData{FieldEnum::kWorldBoundCenter, ArgIndex::kPartner},
+      ArgData{FieldEnum::kWorldBoundExtents, ArgIndex::kPartner},
+      ArgData{FieldEnum::kCollisionGroup, ArgIndex::kPartner},
+      ArgData{FieldEnum::kCollisionMask, ArgIndex::kPartner},
       ArgData{FieldEnum::kWorldBoundCenter, ArgIndex::kSource},
       ArgData{FieldEnum::kWorldBoundExtents, ArgIndex::kSource},
       ArgData{FieldEnum::kCollisionGroup, ArgIndex::kSource},

@@ -17,7 +17,7 @@
 #include "domain/joint_topology.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/layout_policy.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "interface/actuator.hpp"
 #include "interface/archetype_loader.hpp"
 #include "interface/sensor_handle.hpp"

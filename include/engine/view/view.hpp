@@ -15,30 +15,37 @@
 #include "engine/memory/buffering_policy.hpp"
 #include "engine/topology/indexing_policy.hpp"
 #include "engine/topology/layout_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "util/simd_ops.hpp"
+#include "util/tmp.hpp"
 
 namespace achilles::engine::view {
 
-// One field's (memory-style, packing, index-space, buffering) tuple. Bundled
+// One field's (memory-style, packing, index-space, buffering, row order)
+// tuple. Bundled
 // rather than kept as parallel template packs, because a View's fields are
 // heterogeneous per-field, not uniform: there is no way to zip an
 // independent Policies... pack against an Assemblers... pack and know
 // Policies[i] belongs to Assemblers[i] specifically. ViewFactory builds this
 // pack from Traits (see view_factory.hpp); nothing else needs to construct
-// one by hand. IndexingT defaults to topology::RowIndexing and BufferingT to
-// memory::SingleBuffered, the same defaults memory::FieldIndexingT/
-// FieldBufferingT resolve a Traits<F> naming neither to.
+// one by hand. IndexingT defaults to topology::RowIndexing, BufferingT to
+// memory::SingleBuffered and OrderingT to topology::LinearOrdering, the same
+// defaults memory::FieldIndexingT/FieldBufferingT/FieldOrderingT resolve a
+// Traits<F> naming none of them to. OrderingT says which row count the
+// field's block is sized by (see View's row counts).
 template <
     topology::LayoutPolicyLike PolicyT,
     AssemblerLike AssemblerT,
     topology::IndexingPolicyLike IndexingT = topology::RowIndexing,
-    memory::BufferingPolicyLike BufferingT = memory::SingleBuffered>
+    memory::BufferingPolicyLike BufferingT = memory::SingleBuffered,
+    typename OrderingT = topology::LinearOrdering>
   requires AssemblesThrough<AssemblerT, PolicyT>
 struct FieldBinding {
   using Layout = PolicyT;
   using Assembler = AssemblerT;
   using Indexing = IndexingT;
   using Buffering = BufferingT;
+  using Ordering = OrderingT;
 };
 
 template <typename T>
@@ -48,6 +55,7 @@ concept FieldBindingLike =
       typename T::Assembler;
       typename T::Indexing;
       typename T::Buffering;
+      typename T::Ordering;
     } && topology::LayoutPolicyLike<typename T::Layout> &&
     AssemblesThrough<typename T::Assembler, typename T::Layout> &&
     topology::IndexingPolicyLike<typename T::Indexing> &&
@@ -103,6 +111,15 @@ class View {
   static constexpr size_t kNumTypes = sizeof...(Bindings);
 
  public:
+  // Every distinct row order this View's fields are sized by, in first-
+  // field order -- one row count each (see RowCounts). Nearly every View's
+  // fields share one; a View pairing two row spaces (a list and the joints
+  // it links to, pairs and the bodies they pair) has two.
+  using Orderings =
+      util::UniqueT<util::TypeList<typename Bindings::Ordering...>>;
+  static constexpr size_t kNumOrderings = util::kSizeV<Orderings>;
+  using RowCounts = std::array<size_t, kNumOrderings>;
+
   // Every field's RowTable (see topology::PlanarLayout::RowTable), held by
   // value: a segmented field's (topology::SegmentedLayout) is its segment
   // table, read straight from the View on every lookup; every other
@@ -114,8 +131,9 @@ class View {
           typename Bindings::Assembler>...>;
 
   // One base pointer per field (EnumT order). Each field's array is its own
-  // contiguous allocation -- of FieldIndexing<F>::Count(num_instances)
-  // elements, i.e. num_instances for an ordinary row-indexed field --
+  // contiguous allocation -- of FieldIndexing<F>::Count(rows) elements, rows
+  // being its ordering's entry in `row_counts` (Orderings order), i.e. rows
+  // for an ordinary row-indexed field --
   // independently placed by the allocator regardless of which Layout policy
   // it uses -- there is no shared arena to compute cross-field offsets into.
   // A double-buffered field's base is the start of its two-half region
@@ -125,12 +143,12 @@ class View {
   // RowTable (see RowTables).
   View(
       std::array<std::byte*, kNumTypes> type_bases,
-      size_t num_instances,
+      RowCounts row_counts,
       std::array<const memory::BufferParity*, kNumTypes> parities = {},
       RowTables row_tables = {}
   )
       : type_bases_(type_bases),
-        num_instances_(num_instances),
+        row_counts_(row_counts),
         parities_(parities),
         row_tables_(row_tables) {}
 
@@ -157,6 +175,13 @@ class View {
   template <EnumT F>
   using FieldBuffering = typename Binding<F>::Buffering;
 
+  // How many rows field F's block is sized by: its own ordering's count.
+  template <EnumT F>
+  size_t Rows() const {
+    return row_counts_
+        [util::kIndexOfV<typename Binding<F>::Ordering, Orderings>];
+  }
+
   // Field F's RowTable (see RowTables).
   template <EnumT F>
   using RowTable = typename FieldLayout<F>::template RowTable<Assembler<F>>;
@@ -177,11 +202,17 @@ class View {
     return util::LaneCountOf<T>();
   }
 
-  size_t Size() const { return num_instances_; }
+  // The row count, for a View whose fields all share one row order -- what
+  // a pass over every row of it walks (see engine::pass::ViewStep).
+  size_t Size() const
+    requires(kNumOrderings == 1)
+  {
+    return row_counts_[0];
+  }
 
   template <EnumT F, FieldShapeLike T>
   size_t NumBatches() const {
-    return FieldIndexing<F>::Count(num_instances_) / LaneSize<T>();
+    return FieldIndexing<F>::Count(Rows<F>()) / LaneSize<T>();
   }
 
   template <EnumT F, FieldShapeLike T>
@@ -323,10 +354,7 @@ class View {
   template <EnumT F>
   FieldCursor<F> Field() const {
     return FieldCursor<F>(
-        FieldBase<F>(),
-        FieldStrideBytes<F>(),
-        num_instances_,
-        FieldRowTable<F>()
+        FieldBase<F>(), FieldStrideBytes<F>(), Rows<F>(), FieldRowTable<F>()
     );
   }
 
@@ -336,7 +364,7 @@ class View {
   template <EnumT F>
     requires memory::GroupBufferedLike<FieldBuffering<F>>
   memory::BufferedScalar<Scalar<F>> WriteSlot(size_t row, size_t leaf) const {
-    assert(row < FieldIndexing<F>::Count(num_instances_));
+    assert(row < FieldIndexing<F>::Count(Rows<F>()));
     assert(leaf < Assembler<F>::kNumFields);
     std::byte* first_element = FieldLayout<F>::LeafAt(
         type_bases_[static_cast<size_t>(F)] +
@@ -360,7 +388,7 @@ class View {
   template <EnumT F>
   size_t FieldStrideBytes() const {
     return FieldLayout<F>::template StrideBytes<Assembler<F>>(
-        FieldIndexing<F>::Count(num_instances_)
+        FieldIndexing<F>::Count(Rows<F>())
     );
   }
 
@@ -391,7 +419,7 @@ class View {
   template <EnumT F>
   size_t FieldBlockBytes() const {
     return FieldLayout<F>::template BlockBytes<Assembler<F>>(
-        FieldIndexing<F>::Count(num_instances_), FieldRowTable<F>()
+        FieldIndexing<F>::Count(Rows<F>()), FieldRowTable<F>()
     );
   }
 
@@ -402,7 +430,7 @@ class View {
   }
 
   std::array<std::byte*, kNumTypes> type_bases_;
-  size_t num_instances_;
+  RowCounts row_counts_;
   std::array<const memory::BufferParity*, kNumTypes> parities_;
   [[no_unique_address]] RowTables row_tables_;
 };

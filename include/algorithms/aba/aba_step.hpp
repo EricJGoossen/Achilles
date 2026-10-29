@@ -9,7 +9,7 @@
 #include "engine/pass/algorithm_step.hpp"
 #include "engine/pass/sim_context.hpp"
 #include "engine/pass/traversals.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "engine/view/view.hpp"
 #include "engine/view/view_contract.hpp"
 

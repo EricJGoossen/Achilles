@@ -1,9 +1,10 @@
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <numeric>
 #include <span>
 #include <string_view>
@@ -12,6 +13,7 @@
 
 #include "domain/archetype.hpp"
 #include "domain/joint_layout.hpp"
+#include "domain/joint_topology.hpp"
 #include "engine/topology/ordering_plan.hpp"
 
 namespace achilles::engine::topology {
@@ -485,6 +487,66 @@ OrderingPlan BuildListPlan(
       std::move(segments),
       std::move(sorted_rows),
       std::move(entries),
+      lane_size
+  };
+}
+
+OrderingPlan BuildPairPlan(
+    const OrderingPlan& row_plan,
+    const std::function<bool(std::size_t, std::size_t)>& admits,
+    std::size_t lane_size
+) {
+  const domain::JointTopology rows = row_plan.Topology();
+  const domain::JointLayout layout = row_plan.Layout();
+  auto paired = [&](std::size_t source, std::size_t partner) {
+    return partner > source && !layout.IsPadding(partner) &&
+           rows[partner] != source && rows[source] != partner &&
+           admits(source, partner);
+  };
+
+  // Every lane of a kept group has the group's source.
+  std::vector<std::size_t> sources;
+  std::vector<std::size_t> partners;
+  std::vector<std::size_t> sorted_rows;
+  std::vector<ArchetypeJointHandle> joints;
+  const std::size_t groups = rows.Size() / lane_size;
+  for (std::size_t source = 0; source < rows.Size(); ++source) {
+    if (layout.IsPadding(source)) {
+      continue;
+    }
+    for (std::size_t group = source / lane_size; group < groups; ++group) {
+      const std::size_t first = group * lane_size;
+      bool any = false;
+      for (std::size_t lane = 0; lane < lane_size; ++lane) {
+        any = any || paired(source, first + lane);
+      }
+      if (!any) {
+        continue;
+      }
+      for (std::size_t lane = 0; lane < lane_size; ++lane) {
+        const std::size_t row = sources.size();
+        sources.push_back(source);
+        if (paired(source, first + lane)) {
+          partners.push_back(first + lane);
+          joints.push_back({0, sorted_rows.size()});
+          sorted_rows.push_back(row);
+        } else {
+          partners.push_back(domain::PairTopology::kNoPartner);
+          joints.push_back(
+              {domain::JointLayout::kNoInstance,
+               domain::JointLayout::kNoInstance}
+          );
+        }
+      }
+    }
+  }
+  std::vector<std::size_t> instance_offsets = {0, sorted_rows.size()};
+  return {
+      std::move(sources),
+      std::move(partners),
+      std::move(instance_offsets),
+      std::move(sorted_rows),
+      std::move(joints),
       lane_size
   };
 }

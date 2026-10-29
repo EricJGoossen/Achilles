@@ -313,21 +313,21 @@ struct SetupRowsOp : SolverOp {
       ArgData{FieldEnum::kContactDistance, ArgIndex::kTarget},
       ArgData{FieldEnum::kContactPoint, ArgIndex::kTarget},
       ArgData{FieldEnum::kContactActive, ArgIndex::kTarget},
-      ArgData{FieldEnum::kCollisionMargin, ArgIndex::kTarget},
+      ArgData{FieldEnum::kCollisionMargin, ArgIndex::kPartner},
       ArgData{FieldEnum::kCollisionMargin, ArgIndex::kSource},
-      ArgData{FieldEnum::kContactFriction, ArgIndex::kTarget},
+      ArgData{FieldEnum::kContactFriction, ArgIndex::kPartner},
       ArgData{FieldEnum::kContactFriction, ArgIndex::kSource},
-      ArgData{FieldEnum::kContactSolref, ArgIndex::kTarget},
+      ArgData{FieldEnum::kContactSolref, ArgIndex::kPartner},
       ArgData{FieldEnum::kContactSolref, ArgIndex::kSource},
-      ArgData{FieldEnum::kContactSolimp, ArgIndex::kTarget},
+      ArgData{FieldEnum::kContactSolimp, ArgIndex::kPartner},
       ArgData{FieldEnum::kContactSolimp, ArgIndex::kSource},
-      ArgData{FieldEnum::kInvWeight, ArgIndex::kTarget},
+      ArgData{FieldEnum::kInvWeight, ArgIndex::kPartner},
       ArgData{FieldEnum::kInvWeight, ArgIndex::kSource},
-      ArgData{FieldEnum::kWorldTransform, ArgIndex::kTarget},
+      ArgData{FieldEnum::kWorldTransform, ArgIndex::kPartner},
       ArgData{FieldEnum::kWorldTransform, ArgIndex::kSource},
-      ArgData{FieldEnum::kSpatialVelocity, ArgIndex::kTarget},
+      ArgData{FieldEnum::kSpatialVelocity, ArgIndex::kPartner},
       ArgData{FieldEnum::kSpatialVelocity, ArgIndex::kSource},
-      ArgData{FieldEnum::kBodyAcceleration, ArgIndex::kTarget},
+      ArgData{FieldEnum::kBodyAcceleration, ArgIndex::kPartner},
       ArgData{FieldEnum::kBodyAcceleration, ArgIndex::kSource},
   };
   static constexpr std::array<ArgData, 5> kOutputs = {
@@ -379,9 +379,9 @@ struct ProjectSearchOp : SolverOp {
   static constexpr std::array<ArgData, 6> kInputs = {
       ArgData{FieldEnum::kEdgeDirections, ArgIndex::kTarget},
       ArgData{FieldEnum::kRowPoint, ArgIndex::kTarget},
-      ArgData{FieldEnum::kWorldTransform, ArgIndex::kTarget},
+      ArgData{FieldEnum::kWorldTransform, ArgIndex::kPartner},
       ArgData{FieldEnum::kWorldTransform, ArgIndex::kSource},
-      ArgData{FieldEnum::kBodyAcceleration, ArgIndex::kTarget},
+      ArgData{FieldEnum::kBodyAcceleration, ArgIndex::kPartner},
       ArgData{FieldEnum::kBodyAcceleration, ArgIndex::kSource},
   };
   static constexpr std::array<ArgData, 1> kOutputs = {
@@ -415,7 +415,7 @@ struct ContactForceOp : SolverOp {
   };
   static constexpr std::array<ArgData, 3> kOutputs = {
       ArgData{FieldEnum::kRowResidual, ArgIndex::kTarget},
-      ArgData{FieldEnum::kBodyWrenchTarget, ArgIndex::kTarget},
+      ArgData{FieldEnum::kBodyWrenchTarget, ArgIndex::kPartner},
       ArgData{FieldEnum::kBodyWrenchSource, ArgIndex::kSource},
   };
   void operator()(

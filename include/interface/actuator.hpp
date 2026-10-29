@@ -14,7 +14,7 @@
 #include "domain/spatial/dual.hpp"
 #include "engine/memory/buffering_policy.hpp"
 #include "engine/pass/sim_context.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 
 namespace achilles::interface {
 

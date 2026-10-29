@@ -4,7 +4,7 @@
 #include "engine/algorithm_contract.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/pass/sim_context.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "support/toy_buffered_field.hpp"
 #include "support/toy_field.hpp"
 #include "util/tmp.hpp"

@@ -10,7 +10,7 @@
 #include "domain/math/vector3.hpp"
 #include "engine/field_contract.hpp"
 #include "engine/topology/layout_policy.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "engine/view/view_contract.hpp"
 #include "engine/view/view_factory.hpp"
 

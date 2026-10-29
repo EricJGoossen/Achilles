@@ -14,7 +14,7 @@
 #include "algorithms/sim_config.hpp"
 #include "domain/archetype.hpp"
 #include "engine/memory/sim_allocator.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "interface/actuator.hpp"
 
 // Covers interface::JointActuator: Attach's projection of a spatial axis

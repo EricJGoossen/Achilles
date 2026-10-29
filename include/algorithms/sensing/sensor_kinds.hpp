@@ -8,7 +8,7 @@
 #include "algorithms/sensing/magnetometer.hpp"
 #include "algorithms/sensing/sensor.hpp"
 #include "algorithms/sensing/truth_sensor.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "util/tmp.hpp"
 
 namespace achilles::algorithms::sensing {

@@ -43,34 +43,6 @@ struct ArchetypeAttachment {
   std::vector<std::pair<std::string, std::vector<double>>> config;
 };
 
-// One archetype's own local joint ordering, bundled with what Ordering::
-// Build needs to place and wire up its block -- moved here from
-// ordering_policy.hpp (formerly "ordering policy") since it's really a
-// property of the archetype's own shape, not of any one ordering strategy.
-// ordering_policy.hpp includes this header for it rather than defining its
-// own copy.
-struct ArchetypeTreeStructure {
-  static constexpr std::size_t kNoParent =
-      std::numeric_limits<std::size_t>::max();
-
-  // True for exactly one archetype in the whole span passed to Build: its
-  // instances need no external parent at all -- they attach directly to
-  // the reserved base row -- so its root_parents entries, if any, are
-  // never resolved.
-  bool is_root_archetype = false;
-
-  // The physical parent array for a single instance of this archetype
-  // (kNoParent marks that instance's own root joint). Every instance of
-  // this archetype shares this exact shape.
-  std::span<const std::size_t> tree_structure;
-  // The external attachment of the root of each instance of this
-  // archetype -- root_parents.size() is this archetype's instance count.
-  std::span<const ArchetypeJointHandle> root_parents;
-  // Every list entry one instance carries, in declaration order -- the
-  // same for every instance.
-  std::span<const ArchetypeAttachment> attachments;
-};
-
 // One named field's flattened per-(instance, joint) scalar data for one
 // Archetype, as read from the user (e.g. a .arow file) -- see
 // engine/topology/archetype_loader.hpp for the reader that builds these.
@@ -99,10 +71,9 @@ struct ArchetypeField {
 };
 
 // A free function, not a member, so ArchetypeField stays a plain data
-// struct like ArchetypeJointHandle/ArchetypeTreeStructure above it
-// (matching this codebase's convention of keeping a type "real class"
-// methods-plus-data only when it actually owns invariants beyond its own
-// shape).
+// struct like ArchetypeJointHandle above it (matching this codebase's
+// convention of keeping a type "real class" methods-plus-data only when it
+// actually owns invariants beyond its own shape).
 inline double ArchetypeFieldAt(
     const ArchetypeField& field,
     std::size_t instance,
@@ -117,6 +88,37 @@ inline double ArchetypeFieldAt(
   );
   return field.values[index];
 }
+
+// One archetype's own local joint ordering, bundled with what Ordering::
+// Build needs to place and wire up its block -- moved here from
+// orderings.hpp (formerly "ordering policy") since it's really a
+// property of the archetype's own shape, not of any one ordering strategy.
+// orderings.hpp includes this header for it rather than defining its
+// own copy.
+struct ArchetypeTreeStructure {
+  static constexpr std::size_t kNoParent =
+      std::numeric_limits<std::size_t>::max();
+
+  // True for exactly one archetype in the whole span passed to Build: its
+  // instances need no external parent at all -- they attach directly to
+  // the reserved base row -- so its root_parents entries, if any, are
+  // never resolved.
+  bool is_root_archetype = false;
+
+  // The physical parent array for a single instance of this archetype
+  // (kNoParent marks that instance's own root joint). Every instance of
+  // this archetype shares this exact shape.
+  std::span<const std::size_t> tree_structure;
+  // The external attachment of the root of each instance of this
+  // archetype -- root_parents.size() is this archetype's instance count.
+  std::span<const ArchetypeJointHandle> root_parents;
+  // Every list entry one instance carries, in declaration order -- the
+  // same for every instance.
+  std::span<const ArchetypeAttachment> attachments;
+  // The archetype's field data, for an ordering that places rows by it
+  // (e.g. engine::topology::PairOrdering's filter).
+  std::span<const ArchetypeField> fields;
+};
 
 // Everything read from the user about one archetype: its tree shape (owned
 // here, unlike ArchetypeTreeStructure's borrowed spans, which TreeStructure()
@@ -171,7 +173,8 @@ class Archetype {
         is_root_archetype_,
         std::span<const std::size_t>(tree_structure_),
         std::span<const ArchetypeJointHandle>(root_parents_),
-        std::span<const ArchetypeAttachment>(attachments_)
+        std::span<const ArchetypeAttachment>(attachments_),
+        std::span<const ArchetypeField>(fields_)
     };
   }
 

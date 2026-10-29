@@ -17,7 +17,7 @@
 #include "engine/memory/buffering_policy.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/layout_policy.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "support/toy_buffered_field.hpp"
 #include "util/tmp.hpp"
 

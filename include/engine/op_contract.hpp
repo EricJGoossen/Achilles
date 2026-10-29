@@ -24,27 +24,29 @@ namespace achilles::engine {
 // which is the only place it means "parent"; kLink names it under a
 // LinkedTraversal, where it's the row a list entry is linked to; a
 // LinearTraversal hands the target again, and a PairTraversal hands the
-// broadcast source row (engine/pass/traversals.hpp). The third slot is one
-// only some traversals fill. Under a PairTraversal it's kStructure: not an
-// index at all, but a fact the traversal derived from its own topology
-// about this one call (a PairTraversal's PairStructure) -- read through
-// kTraversalInputs, never through a field. Under a scanning RowTraversal
-// (ScanRows) it's kScene: a row of the second layout the Step was given,
-// the one the target is being paired against -- read through fields like
-// any index.
+// pair's broadcast source row (engine/pass/traversals.hpp). The third slot
+// is one only some traversals fill: the row the target is being paired
+// against, read through fields like any index. Under a scanning
+// RowTraversal (ScanRows) it's kScene, a row of the second layout the Step
+// was given; under a PairTraversal it's kPartner, the lane group of rows a
+// lane group of pairs pairs the source with. The fourth, only a
+// PairTraversal's, is kStructure: not an index at all, but a fact the
+// traversal derived from its own topology about this one call (its
+// PairStructure) -- read through kTraversalInputs, never through a field.
 enum class ArgIndex : uint8_t {
   kTarget = 0,
   kSource = 1,
   kParent = kSource,
   kLink = kSource,
-  kStructure = 2,
-  kScene = kStructure,
+  kScene = 2,
+  kPartner = kScene,
+  kStructure = 3,
 };
 
 // One argument to gather (or scatter) for an Op: `field` selects which
 // field to read from (or write to) the View, and `index` selects which of
 // the traversal's indices to do so at. A field whose own Indexing policy
-// isn't per-row (e.g. topology::PairGroupIndexing) may resolve from every index
+// isn't per-row (e.g. topology::GlobalIndexing) may resolve from every index
 // regardless; see topology/indexing_policy.hpp.
 template <FieldEnumLike EnumT>
 struct ArgData {

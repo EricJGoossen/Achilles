@@ -9,11 +9,13 @@
 
 namespace achilles::engine::view {
 
-// Builds one FieldBinding<Policy, Assembler, Indexing, Buffering> per field:
+// Builds one FieldBinding<Policy, Assembler, Indexing, Buffering, Ordering>
+// per field:
 // Assembler from Traits<F>::Assembler, Policy from Traits<F>::Layout, Indexing
 // from Traits<F>::Indexing (topology::RowIndexing if it names none), and
 // Buffering from Traits<F>::Buffering (memory::SingleBuffered if it names
-// none), all exactly as Traits<F> declares them, and instantiates
+// none), Ordering from Traits<F>::Ordering (topology::LinearOrdering if it
+// names none), all exactly as Traits<F> declares them, and instantiates
 // View<EnumT, Bindings...> from them. View itself is never a parameter here:
 // it's the one view class that exists, and which Layout policy each field
 // declares is already what determines its shape -- there's nothing left for a
@@ -29,7 +31,8 @@ auto MakeViewFromTraits(std::index_sequence<Is...>)
             memory::FieldLayoutT<EnumT, Traits, static_cast<EnumT>(Is)>,
             typename Traits<static_cast<EnumT>(Is)>::Assembler,
             memory::FieldIndexingT<EnumT, Traits, static_cast<EnumT>(Is)>,
-            memory::FieldBufferingT<EnumT, Traits, static_cast<EnumT>(Is)>>...>;
+            memory::FieldBufferingT<EnumT, Traits, static_cast<EnumT>(Is)>,
+            memory::FieldOrderingT<EnumT, Traits, static_cast<EnumT>(Is)>>...>;
 
 template <typename EnumT, template <EnumT> class Traits>
   requires FieldTraitsLike<EnumT, Traits>

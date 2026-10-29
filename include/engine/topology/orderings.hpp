@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <functional>
 #include <span>
 #include <string_view>
 #include <type_traits>
@@ -235,6 +236,83 @@ struct ListOrdering<LinkOrdering, util::TypeList<Tags...>> {
         CollectAttachments(tree, Tags::kListName)...
     };
     return BuildListPlan(lists, link_plan.Layout(), lane_size);
+  }
+};
+
+// Which rows ever pair up, decided from their archetypes' own data:
+// Key(archetype, joint) reads whatever one row's answer depends on, once
+// per row, and Admits(a, b) is the pair test on two rows' keys.
+template <typename F>
+concept PairFilterLike =
+    std::is_empty_v<F> && requires(const ArchetypeTreeStructure& archetype) {
+      {
+        F::Admits(F::Key(archetype, 0), F::Key(archetype, 0))
+      } -> std::same_as<bool>;
+    };
+
+// Shared by every PairOrdering: the pairs of `row_plan`'s rows, a lane
+// group at a time (see PairOrdering), keeping each pair `admits` -- a
+// filter's verdict on two real rows -- allows, as long as the partner is
+// above the source and neither is the other's parent.
+OrderingPlan BuildPairPlan(
+    const OrderingPlan& row_plan,
+    const std::function<bool(std::size_t, std::size_t)>& admits,
+    std::size_t lane_size
+);
+
+// One row per pair of RowOrdering's rows that might interact -- bodies
+// that might collide, say -- worked out once from the archetypes rather
+// than every tick. Rows come a lane group at a time: one source row of
+// RowOrdering against one lane group of its rows, lane t holding the pair
+// (source, group * lanes + t). Each row's topology entry is its source, and
+// its partner the other row (domain::PairTopology), so a pass over pairs
+// (PairTraversal, engine/pass/traversals.hpp) can read RowOrdering's fields
+// at either row and its own at the pair.
+//
+// A pair is kept when its partner is a real row above the source -- so
+// each unordered pair appears once, and never a row against itself --
+// neither row is the other's parent (a joint's two bodies always touch
+// where they meet), and Filter admits it. A lane group is kept when any of
+// its lanes is; its other lanes are padding, partnered with nothing
+// (domain::PairTopology::kNoPartner). Everything that varies tick to tick
+// is the pass's own business.
+//
+// The pairs are this plan's one JointLayout instance, its kept pairs that
+// instance's joints in row order, the same way a ListOrdering numbers a
+// list. Plans RowOrdering again to find its rows, as ListOrdering plans its
+// LinkOrdering.
+template <OrderingPolicyLike RowOrdering, PairFilterLike Filter>
+struct PairOrdering {
+  using Topology = domain::PairTopology;
+
+  static OrderingPlan Build(
+      std::span<ArchetypeTreeStructure> tree, std::size_t lane_size
+  ) {
+    const OrderingPlan row_plan = RowOrdering::Build(tree, lane_size);
+    const domain::JointLayout layout = row_plan.Layout();
+
+    // Each global instance's archetype, then each real row's key.
+    std::vector<std::size_t> archetype_of;
+    for (std::size_t a = 0; a < tree.size(); ++a) {
+      archetype_of.insert(archetype_of.end(), tree[a].root_parents.size(), a);
+    }
+    using Key = decltype(Filter::Key(tree[0], 0));
+    std::vector<Key> keys(layout.PaddedSize());
+    for (std::size_t row = 0; row < layout.PaddedSize(); ++row) {
+      if (!layout.IsPadding(row)) {
+        const ArchetypeJointHandle joint = layout.ToPhysical(row);
+        keys[row] = Filter::Key(
+            tree[archetype_of[joint.instance_index]], joint.joint_index
+        );
+      }
+    }
+    return BuildPairPlan(
+        row_plan,
+        [&](std::size_t source, std::size_t partner) {
+          return Filter::Admits(keys[source], keys[partner]);
+        },
+        lane_size
+    );
   }
 };
 

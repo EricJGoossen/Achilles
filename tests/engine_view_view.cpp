@@ -8,7 +8,7 @@
 #include "domain/math/vector3.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/indexing_policy.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "support/toy_buffered_field.hpp"
 #include "support/toy_field.hpp"
 #include "support/toy_reduce_field.hpp"

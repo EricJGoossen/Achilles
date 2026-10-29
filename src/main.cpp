@@ -44,7 +44,7 @@
 #include "engine/pass/traversals.hpp"
 #include "engine/pass/view_step.hpp"
 #include "engine/topology/layout_policy.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "engine/view/view.hpp"
 #include "engine/view/view_contract.hpp"
 #include "engine/view/view_factory.hpp"

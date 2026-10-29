@@ -11,7 +11,7 @@
 #include "algorithms/joint_limit/joint_limit_step.hpp"
 #include "algorithms/sim_config.hpp"
 #include "domain/spatial/transform.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "support/registered_sim.hpp"
 #include "support/temp_dir.hpp"
 #include "util/tmp.hpp"

@@ -23,7 +23,7 @@
 #include "algorithms/conventions.hpp"
 #include "algorithms/integrators.hpp"
 #include "algorithms/sim_config.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "interface/archetype_loader.hpp"
 #include "interface/sim_config_loader.hpp"
 #include "support/registered_sim.hpp"

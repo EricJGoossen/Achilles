@@ -19,7 +19,7 @@
 #include "engine/algorithm_contract.hpp"
 #include "engine/assembler.hpp"
 #include "engine/memory/binding.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "util/tmp.hpp"
 
 namespace achilles::algorithms::sensing {

@@ -11,7 +11,7 @@ namespace achilles::algorithms::narrow_phase {
 // The contact Op for the sphere-swept box x sphere-swept box pair (see
 // broad_phase_data.hpp for the shape) -- one source body (kSource, the same
 // value in every lane) against a whole lane group of target bodies
-// (kTarget) at once, all in the world frame. It follows MuJoCo's own
+// (kPartner) at once, all in the world frame. It follows MuJoCo's own
 // primitive colliders, merged: a sphere-swept box is a sphere, a capsule or
 // a box depending on its extents, and MuJoCo's sphere-box, capsule-box and
 // box-box routines are the three cases below. Every case is computed in
@@ -64,10 +64,10 @@ struct ComputeSweptBoxContactOp {
   using ArgIndex = engine::ArgIndex;
 
   static constexpr std::array<ArgData, 9> kInputs = {
-      ArgData{FieldEnum::kWorldShapePose, ArgIndex::kTarget},
-      ArgData{FieldEnum::kCollisionExtents, ArgIndex::kTarget},
-      ArgData{FieldEnum::kCollisionRadius, ArgIndex::kTarget},
-      ArgData{FieldEnum::kCollisionMargin, ArgIndex::kTarget},
+      ArgData{FieldEnum::kWorldShapePose, ArgIndex::kPartner},
+      ArgData{FieldEnum::kCollisionExtents, ArgIndex::kPartner},
+      ArgData{FieldEnum::kCollisionRadius, ArgIndex::kPartner},
+      ArgData{FieldEnum::kCollisionMargin, ArgIndex::kPartner},
       ArgData{FieldEnum::kWorldShapePose, ArgIndex::kSource},
       ArgData{FieldEnum::kCollisionExtents, ArgIndex::kSource},
       ArgData{FieldEnum::kCollisionRadius, ArgIndex::kSource},
