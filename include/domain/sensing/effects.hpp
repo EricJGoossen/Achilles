@@ -211,18 +211,18 @@ struct Quantize {
 };
 
 // Latency: reports the value from `samples` samples ago (until that many
-// have been taken, the oldest one it has). At most kMaxSamples - 1 -- the
+// have been taken, the oldest one it has). At most MaxSamples - 1 -- the
 // capacity is fixed so the state's size is, but the delay itself is
 // runtime configuration.
-template <SensorValueLike V, std::size_t kMaxSamples = 16>
+template <SensorValueLike V, std::size_t MaxSamples = 16>
 struct Delay {
-  static_assert(kMaxSamples >= 1);
+  static_assert(MaxSamples >= 1);
 
   struct Params {
     std::uint32_t samples = 0;
   };
   struct State {
-    std::array<V, kMaxSamples> ring{};
+    std::array<V, MaxSamples> ring{};
     std::uint32_t head = 0;
     std::uint32_t filled = 0;
   };
@@ -236,12 +236,12 @@ struct Delay {
   ) {
     state.ring[state.head] = value;
     state.filled =
-        std::min<std::uint32_t>(state.filled + 1, std::uint32_t{kMaxSamples});
+        std::min<std::uint32_t>(state.filled + 1, std::uint32_t{MaxSamples});
     const std::uint32_t delay = std::min(params.samples, state.filled - 1);
     const std::uint32_t read =
-        (state.head + std::uint32_t{kMaxSamples} - delay) %
-        std::uint32_t{kMaxSamples};
-    state.head = (state.head + 1) % std::uint32_t{kMaxSamples};
+        (state.head + std::uint32_t{MaxSamples} - delay) %
+        std::uint32_t{MaxSamples};
+    state.head = (state.head + 1) % std::uint32_t{MaxSamples};
     return state.ring[read];
   }
 };
@@ -252,7 +252,7 @@ struct Delay {
 // sensor datasheet (and an Allan-variance plot) specifies. Every stage
 // defaults to off, so a default ErrorChain is an ideal sensor; configure
 // only the terms a part actually has.
-template <SensorValueLike V, std::size_t kMaxDelaySamples = 16>
+template <SensorValueLike V, std::size_t MaxDelaySamples = 16>
 struct ErrorChain {
   using Scale = ScaleError<V>;
   using Bias = ConstantBias<V>;
@@ -260,7 +260,7 @@ struct ErrorChain {
   using Noise = GaussianNoise<V>;
   using Range = Saturate<V>;
   using Resolution = Quantize<V>;
-  using Latency = Delay<V, kMaxDelaySamples>;
+  using Latency = Delay<V, MaxDelaySamples>;
 
   struct Params {
     typename Scale::Params scale{};

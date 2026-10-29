@@ -21,6 +21,7 @@
 #include "algorithms/joint_limit/joint_limit_step.hpp"
 #include "algorithms/narrow_phase/narrow_phase_step.hpp"
 #include "algorithms/registry.hpp"
+#include "algorithms/sensing/sensing_step.hpp"
 #include "algorithms/sim_config.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "interface/actuator.hpp"

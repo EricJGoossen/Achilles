@@ -188,8 +188,12 @@ The main pieces:
 ```bash
 cmake --build build --target check-format         # clang-format (src/, include/, examples/)
 cmake --build build --target check-tidy           # clang-tidy (src/, include/, examples/, tests/)
-cmake --build build --target check-tidy-analyzer  # Clang Static Analyzer (slow)
+cmake --build build --target check-tidy-analyzer  # Clang Static Analyzer, google-runtime-int (slow)
+scripts/check-tidy.sh --since main                # clang-tidy on files affected since main only
 ```
+
+`check-tidy` runs as many clang-tidy jobs as both the cores and the
+available memory allow (2 GB each); set `CHECK_TIDY_JOBS` to override.
 
 - **Pre-commit hook:** [.githooks/pre-commit](.githooks/pre-commit) blocks
   commits that aren't clang-format clean. The devcontainer turns it on.

@@ -1,14 +1,20 @@
 #include <gtest/gtest.h>
 
+#include <array>
+#include <bit>
 #include <cstddef>
+#include <cstdint>
 #include <tuple>
 #include <xsimd/xsimd.hpp>
 
 #include "domain/math/scalar.hpp"
 #include "domain/math/vector3.hpp"
+#include "engine/memory/buffering_policy.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/indexing_policy.hpp"
+#include "engine/topology/layout_policy.hpp"
 #include "engine/topology/orderings.hpp"
+#include "engine/view/view.hpp"
 #include "support/toy_buffered_field.hpp"
 #include "support/toy_field.hpp"
 #include "support/toy_reduce_field.hpp"
@@ -352,4 +358,69 @@ TEST(ViewDoubleBuffered, DiesOnAWriteSlotPastTheLastRow) {
   EXPECT_DEATH(
       (void)view.WriteSlot<ToyBufferedField::kCommand>(view.Size(), 0), "row <"
   );
+}
+
+// ---------------------------------------------------------------------------
+// Row counts per ordering
+// ---------------------------------------------------------------------------
+
+namespace {
+
+using achilles::engine::memory::SingleBuffered;
+using achilles::engine::topology::PlanarLayout;
+using achilles::engine::topology::RowIndexing;
+using achilles::engine::topology::TopologicalOrdering;
+
+enum class TwoSpaceField : std::uint8_t { kBody, kPair, kCount };
+
+using FloatAssembler = achilles::domain::math::ScalarAssembler<float>;
+// One field over each of two row orders -- the bodies and, say, pairs of
+// them -- sized by different counts.
+using TwoSpaceView = achilles::engine::view::View<
+    TwoSpaceField,
+    achilles::engine::view::FieldBinding<
+        PlanarLayout,
+        FloatAssembler,
+        RowIndexing,
+        SingleBuffered,
+        TopologicalOrdering>,
+    achilles::engine::view::FieldBinding<
+        PlanarLayout,
+        FloatAssembler,
+        RowIndexing,
+        SingleBuffered,
+        LinearOrdering>>;
+
+template <typename V>
+concept HasSize = requires(const V& view) { view.Size(); };
+
+}  // namespace
+
+static_assert(TwoSpaceView::kNumOrderings == 2);
+static_assert(!HasSize<TwoSpaceView>, "two row orders have no one Size()");
+static_assert(ToyView::kNumOrderings == 1);
+static_assert(HasSize<ToyView>);
+
+TEST(ViewRowCounts, EachFieldIsSizedByItsOwnOrderingsCount) {
+  std::array<float, 4> bodies{};
+  std::array<float, 12> pairs{};
+  const TwoSpaceView view(
+      {std::bit_cast<std::byte*>(bodies.data()),
+       std::bit_cast<std::byte*>(pairs.data())},
+      TwoSpaceView::RowCounts{4, 12}
+  );
+  EXPECT_EQ(view.Rows<TwoSpaceField::kBody>(), 4U);
+  EXPECT_EQ(view.Rows<TwoSpaceField::kPair>(), 12U);
+  EXPECT_EQ((view.NumBatches<TwoSpaceField::kPair, float>()), 12U);
+
+  view.Store<TwoSpaceField::kBody, float>(3, Scalar<float>(1.5F));
+  view.Store<TwoSpaceField::kPair, float>(11, Scalar<float>(2.5F));
+  EXPECT_FLOAT_EQ(bodies[3], 1.5F);
+  EXPECT_FLOAT_EQ(pairs[11], 2.5F);
+}
+
+TEST(ViewRowCounts, AnAllocatedViewCountsItsOrderingsOwnRows) {
+  SimAllocator<ToyAlgorithm> sim = MakeToySim(8);
+  ToyView view = sim.ViewFor<ToyAlgorithm>();
+  EXPECT_EQ(view.Rows<ToyField::kPosition>(), ExpectedViewSize(sim));
 }

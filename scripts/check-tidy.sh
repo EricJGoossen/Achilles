@@ -30,11 +30,35 @@
 # silently skipped just because nobody happened to touch it in this
 # particular session.
 #
-# Usage: scripts/check-tidy.sh [build-dir]
+# For a quick check while iterating, --since REV runs only the files whose
+# own content or any project header they include changed since git
+# revision REV (committed, staged, unstaged or untracked) -- every file,
+# if a tidy config or this script changed. Files it skips keep their cache
+# entries, so it never marks anything clean it didn't check; the full run
+# stays the gate.
+#
+# Usage: scripts/check-tidy.sh [--since REV] [build-dir]
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUILD_DIR="${1:-$ROOT_DIR/build}"
+SINCE=""
+BUILD_DIR="$ROOT_DIR/build"
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --since)
+            if [ "$#" -lt 2 ]; then
+                echo "--since needs a git revision." >&2
+                exit 2
+            fi
+            SINCE="$2"
+            shift 2
+            ;;
+        *)
+            BUILD_DIR="$1"
+            shift
+            ;;
+    esac
+done
 COMPILE_DB="$BUILD_DIR/compile_commands.json"
 CACHE_FILE="$BUILD_DIR/.check-tidy-cache"
 
@@ -98,8 +122,44 @@ project_deps_of() {
 fingerprint_of() {
     {
         echo "$CONFIG_HASH"
-        project_deps_of "$1" | xargs -r sha256sum
+        printf '%s\n' "$@" | xargs -r sha256sum
     } | sha256sum | awk '{print $1}'
+}
+
+# --since REV: every project path changed since REV, as absolute paths. A
+# changed tidy config or this script means every file is affected.
+declare -A CHANGED
+SINCE_ALL=0
+if [ -n "$SINCE" ]; then
+    if ! git -C "$ROOT_DIR" rev-parse --verify --quiet "$SINCE^{commit}" >/dev/null; then
+        echo "--since: '$SINCE' isn't a git revision." >&2
+        exit 2
+    fi
+    while IFS= read -r path; do
+        [ -n "$path" ] || continue
+        CHANGED["$ROOT_DIR/$path"]=1
+        case "$path" in
+            .clang-tidy | tests/.clang-tidy | scripts/check-tidy.sh) SINCE_ALL=1 ;;
+        esac
+    done < <(
+        git -C "$ROOT_DIR" diff --name-only "$SINCE"
+        git -C "$ROOT_DIR" ls-files --others --exclude-standard
+    )
+fi
+
+# Whether any of the given paths changed since --since's revision (always,
+# without --since).
+affected() {
+    if [ -z "$SINCE" ] || [ "$SINCE_ALL" = "1" ]; then
+        return 0
+    fi
+    local path
+    for path in "$@"; do
+        if [ -n "${CHANGED[$path]:-}" ]; then
+            return 0
+        fi
+    done
+    return 1
 }
 
 declare -A CACHE
@@ -119,7 +179,25 @@ SKIPPED_COUNT=0
 # a time. Fingerprinting stays sequential -- it's just `clang++ -M` plus
 # hashing, not a full clang-tidy run, so it's cheap relative to the analysis
 # itself and doesn't need parallelizing.
-JOBS="${CHECK_TIDY_JOBS:-$(nproc 2>/dev/null || echo 4)}"
+# One clang-tidy over a sim-heavy file takes 1-2 GB, so by default run as
+# many at once as both the cores and the available memory allow (2 GB
+# each) -- one per core alone outruns memory on a 16-core, 16 GB machine,
+# and the kernel kills or swaps jobs instead. CHECK_TIDY_JOBS overrides it.
+default_jobs() {
+    local cores available_kb by_memory
+    cores="$(nproc 2>/dev/null || echo 4)"
+    available_kb="$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+    by_memory=$((available_kb / (2 * 1024 * 1024)))
+    if [ "$by_memory" -lt 1 ]; then
+        by_memory=1
+    fi
+    if [ "$by_memory" -lt "$cores" ]; then
+        echo "$by_memory"
+    else
+        echo "$cores"
+    fi
+}
+JOBS="${CHECK_TIDY_JOBS:-$(default_jobs)}"
 # A fresh, unique directory per invocation (not a fixed name under
 # $BUILD_DIR) -- two check-tidy.sh runs against the same build dir (e.g.
 # a local run overlapping with CI, or just two terminals) would otherwise
@@ -158,7 +236,15 @@ TO_RUN_FPS=()
 for i in "${!ALL_UNITS[@]}"; do
     file="${ALL_UNITS[$i]}"
     rel="${file#"$ROOT_DIR"/}"
-    fp="$(fingerprint_of "$file")"
+    mapfile -t deps < <(project_deps_of "$file")
+    if ! affected "$file" "${deps[@]}"; then
+        if [ -n "${CACHE[$rel]:-}" ]; then
+            NEW_CACHE["$rel"]="${CACHE[$rel]}"
+        fi
+        SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+        continue
+    fi
+    fp="$(fingerprint_of "${deps[@]}")"
 
     if [ "${CACHE[$rel]:-}" = "$fp" ]; then
         NEW_CACHE["$rel"]="$fp"
@@ -225,7 +311,11 @@ fi
     done
 } > "$CACHE_FILE"
 
-echo "check-tidy: ${CHECKED_COUNT} checked, ${SKIPPED_COUNT} unchanged since last clean run"
+if [ -n "$SINCE" ]; then
+    echo "check-tidy: ${CHECKED_COUNT} checked, ${SKIPPED_COUNT} unchanged since last clean run or since ${SINCE}"
+else
+    echo "check-tidy: ${CHECKED_COUNT} checked, ${SKIPPED_COUNT} unchanged since last clean run"
+fi
 
 # Enforce the invariant this whole approach depends on: every header must
 # be reachable from some src/*.cpp, or clang-tidy never actually sees it.

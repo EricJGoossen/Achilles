@@ -1,11 +1,16 @@
 #include <gtest/gtest.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <utility>
 #include <vector>
 
+#include "domain/archetype.hpp"
+#include "domain/joint_layout.hpp"
 #include "domain/joint_topology.hpp"
+#include "engine/pass/row_policies.hpp"
 #include "engine/pass/traversals.hpp"
+#include "engine/topology/indexing_policy.hpp"
 
 using achilles::engine::pass::BackwardLinearTraversal;
 using achilles::engine::pass::BackwardTreeTraversal;
@@ -417,4 +422,208 @@ TEST(GlobalTraversalInitOp, AlwaysInitializesAtZero) {
   size_t seen = 999;
   GlobalTraversal::InitOp(RecordingInitOp{&seen}, TopologyArchetype{{}});
   EXPECT_EQ(seen, 0U);
+}
+
+// ---------------------------------------------------------------------------
+// PairTraversal
+// ---------------------------------------------------------------------------
+
+namespace {
+
+using achilles::domain::JointTopology;
+using achilles::domain::PairTopology;
+using achilles::engine::pass::PairStructure;
+using achilles::engine::pass::PairTraversal;
+using achilles::engine::topology::BroadcastIndex;
+
+struct PairCall {
+  size_t group;
+  size_t source;
+  size_t partner_group;
+  std::uint64_t lanes;
+};
+
+struct RecordingPairs {
+  std::vector<PairCall>* calls;
+  void operator()(
+      size_t group,
+      BroadcastIndex source,
+      size_t partner_group,
+      PairStructure structure
+  ) const {
+    calls->push_back(
+        {group, source.row, partner_group, structure.distinct_lanes}
+    );
+  }
+};
+
+// Two lane groups of four pairs: source row 1 against body rows 4..7 (lane
+// 2 padding), then source row 5 against body rows 8..11 (only lane 0).
+struct TwoGroups {
+  static constexpr size_t kNo = PairTopology::kNoPartner;
+  std::vector<size_t> sources = {1, 1, 1, 1, 5, 5, 5, 5};
+  std::vector<size_t> partners = {4, 5, kNo, 7, 8, kNo, kNo, kNo};
+  PairTopology Topology() const {
+    return {JointTopology(sources, 4), partners};
+  }
+};
+
+}  // namespace
+
+static_assert(
+    TraversalLike<PairTraversal<Direction::kForward, 4>>,
+    "PairTraversal must satisfy TraversalLike concept"
+);
+
+TEST(PairTraversalApply, VisitsEachLaneGroupWithItsSourcePartnersAndLanes) {
+  TwoGroups pairs;
+  std::vector<PairCall> calls;
+  PairTraversal<Direction::kForward, 4>::Apply(
+      RecordingPairs{&calls}, size_t{99}, pairs.Topology()
+  );
+  ASSERT_EQ(calls.size(), 2U);
+  EXPECT_EQ(calls[0].group, 0U);
+  EXPECT_EQ(calls[0].source, 1U);
+  EXPECT_EQ(calls[0].partner_group, 1U);
+  EXPECT_EQ(calls[0].lanes, 0b1011U);
+  EXPECT_EQ(calls[1].group, 1U);
+  EXPECT_EQ(calls[1].source, 5U);
+  EXPECT_EQ(calls[1].partner_group, 2U);
+  EXPECT_EQ(calls[1].lanes, 0b0001U);
+}
+
+TEST(PairTraversalApply, BackwardVisitsTheGroupsInReverse) {
+  TwoGroups pairs;
+  std::vector<PairCall> calls;
+  PairTraversal<Direction::kBackward, 4>::Apply(
+      RecordingPairs{&calls}, size_t{99}, pairs.Topology()
+  );
+  ASSERT_EQ(calls.size(), 2U);
+  EXPECT_EQ(calls[0].group, 1U);
+  EXPECT_EQ(calls[1].group, 0U);
+}
+
+TEST(PairTraversalApply, NoPairsMakesNoCalls) {
+  const std::vector<size_t> none;
+  std::vector<PairCall> calls;
+  PairTraversal<Direction::kForward, 4>::Apply(
+      RecordingPairs{&calls},
+      size_t{99},
+      PairTopology(JointTopology(none, 4), none)
+  );
+  EXPECT_TRUE(calls.empty());
+}
+
+// A pass over pairs that reduces into a whole-sim value starts it from its
+// Initialize, pairs or not -- passes over bodies may add to it after.
+TEST(PairTraversalInitOp, InitializesEvenWithNoPairs) {
+  const std::vector<size_t> none;
+  size_t seen = 999;
+  PairTraversal<Direction::kForward, 4>::InitOp(
+      RecordingInitOp{&seen},
+      size_t{99},
+      PairTopology(JointTopology(none, 4), none)
+  );
+  EXPECT_EQ(seen, 0U);
+}
+
+// ---------------------------------------------------------------------------
+// Linked, segment and scanning passes over a list ordering
+// ---------------------------------------------------------------------------
+
+namespace {
+
+using achilles::domain::ArchetypeJointHandle;
+using achilles::domain::JointLayout;
+using achilles::domain::SegmentedTopology;
+using achilles::engine::pass::LinkedSegmentScanTraversal;
+using achilles::engine::pass::LinkedTraversal;
+using achilles::engine::pass::SegmentTraversal;
+using achilles::engine::pass::SelfSegmentTraversal;
+
+struct RecordingRows {
+  std::vector<std::pair<size_t, size_t>>* calls;
+  void operator()(size_t target, size_t source) const {
+    calls->emplace_back(target, source);
+  }
+};
+
+struct ScanCall {
+  size_t target;
+  size_t source;
+  size_t scene;
+};
+
+struct RecordingScan {
+  std::vector<ScanCall>* calls;
+  void operator()(size_t target, size_t source, size_t scene) const {
+    calls->push_back({target, source, scene});
+  }
+};
+
+// Five list rows in two segments, [0, 2) and [2, 5), each linked to a row
+// of some other ordering.
+struct TwoLists {
+  std::vector<size_t> links = {10, 11, 12, 13, 14};
+  std::vector<size_t> segments = {0, 2, 5};
+  SegmentedTopology Topology() const {
+    return {JointTopology(links, 1), segments};
+  }
+};
+
+// Three rows of a scene, the middle one padding.
+struct Scene {
+  static constexpr size_t kNo = JointLayout::kNoInstance;
+  std::vector<size_t> offsets = {0, 2};
+  std::vector<size_t> sorted = {0, 2};
+  std::vector<ArchetypeJointHandle> joints = {{0, 0}, {kNo, kNo}, {0, 1}};
+  JointLayout Layout() const { return {offsets, sorted, joints}; }
+};
+
+}  // namespace
+
+TEST(LinkedTraversalApply, HandsEachRowItsLink) {
+  TwoLists lists;
+  std::vector<std::pair<size_t, size_t>> calls;
+  LinkedTraversal::Apply(RecordingRows{&calls}, lists.Topology());
+  ASSERT_EQ(calls.size(), 5U);
+  EXPECT_EQ(calls[3], (std::pair<size_t, size_t>{3, 13}));
+}
+
+TEST(SegmentTraversalApply, VisitsOnlyItsSegmentsRows) {
+  TwoLists lists;
+  std::vector<std::pair<size_t, size_t>> linked;
+  SegmentTraversal<1>::Apply(RecordingRows{&linked}, lists.Topology());
+  ASSERT_EQ(linked.size(), 3U);
+  EXPECT_EQ(linked.front(), (std::pair<size_t, size_t>{2, 12}));
+  EXPECT_EQ(linked.back(), (std::pair<size_t, size_t>{4, 14}));
+
+  std::vector<std::pair<size_t, size_t>> self;
+  SelfSegmentTraversal<0>::Apply(RecordingRows{&self}, lists.Topology());
+  ASSERT_EQ(self.size(), 2U);
+  EXPECT_EQ(self.back(), (std::pair<size_t, size_t>{1, 1}));
+}
+
+TEST(LinkedSegmentScanTraversalApply, PairsEachRowWithEveryRealSceneRow) {
+  TwoLists lists;
+  Scene scene;
+  std::vector<ScanCall> calls;
+  LinkedSegmentScanTraversal<0>::Apply(
+      RecordingScan{&calls}, lists.Topology(), scene.Layout()
+  );
+  // Two rows times the two real scene rows; the padding row is skipped.
+  ASSERT_EQ(calls.size(), 4U);
+  EXPECT_EQ(calls[0].scene, 0U);
+  EXPECT_EQ(calls[1].scene, 2U);
+  EXPECT_EQ(calls[2].target, 1U);
+  EXPECT_EQ(calls[2].source, 11U);
+}
+
+TEST(LinkedSegmentScanTraversalInitOp, SkipsInitializeWithNoSceneToScan) {
+  TwoLists lists;
+  size_t seen = 999;
+  LinkedSegmentScanTraversal<0>::InitOp(
+      RecordingInitOp{&seen}, lists.Topology()
+  );
+  EXPECT_EQ(seen, 999U);
 }

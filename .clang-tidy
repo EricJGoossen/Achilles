@@ -61,6 +61,15 @@
 #   (misc-non-private-member-variables-in-classes survives -- this pair
 #   wasn't caught by the previous config's dedup list, so both names fired
 #   together there; confirmed here the same way as the others).
+#
+# google-runtime-int: moved to the occasional analyzer pass
+# (.clang-tidy-analyzer, scripts/check-tidy-analyzer.sh). It visits every
+# type written anywhere in a translation unit, template instantiations
+# included, so a file that instantiates the whole Simulation pays for every
+# registered algorithm's Views and step lists: profiled at 59% of all
+# check time (80 s of 135 s) on tests/interface_sensor_handle.cpp, against
+# a 7 s parse. The codebase spells fixed-width integer types throughout, so
+# a stray `long` is rare enough to catch on that pass.
 ---
 Checks: >
     -*,
@@ -73,6 +82,7 @@ Checks: >
     readability-*,
     -google-objc-*,
     -google-readability-todo,
+    -google-runtime-int,
     -cppcoreguidelines-avoid-magic-numbers,
     -modernize-use-trailing-return-type,
     -modernize-use-nodiscard,

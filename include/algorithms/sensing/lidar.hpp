@@ -111,7 +111,7 @@ class Lidar
           "kLidarMaxBeams]."
       );
     }
-    if (!(params_.min_range >= 0.0F && params_.max_range > params_.min_range)) {
+    if (params_.min_range < 0.0F || params_.max_range <= params_.min_range) {
       throw std::invalid_argument("Lidar: needs 0 <= min_range < max_range.");
     }
     AimBeams();
@@ -135,7 +135,7 @@ class Lidar
     params.range_bias = config.Scalar("range_bias", params.range_bias);
     params.range_noise = config.Scalar("range_noise", params.range_noise);
     params.resolution = config.Scalar("resolution", params.resolution);
-    return Lidar(options, params);
+    return {options, params};
   }
 
   std::uint32_t BeamCount() const {

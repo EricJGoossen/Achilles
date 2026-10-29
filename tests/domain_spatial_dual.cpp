@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <cstddef>
 
 #include "domain/math/matrix.hpp"
@@ -342,4 +343,34 @@ TYPED_TEST(DualDerivedTypesSameTypeDotTest, SameTypeDotStillResolves) {
   TypeParam a = TypeParam::UnitX();
   TypeParam b(100.0F, 100.0F, 100.0F, 3.0F, 100.0F, 100.0F);
   EXPECT_FLOAT_EQ(a.Dot(b), 3.0F);
+}
+
+// ---------------------------------------------------------------------------
+// AxisWeights
+// ---------------------------------------------------------------------------
+
+// A joint free to turn about z (column 0) and slide along x (column 1):
+// projected on z, only the turn moves along it; on x, only the slide.
+TEST(AxisWeights, ProjectsEachColumnOfTheSubspaceOnTheAxis) {
+  using achilles::domain::spatial::AxisWeights;
+  using achilles::domain::spatial::kAngularRows;
+  using achilles::domain::spatial::kLinearRows;
+  Matrix<float, 6, 6> subspace{};
+  subspace(2, 0) = 1.0F;  // yaw
+  subspace(3, 1) = 1.0F;  // x
+
+  const auto yaw = AxisWeights(subspace, Vector3<float>(0, 0, 1), kAngularRows);
+  EXPECT_FLOAT_EQ(yaw[0], 1.0F);
+  EXPECT_FLOAT_EQ(yaw[1], 0.0F);
+
+  const auto slide =
+      AxisWeights(subspace, Vector3<float>(1, 0, 0), kLinearRows);
+  EXPECT_FLOAT_EQ(slide[0], 0.0F);
+  EXPECT_FLOAT_EQ(slide[1], 1.0F);
+
+  // A diagonal axis takes a share.
+  const float half = std::sqrt(0.5F);
+  const auto diagonal =
+      AxisWeights(subspace, Vector3<float>(half, 0, half), kAngularRows);
+  EXPECT_FLOAT_EQ(diagonal[0], half);
 }

@@ -207,7 +207,10 @@ using LinkedSegmentScanTraversal =
 // phase, narrow phase or contact solver walks. A Step over pairs is given
 // the pair topology after the rows (the other passes' topology), since a
 // pass over pairs usually shares a Step with passes over the bodies they
-// pair; this walks that second argument as its rows.
+// pair; this walks that second argument as its rows. Its Op's Initialize
+// runs even when there are no pairs: a pass over pairs that reduces into a
+// whole-sim value (topology::GlobalIndexing) starts that value from it, and
+// passes over the bodies may add to the same value after it.
 template <Direction Dir, size_t Stride>
 struct PairTraversal {
   static constexpr Direction kDirection = Dir;
@@ -231,7 +234,7 @@ struct PairTraversal {
       const domain::PairTopology& pairs,
       const Rest&... /*rest*/
   ) {
-    Walk::InitOp(callable, pairs);
+    callable.Initialize(PairSource::InitRow<Stride>(pairs));
   }
 };
 

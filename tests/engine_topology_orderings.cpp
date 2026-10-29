@@ -2,6 +2,9 @@
 
 #include <cstddef>
 #include <span>
+#include <string_view>
+#include <type_traits>
+#include <utility>
 #include <vector>
 #include <xsimd/xsimd.hpp>
 
@@ -11,6 +14,7 @@
 #include "engine/memory/arena.hpp"
 #include "engine/topology/ordering_plan.hpp"
 #include "engine/topology/orderings.hpp"
+#include "util/tmp.hpp"
 
 using achilles::domain::ArchetypeJointHandle;
 using achilles::domain::ArchetypeTreeStructure;
@@ -620,4 +624,240 @@ TEST(TopologicalOrderingBuildPrecondition, DiesOnArchetypeSelfDependency) {
   };
 
   EXPECT_DEATH(TopologicalOrdering::Build(tree, 1), "depends on");
+}
+
+// ---------------------------------------------------------------------------
+// PairOrdering
+// ---------------------------------------------------------------------------
+
+namespace {
+
+using achilles::domain::PairTopology;
+using achilles::engine::topology::PairFilterLike;
+using achilles::engine::topology::PairOrdering;
+
+// Admits every pair: only PairOrdering's own structural rules apply.
+struct AdmitAll {
+  static std::size_t Key(
+      const ArchetypeTreeStructure& /*archetype*/, std::size_t joint
+  ) {
+    return joint;
+  }
+  static bool Admits(std::size_t /*a*/, std::size_t /*b*/) { return true; }
+};
+static_assert(PairFilterLike<AdmitAll>);
+
+// Admits no pair that has joint 1 in it.
+struct ExcludeJointOne {
+  static std::size_t Key(
+      const ArchetypeTreeStructure& /*archetype*/, std::size_t joint
+  ) {
+    return joint;
+  }
+  static bool Admits(std::size_t a, std::size_t b) { return a != 1 && b != 1; }
+};
+
+// One instance of a root joint with four children: every child's row
+// against every later child's, never against the root (their parent).
+struct Star {
+  std::vector<std::size_t> tree_structure = {kNoParent, 0, 0, 0, 0};
+  std::vector<ArchetypeJointHandle> root_parents = {
+      ArchetypeJointHandle{kNoParent, kNoParent}
+  };
+  std::vector<ArchetypeTreeStructure> tree = {
+      MakeArchetype(true, tree_structure, root_parents)
+  };
+};
+
+// Every real pair of `plan`, as (source row, partner row) -- the rows of
+// the row ordering the pairs were planned over.
+std::vector<std::pair<std::size_t, std::size_t>> PairsOf(
+    const OrderingPlan& plan, std::span<const std::size_t> partners
+) {
+  std::vector<std::pair<std::size_t, std::size_t>> pairs;
+  const JointTopology sources = plan.Topology();
+  for (std::size_t row = 0; row < sources.Size(); ++row) {
+    if (partners[row] != PairTopology::kNoPartner) {
+      pairs.emplace_back(sources[row], partners[row]);
+    }
+  }
+  return pairs;
+}
+
+}  // namespace
+
+static_assert(OrderingPolicyLike<PairOrdering<TopologicalOrdering, AdmitAll>>);
+
+TEST(PairOrderingBuild, PairsEveryNonParentRowAboveTheSourceOnce) {
+  Star star;
+  constexpr std::size_t kLanes = 4;
+  const OrderingPlan rows = TopologicalOrdering::Build(star.tree, kLanes);
+  const OrderingPlan plan =
+      PairOrdering<TopologicalOrdering, AdmitAll>::Build(star.tree, kLanes);
+  Arena arena(4096, alignof(std::max_align_t));
+  const auto allocated = plan.Allocate(arena);
+
+  const auto pairs = PairsOf(plan, allocated.partners);
+  // C(4, 2) child pairs; the root pairs with none of its children.
+  ASSERT_EQ(pairs.size(), 6U);
+  const JointLayout layout = rows.Layout();
+  const std::size_t root = layout.ToSorted({0, 0});
+  for (const auto& [source, partner] : pairs) {
+    EXPECT_LT(source, partner);
+    EXPECT_NE(source, root);
+    EXPECT_NE(partner, root);
+    EXPECT_FALSE(layout.IsPadding(partner));
+  }
+  // One real pair per row: one row per pair, in the plan's one instance.
+  EXPECT_EQ(plan.Layout().InstanceCount(), 1U);
+  EXPECT_EQ(plan.Layout().InstanceOffsets().back(), 6U);
+}
+
+TEST(
+    PairOrderingBuild, EveryLaneOfAGroupSharesItsSourceAndLinesUpWithItsPartner
+) {
+  Star star;
+  constexpr std::size_t kLanes = 4;
+  const OrderingPlan plan =
+      PairOrdering<TopologicalOrdering, AdmitAll>::Build(star.tree, kLanes);
+  Arena arena(4096, alignof(std::max_align_t));
+  const auto allocated = plan.Allocate(arena);
+  const JointTopology sources = plan.Topology();
+
+  ASSERT_EQ(sources.Size() % kLanes, 0U);
+  for (std::size_t group = 0; group < sources.Size() / kLanes; ++group) {
+    bool any = false;
+    for (std::size_t lane = 0; lane < kLanes; ++lane) {
+      const std::size_t row = (group * kLanes) + lane;
+      EXPECT_EQ(sources[row], sources[group * kLanes]);
+      const std::size_t partner = allocated.partners[row];
+      if (partner != PairTopology::kNoPartner) {
+        any = true;
+        EXPECT_EQ(partner % kLanes, lane);
+        EXPECT_TRUE(plan.Layout().ToPhysical(row).instance_index == 0);
+      } else {
+        EXPECT_TRUE(plan.Layout().IsPadding(row));
+      }
+    }
+    EXPECT_TRUE(any) << "a kept group has at least one real pair";
+  }
+}
+
+TEST(PairOrderingBuild, DropsEveryPairTheFilterRulesOut) {
+  Star star;
+  const OrderingPlan rows = TopologicalOrdering::Build(star.tree, 4);
+  const OrderingPlan plan =
+      PairOrdering<TopologicalOrdering, ExcludeJointOne>::Build(star.tree, 4);
+  Arena arena(4096, alignof(std::max_align_t));
+  const auto allocated = plan.Allocate(arena);
+
+  const auto pairs = PairsOf(plan, allocated.partners);
+  const std::size_t one = rows.Layout().ToSorted({0, 1});
+  // C(3, 2): the children other than joint 1.
+  ASSERT_EQ(pairs.size(), 3U);
+  for (const auto& [source, partner] : pairs) {
+    EXPECT_NE(source, one);
+    EXPECT_NE(partner, one);
+  }
+}
+
+TEST(PairOrderingBuild, NoPairsGivesAnEmptyPlan) {
+  std::vector<std::size_t> tree_structure = {kNoParent, 0};
+  std::vector<ArchetypeJointHandle> root_parents = {
+      ArchetypeJointHandle{kNoParent, kNoParent}
+  };
+  std::vector<ArchetypeTreeStructure> tree = {
+      MakeArchetype(true, tree_structure, root_parents)
+  };
+  // A parent and its child: never a pair.
+  const OrderingPlan plan =
+      PairOrdering<TopologicalOrdering, AdmitAll>::Build(tree, 4);
+  EXPECT_EQ(plan.Topology().Size(), 0U);
+  EXPECT_EQ(plan.Layout().InstanceOffsets().back(), 0U);
+}
+
+// ---------------------------------------------------------------------------
+// ListOrdering
+// ---------------------------------------------------------------------------
+
+namespace {
+
+using achilles::domain::ArchetypeAttachment;
+using achilles::domain::SegmentedTopology;
+using achilles::engine::topology::ListOrdering;
+using achilles::engine::topology::TopologyOfT;
+
+struct Cameras {
+  static constexpr std::string_view kListName = "camera";
+};
+struct Lights {
+  static constexpr std::string_view kListName = "light";
+};
+using CamerasAndLights = ListOrdering<
+    TopologicalOrdering,
+    achilles::util::TypeList<Cameras, Lights>>;
+
+// Two instances of a two-joint arm, each carrying a camera on its tip, a
+// light on its base and a second camera on its base.
+struct ArmsWithSensors {
+  std::vector<std::size_t> tree_structure = {kNoParent, 0};
+  std::vector<ArchetypeJointHandle> root_parents = {
+      ArchetypeJointHandle{kNoParent, kNoParent},
+      ArchetypeJointHandle{kNoParent, kNoParent}
+  };
+  std::vector<ArchetypeAttachment> attachments = {
+      ArchetypeAttachment{"camera", 1, "tip_camera", {}},
+      ArchetypeAttachment{"light", 0, "lamp", {}},
+      ArchetypeAttachment{"camera", 0, "base_camera", {}},
+  };
+  std::vector<ArchetypeTreeStructure> tree = {ArchetypeTreeStructure{
+      true, tree_structure, root_parents, attachments, {}
+  }};
+};
+
+}  // namespace
+
+static_assert(std::is_same_v<TopologyOfT<CamerasAndLights>, SegmentedTopology>);
+static_assert(std::is_same_v<TopologyOfT<TopologicalOrdering>, JointTopology>);
+
+TEST(
+    ListOrderingBuild, NumbersEachListsEntriesAsOneSegmentLinkedToTheirJoints
+) {
+  ArmsWithSensors arms;
+  constexpr std::size_t kLanes = 4;
+  const OrderingPlan joints = TopologicalOrdering::Build(arms.tree, kLanes);
+  const OrderingPlan plan = CamerasAndLights::Build(arms.tree, kLanes);
+  const JointLayout layout = plan.Layout();
+  const JointTopology links = plan.Topology();
+
+  // Four cameras, then two lights: two instances times each list's own.
+  ASSERT_EQ(layout.InstanceCount(), 2U);
+  EXPECT_EQ(layout.InstanceOffsets()[1], 4U);
+  EXPECT_EQ(layout.InstanceOffsets()[2], 6U);
+  // Instance by instance, in declaration order within each list.
+  const JointLayout joint_layout = joints.Layout();
+  EXPECT_EQ(links[0], joint_layout.ToSorted({0, 1}));  // tip_camera, arm 0
+  EXPECT_EQ(links[1], joint_layout.ToSorted({0, 0}));  // base_camera, arm 0
+  EXPECT_EQ(links[2], joint_layout.ToSorted({1, 1}));
+  EXPECT_EQ(links[3], joint_layout.ToSorted({1, 0}));
+  EXPECT_EQ(links[4], joint_layout.ToSorted({0, 0}));  // lamp, arm 0
+  EXPECT_EQ(links[5], joint_layout.ToSorted({1, 0}));
+  // Padded to the lane width, the padding linked to the base row.
+  ASSERT_EQ(links.Size() % kLanes, 0U);
+  for (std::size_t row = 6; row < links.Size(); ++row) {
+    EXPECT_TRUE(layout.IsPadding(row));
+    EXPECT_EQ(links[row], joint_layout.BaseRowIndex());
+  }
+}
+
+TEST(ListOrderingBuild, NoEntriesGivesNoRows) {
+  std::vector<std::size_t> tree_structure = {kNoParent};
+  std::vector<ArchetypeJointHandle> root_parents = {
+      ArchetypeJointHandle{kNoParent, kNoParent}
+  };
+  std::vector<ArchetypeTreeStructure> tree = {
+      MakeArchetype(true, tree_structure, root_parents)
+  };
+  const OrderingPlan plan = CamerasAndLights::Build(tree, 4);
+  EXPECT_EQ(plan.Topology().Size(), 0U);
 }

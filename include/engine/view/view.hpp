@@ -69,17 +69,24 @@ namespace detail {
 template <size_t I, typename Table>
 struct RowTableSlot {
   Table table;
-
-  const Table& Get() const { return table; }
 };
 
 template <size_t I, typename Table>
   requires std::is_empty_v<Table>
 struct RowTableSlot<I, Table> {
   static constexpr Table kTable{};
-
-  const Table& Get() const { return kTable; }
 };
+
+// The table a slot holds.
+template <size_t I, typename Table>
+const Table& TableOf(const RowTableSlot<I, Table>& slot) {
+  return slot.table;
+}
+template <size_t I, typename Table>
+  requires std::is_empty_v<Table>
+const Table& TableOf(const RowTableSlot<I, Table>& /*slot*/) {
+  return RowTableSlot<I, Table>::kTable;
+}
 
 template <typename Fields, typename... Tables>
 struct RowTableSet;
@@ -426,7 +433,7 @@ class View {
   template <EnumT F>
   const RowTable<F>& FieldRowTable() const {
     using Slot = detail::RowTableSlot<static_cast<size_t>(F), RowTable<F>>;
-    return static_cast<const Slot&>(row_tables_).Get();
+    return detail::TableOf(static_cast<const Slot&>(row_tables_));
   }
 
   std::array<std::byte*, kNumTypes> type_bases_;

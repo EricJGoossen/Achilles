@@ -91,7 +91,7 @@ class Encoder
     params.multi_turn = config.Flag("multi_turn", params.multi_turn);
     params.position_error = config.ErrorModel<float>("position_");
     params.velocity_error = config.ErrorModel<float>("velocity_");
-    return Encoder(options, params);
+    return {options, params};
   }
 
   void Read(

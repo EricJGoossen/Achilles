@@ -36,7 +36,7 @@ namespace detail {
 // false if none is.
 template <typename Fn, typename... Kinds>
 bool WithKindNamed(
-    util::TypeList<Kinds...> /*kinds*/, std::string_view kind, Fn&& fn
+    util::TypeList<Kinds...> /*kinds*/, std::string_view kind, const Fn& fn
 ) {
   return (
       (Kinds::kListName == kind ? (fn.template operator()<Kinds>(), true)

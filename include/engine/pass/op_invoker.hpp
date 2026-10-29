@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <concepts>
 #include <cstddef>
@@ -167,14 +168,10 @@ class OpInvokerBase {
           size_t>;
 
   template <size_t I>
-  static constexpr bool kOutputAlsoRead = [] {
-    for (const auto& input : Op::kInputs) {
-      if (input.field == Op::kOutputs[I].field) {
-        return true;
-      }
-    }
-    return false;
-  }();
+  static constexpr bool kOutputAlsoRead =
+      std::ranges::any_of(Op::kInputs, [](const auto& input) {
+        return input.field == Op::kOutputs[I].field;
+      });
 
   template <size_t I>
   using InputCursorT = std::tuple_element_t<I, InputCursors>;
@@ -218,13 +215,20 @@ class OpInvokerBase {
   template <typename T>
   struct CopiedOutput {
     T value;
-    T* Get() { return &value; }
   };
   template <typename T>
   struct InPlaceOutput {
     T* record;
-    T* Get() const { return record; }
   };
+  // Where the Op writes either one.
+  template <typename T>
+  static T* Target(CopiedOutput<T>& output) {
+    return &output.value;
+  }
+  template <typename T>
+  static T* Target(InPlaceOutput<T>& output) {
+    return output.record;
+  }
 
   template <size_t I, typename Indices>
     requires kOutputInPlace<I, Indices>
@@ -267,7 +271,7 @@ class OpInvokerBase {
     this->op_->operator()(
         InputAt<InIs>(indices)...,
         TraversalInputAt<TrIs>(indices)...,
-        std::get<OutIs>(outputs).Get()...
+        Target(std::get<OutIs>(outputs))...
     );
 
     (Commit<OutIs>(std::get<OutIs>(outputs), indices), ...);

@@ -51,7 +51,7 @@ class Magnetometer
     params.sensor_from_body = config.Pose("mount", {}).Inverse();
     params.world_field = config.Vector("world_field", params.world_field);
     params.error = config.ErrorModel<domain::sensing::Vec3>();
-    return Magnetometer(options, params);
+    return {options, params};
   }
 
   void Read(
