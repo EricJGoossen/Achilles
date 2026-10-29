@@ -36,6 +36,11 @@ class TruthSensor : public Sensor<
   TruthSensor() = default;
   explicit TruthSensor(SensorOptions options) : Base(options) {}
 
+  // Takes only the options every sensor has.
+  static TruthSensor FromConfig(SensorConfig& config) {
+    return TruthSensor(config.Options());
+  }
+
   void Read(
       const SensorTick& /*tick*/,
       const Value& truth,

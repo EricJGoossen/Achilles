@@ -45,22 +45,14 @@ bool WithKindNamed(
   );
 }
 
-// An attachment's settings as K: the options every sensor has (period);
-// any other setting is rejected, so a typo doesn't silently do nothing.
+// An attachment's settings as K, read by K's own FromConfig; a setting it
+// doesn't read is rejected, so a typo doesn't silently do nothing.
 template <algorithms::sensing::SensorLike K>
 K MakeSensor(const domain::ArchetypeAttachment& attachment) {
-  algorithms::sensing::SensorOptions options;
-  for (const auto& [key, values] : attachment.config) {
-    if (key == "period" && values.size() == 1) {
-      options.period = static_cast<float>(values[0]);
-    } else {
-      throw std::invalid_argument(
-          "sensor '" + attachment.name + "': unknown or malformed setting '" +
-          key + "'."
-      );
-    }
-  }
-  return K(options);
+  algorithms::sensing::SensorConfig config(attachment.name, attachment.config);
+  K sensor = K::FromConfig(config);
+  config.Finish();
+  return sensor;
 }
 
 template <algorithms::sensing::SensorLike K, typename SimStateT>

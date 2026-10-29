@@ -11,6 +11,7 @@
 #include "algorithms/conventions.hpp"
 #include "domain/archetype.hpp"
 #include "domain/math/vector3.hpp"
+#include "domain/spatial/dual.hpp"
 #include "engine/memory/buffering_policy.hpp"
 #include "engine/pass/sim_context.hpp"
 #include "engine/topology/ordering_policy.hpp"
@@ -91,12 +92,11 @@ class JointActuator {
     const auto subspace =
         view.template Load<ABAField::kJointSubspace, ScalarOperationT>(row);
 
+    const auto weights =
+        domain::spatial::AxisWeights(subspace, unit, kFirstSpatialRow);
     std::vector<Term> terms;
-    for (std::size_t k = 0; k < kCoordinates; ++k) {
-      ScalarOperationT weight = 0;
-      for (std::size_t i = 0; i < 3; ++i) {
-        weight += subspace(kFirstSpatialRow + i, k) * unit[i];
-      }
+    for (std::size_t k = 0; k < weights.size(); ++k) {
+      const ScalarOperationT weight = weights[k];
       if (std::abs(weight) > kNegligible) {
         terms.push_back(Term{
             view.template WriteSlot<ABAField::kJointTorque>(row, k), weight
@@ -113,11 +113,10 @@ class JointActuator {
   }
 
  private:
-  // Dual's row order (domain/spatial/dual.hpp) is roll, pitch, yaw, x, y, z:
-  // angular first, then linear.
+  // Which half of S the axis is in (domain/spatial/dual.hpp).
   static constexpr std::size_t kFirstSpatialRow =
-      Kind == ActuatorKind::kAngular ? 0 : 3;
-  static constexpr std::size_t kCoordinates = 6;
+      Kind == ActuatorKind::kAngular ? domain::spatial::kAngularRows
+                                     : domain::spatial::kLinearRows;
   // Below this an axis counts as zero, and a coordinate's weight as no
   // coupling -- so float noise from an axis meant to be orthogonal to a
   // joint's freedom doesn't leave a near-zero term behind.

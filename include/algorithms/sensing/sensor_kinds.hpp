@@ -1,6 +1,10 @@
 #pragma once
 
 #include "algorithms/physics_algorithms.hpp"
+#include "algorithms/sensing/accelerometer.hpp"
+#include "algorithms/sensing/encoder.hpp"
+#include "algorithms/sensing/gyroscope.hpp"
+#include "algorithms/sensing/magnetometer.hpp"
 #include "algorithms/sensing/sensor.hpp"
 #include "algorithms/sensing/truth_sensor.hpp"
 #include "engine/topology/ordering_policy.hpp"
@@ -16,9 +20,12 @@ namespace achilles::algorithms::sensing {
 // under the kind's kListName. A kind with no instances costs one empty
 // loop per pass, nothing more.
 //
-// Today that's one truth sensor per named field the physics can be sensed
-// at (TruthSensorsOf), each attached under the field's own name.
-using SensorKinds = TruthSensorsOf<PhysicsAlgorithms>;
+// The modelled sensors -- a joint encoder and an IMU's three parts -- then
+// one truth sensor per named field the physics can be sensed at
+// (TruthSensorsOf), each attached under the field's own name.
+using SensorKinds = util::ConcatT<
+    util::TypeList<Encoder, Gyroscope, Accelerometer, Magnetometer>,
+    TruthSensorsOf<PhysicsAlgorithms>>;
 
 // Every sensor's row: one per attachment the archetypes declare under any
 // registered kind's kListName, kind by kind -- each kind's rows one segment
