@@ -14,7 +14,7 @@
 #include "engine/field_contract.hpp"
 #include "engine/memory/buffering_policy.hpp"
 #include "engine/topology/layout_policy.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "engine/view/view.hpp"
 #include "engine/view/view_contract.hpp"
 #include "engine/view/view_factory.hpp"
@@ -30,6 +30,7 @@ enum class ABAField : uint8_t {
   kJointPosition,        // q
   kJointVelocity,        // qd
   kJointTorque,          // tau
+  kJointTorqueNext,      // tau, next tick's (actuators write it)
 
   // --- Per-body state, propagated outward then inward  ---
   kParentToBodyTransform,  // x_up (Op1 out; Op2/Op3 in)
@@ -62,14 +63,13 @@ struct ABAFieldTraits;
 // Ordering = topology::TopologicalOrdering -- there is no ABA field that
 // could safely use the (looser, no-cross-batch-dependency) default.
 //
-// kName is only declared on the "Model/kinematic inputs" fields -- the
-// ones an archetype (domain/archetype.hpp) actually supplies from
-// user data. Every other field is produced or consumed purely at runtime
-// (propagated state, joint-space scratch, final outputs), so it declares
-// no kName: memory::SimAllocator's Populate pass (see
-// engine/memory/sim_allocator.hpp) only ever looks for a name-matched
-// ArchetypeField on a field that has one, and leaves everything else to
-// Carve's zero-fill and each Op's own Initialize/Apply.
+// kName is a field's one name: what an archetype (.arow) field is matched
+// against when loading (memory::SimAllocator's Populate pass), and what a
+// truth sensor of it is attached under (algorithms/sensing). The model
+// inputs and the state ABA computes (world pose, body velocity, the
+// accelerations) are named; ABA's internal scratch terms (articulated
+// inertia, U, D^-1, bias terms, ...) aren't, and are left to Carve's
+// zero-fill and each Op's own Initialize/Apply.
 template <>
 struct ABAFieldTraits<ABAField::kJointSubspace> {
   using Assembler = math::Matrix6x6Assembler<ScalarOperationT>;
@@ -125,15 +125,29 @@ template <>
 struct ABAFieldTraits<ABAField::kJointTorque> {
   // Double-buffered (engine/memory/buffering_policy.hpp) so actuators
   // (interface/actuator.hpp) accumulate next tick's torque into one half
-  // while this tick's ABA passes read the other. The archetype's own
-  // joint_torque is the rest value both halves reset to, i.e. a constant
-  // baseline every actuator adds on top of. Each element is one generalized
-  // joint coordinate (a column of kJointSubspace), not a spatial axis.
+  // while this tick's ABA passes read the other; SwapTorqueStep
+  // (aba_step.hpp) swaps them and zeroes the half handed back, so a tick's
+  // torque is exactly what actuators applied for it. Each element is one
+  // generalized joint coordinate (a column of kJointSubspace), not a
+  // spatial axis. Not loaded from the .arow: a force that's always there is
+  // a property of the mechanism (a passive actuator), not a command.
   using Assembler = spatial::SpatialForceAssembler<ScalarOperationT>;
-  using Buffering = engine::memory::DoubleBuffered;
+  using SharedAs = JointTorqueSlot;
+  using Buffering = engine::memory::
+      DoubleBuffered<JointTorqueSlot, engine::memory::BufferSide::kRead>;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
-  static constexpr std::string_view kName = "joint_torque";
+};
+template <>
+struct ABAFieldTraits<ABAField::kJointTorqueNext> {
+  // The same block as kJointTorque, seen from its write side: the half
+  // actuators are accumulating into, which SwapTorqueStep zeroes.
+  using Assembler = spatial::SpatialForceAssembler<ScalarOperationT>;
+  using SharedAs = JointTorqueSlot;
+  using Buffering = engine::memory::
+      DoubleBuffered<JointTorqueSlot, engine::memory::BufferSide::kWrite>;
+  using Ordering = engine::topology::TopologicalOrdering;
+  using Layout = engine::topology::PlanarLayout;
 };
 template <>
 struct ABAFieldTraits<ABAField::kParentToBodyTransform> {
@@ -151,6 +165,7 @@ struct ABAFieldTraits<ABAField::kWorldTransform> {
   using SharedAs = WorldTransformSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
+  static constexpr std::string_view kName = "world_transform";
 };
 template <>
 struct ABAFieldTraits<ABAField::kSpatialVelocity> {
@@ -158,6 +173,7 @@ struct ABAFieldTraits<ABAField::kSpatialVelocity> {
   using SharedAs = SpatialVelocitySlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
+  static constexpr std::string_view kName = "spatial_velocity";
 };
 template <>
 struct ABAFieldTraits<ABAField::kBiasAcceleration> {
@@ -205,12 +221,17 @@ struct ABAFieldTraits<ABAField::kJointAcceleration> {
   using SharedAs = JointAccelerationSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
+  static constexpr std::string_view kName = "joint_acceleration";
 };
 template <>
 struct ABAFieldTraits<ABAField::kSpatialAcceleration> {
+  // SharedAs = SpatialAccelerationSlot so the contact solver can update it
+  // to the constrained body acceleration as it solves.
   using Assembler = spatial::SpatialAccelerationAssembler<ScalarOperationT>;
+  using SharedAs = SpatialAccelerationSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
+  static constexpr std::string_view kName = "spatial_acceleration";
 };
 static_assert(engine::FieldTraitsLike<ABAField, ABAFieldTraits>);
 

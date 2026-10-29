@@ -10,7 +10,9 @@
 using achilles::domain::JointTopology;
 
 TEST(JointTopologyConstruction, SizeMatchesTheSpanItWasBuiltFrom) {
-  std::vector<std::size_t> parents = {4, 4, 4, 4};  // out of range (== size): no parent
+  std::vector<std::size_t> parents = {
+      4, 4, 4, 4
+  };  // out of range (== size): no parent
 
   JointTopology topology{
       std::span<std::size_t>(parents), xsimd::batch<float>::size
@@ -68,15 +70,16 @@ TEST(JointTopologyConstruction, AcceptsATwoLevelTreePaddedToTheRealLaneWidth) {
 
 // A stored parent index equal to its own position always lands in the same
 // lane group as itself, for any lane width -- a portable, guaranteed
-// CheckBatchSafety violation, unlike a relative offset that depends on the
+// IsBatchSafe violation, unlike a relative offset that depends on the
 // real xsimd::batch<float>::size to land wrong.
-TEST(JointTopologyConstructorPrecondition, DiesOnSelfParentBatchUnsafety) {
+TEST(JointTopologyBatchSafety, SelfParentIsNotBatchSafe) {
   std::vector<std::size_t> parents = {0};
 
-  EXPECT_DEATH(
-      JointTopology(std::span<std::size_t>(parents), xsimd::batch<float>::size),
-      "same SIMD batch"
-  );
+  JointTopology topology{
+      std::span<std::size_t>(parents), xsimd::batch<float>::size
+  };
+
+  EXPECT_FALSE(topology.IsBatchSafe());
 }
 
 TEST(JointTopologyAccessPrecondition, DiesOnOutOfRangeIndex) {
@@ -87,4 +90,43 @@ TEST(JointTopologyAccessPrecondition, DiesOnOutOfRangeIndex) {
   };
 
   EXPECT_DEATH({ (void)topology[1]; }, "");
+}
+
+// ---------------------------------------------------------------------------
+// SegmentedTopology / PairTopology
+// ---------------------------------------------------------------------------
+
+TEST(SegmentedTopology, ReportsEachSegmentsRows) {
+  const std::vector<size_t> parents = {9, 9, 9, 9, 9};
+  const std::vector<size_t> segments = {0, 2, 5};
+  const achilles::domain::SegmentedTopology topology(
+      achilles::domain::JointTopology(parents, 1), segments
+  );
+  ASSERT_EQ(topology.SegmentCount(), 2U);
+  EXPECT_EQ(topology.SegmentBegin(0), 0U);
+  EXPECT_EQ(topology.SegmentEnd(0), 2U);
+  EXPECT_EQ(topology.SegmentBegin(1), 2U);
+  EXPECT_EQ(topology.SegmentEnd(1), 5U);
+}
+
+TEST(SegmentedTopology, NoSegmentsIsZeroSegments) {
+  const std::vector<size_t> parents;
+  const achilles::domain::SegmentedTopology topology(
+      achilles::domain::JointTopology(parents, 1), {}
+  );
+  EXPECT_EQ(topology.SegmentCount(), 0U);
+}
+
+TEST(PairTopology, HoldsEachRowsSourceAndPartner) {
+  using achilles::domain::PairTopology;
+  const std::vector<size_t> sources = {3, 3};
+  const std::vector<size_t> partners = {4, PairTopology::kNoPartner};
+  const PairTopology topology(
+      achilles::domain::JointTopology(sources, 2), partners
+  );
+  ASSERT_EQ(topology.Size(), 2U);
+  EXPECT_EQ(topology[0], 3U);
+  EXPECT_EQ(topology[1], 3U);
+  EXPECT_EQ(topology.Partner(0), 4U);
+  EXPECT_EQ(topology.Partner(1), PairTopology::kNoPartner);
 }

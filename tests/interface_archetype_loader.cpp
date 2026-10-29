@@ -169,7 +169,7 @@ joints:
 
   ASSERT_EQ(archetypes.size(), 2U);
   // Root (chassis) must come first -- InstanceOffsets/DecodeInstance
-  // (ordering_policy.cpp) number global instances in `archetypes` order.
+  // (orderings.cpp) number global instances in `archetypes` order.
   EXPECT_EQ(archetypes[0].Name(), "chassis");
   EXPECT_EQ(archetypes[1].Name(), "wheel");
 

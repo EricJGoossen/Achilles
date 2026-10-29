@@ -17,6 +17,7 @@
 #include "algorithms/pi/pi_step.hpp"
 #include "algorithms/registry.hpp"
 #include "algorithms/rk4/rk4_step.hpp"
+#include "algorithms/sensing/sensing_step.hpp"
 #include "algorithms/sim_config.hpp"
 #include "algorithms/verlet/verlet_step.hpp"
 #include "algorithms/vi/vi_step.hpp"
@@ -30,7 +31,10 @@ namespace achilles::algorithms {
 // Ops; aba::ABAStep is the dynamics evaluation qdd = f(q, qd), and each
 // integrator is just where it evaluates that and what it does with the
 // result. ABA's fields are SharedAs-aliased with every integrator's, so
-// each ABAStep reads whatever state the Step before it wrote.
+// each ABAStep reads whatever state the Step before it wrote. Every
+// integrator starts with aba::SwapTorqueStep, so a tick reads exactly the
+// actuator torque Apply()ed since the previous tick, however many times it
+// evaluates ABA.
 
 // The collision pipeline: the broad phase's candidate pairs, then the
 // narrow phase's contacts for them (algorithms/broad_phase,
@@ -43,50 +47,69 @@ using Collision = util::TypeList<
     narrow_phase::NarrowPhaseStep,
     joint_limit::JointLimitStep>;
 
+// Sensing (sensing::Sensing, sensing/sensing_step.hpp) runs once per tick,
+// where the tick's starting state (q_n, qd_n) is fully evaluated and, if
+// the integrator has one, solved -- before anything integrates. Every
+// sensor input then describes that one state: the state a caller sees
+// between Step() calls.
+
 // mj_step's order: ABA solves for the unconstrained qdd at (q, qd), the
 // collision pipeline finds this pose's contacts, the contact solver
-// (algorithms/contact_solver) replaces qdd with the constrained qacc, VI
-// integrates that into qd, and PI integrates the updated qd into q for the
-// next tick's ABA to read.
+// (algorithms/contact_solver) replaces qdd with the constrained qacc, the
+// sensors sample that solved state, VI integrates qacc into qd, and PI
+// integrates the updated qd into q for the next tick's ABA to read.
 using SemiImplicitEuler = util::ConcatT<
-    util::TypeList<aba::ABAStep>,
+    util::TypeList<aba::SwapTorqueStep, aba::ABAStep>,
     Collision,
     contact_solver::Solve,
+    sensing::Sensing,
     util::TypeList<vi::VIStep, pi::PIStep>>;
 
-// See algorithms/verlet.
-using VelocityVerlet = util::TypeList<
-    aba::ABAStep,
-    verlet::KickStep<std::ratio<1, 2>>,
-    verlet::DriftStep,
-    aba::ABAStep,
-    verlet::KickStep<std::ratio<1, 2>>>;
+// See algorithms/verlet. Sensing follows the first ABA, at (q_n, qd_n).
+using VelocityVerlet = util::ConcatT<
+    util::TypeList<aba::SwapTorqueStep, aba::ABAStep>,
+    sensing::Sensing,
+    util::TypeList<
+        verlet::KickStep<std::ratio<1, 2>>,
+        verlet::DriftStep,
+        aba::ABAStep,
+        verlet::KickStep<std::ratio<1, 2>>>>;
 
-// See algorithms/midpoint. Four fixed-point iterations per tick.
+// See algorithms/midpoint. Four fixed-point iterations per tick. Midpoint
+// never evaluates ABA at (q_n, qd_n) itself -- its first evaluation is at
+// the first trial, q_n advanced half a step at qd_n -- so sensing follows
+// that one: its inputs lead the tick's starting state by up to dt/2.
 inline constexpr std::size_t kImplicitMidpointIterations = 4;
+using MidpointIteration =
+    util::TypeList<midpoint::TrialStep, aba::ABAStep, midpoint::UpdateStep>;
 using ImplicitMidpoint = util::ConcatT<
-    util::TypeList<midpoint::BeginStep>,
-    util::RepeatListT<
-        util::TypeList<midpoint::TrialStep, aba::ABAStep, midpoint::UpdateStep>,
-        kImplicitMidpointIterations>,
+    util::TypeList<
+        aba::SwapTorqueStep,
+        midpoint::BeginStep,
+        midpoint::TrialStep,
+        aba::ABAStep>,
+    sensing::Sensing,
+    util::TypeList<midpoint::UpdateStep>,
+    util::RepeatListT<MidpointIteration, kImplicitMidpointIterations - 1>,
     util::TypeList<midpoint::CommitStep>>;
 
 // See algorithms/rk4. Stage weights 1, 2, 2, 1; stages 2-4 advance from the
-// tick's start by dt/2, dt/2, dt.
-using RungeKutta4 = util::TypeList<
-    rk4::BeginStep,
-    aba::ABAStep,
-    rk4::AccumulateStep<std::ratio<1>>,
-    rk4::AdvanceStep<std::ratio<1, 2>>,
-    aba::ABAStep,
-    rk4::AccumulateStep<std::ratio<2>>,
-    rk4::AdvanceStep<std::ratio<1, 2>>,
-    aba::ABAStep,
-    rk4::AccumulateStep<std::ratio<2>>,
-    rk4::AdvanceStep<std::ratio<1>>,
-    aba::ABAStep,
-    rk4::AccumulateStep<std::ratio<1>>,
-    rk4::CommitStep>;
+// tick's start by dt/2, dt/2, dt. Sensing follows stage 1, at (q_n, qd_n).
+using RungeKutta4 = util::ConcatT<
+    util::TypeList<aba::SwapTorqueStep, rk4::BeginStep, aba::ABAStep>,
+    sensing::Sensing,
+    util::TypeList<
+        rk4::AccumulateStep<std::ratio<1>>,
+        rk4::AdvanceStep<std::ratio<1, 2>>,
+        aba::ABAStep,
+        rk4::AccumulateStep<std::ratio<2>>,
+        rk4::AdvanceStep<std::ratio<1, 2>>,
+        aba::ABAStep,
+        rk4::AccumulateStep<std::ratio<2>>,
+        rk4::AdvanceStep<std::ratio<1>>,
+        aba::ABAStep,
+        rk4::AccumulateStep<std::ratio<1>>,
+        rk4::CommitStep>>;
 
 // See Integrator::kImplicitFast below.
 using ImplicitFast = SemiImplicitEuler;
@@ -136,8 +159,11 @@ enum class Integrator : std::uint8_t {
 
 // What runs once, when a sim is built (interface::Simulation::Init), before
 // its first tick -- MuJoCo's mj_setConst: ABA at the initial pose, then the
-// contact solver's body_invweight0 from its factors.
-using Setup = util::TypeList<aba::ABAStep, contact_solver::InvWeightStep>;
+// contact solver's body_invweight0 from its factors, then every sensor's
+// clock and locals.
+using Setup = util::ConcatT<
+    util::TypeList<aba::ABAStep, contact_solver::InvWeightStep>,
+    sensing::SensingSetup>;
 
 // The SimContext every hosted Algorithm lives in, and the shape of one
 // integrator tick over it.

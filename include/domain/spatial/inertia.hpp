@@ -334,7 +334,7 @@ class Inertia {
 template <typename T>
 using InertiaAssembler = engine::
     Assembler<Inertia, T, T, math::Vector3Assembler<T>, engine::RepeatTypes<6>>;
-static_assert(engine::AssemblerLike<InertiaAssembler<float>>);
+static_assert(engine::BatchAssemblerLike<InertiaAssembler<float>>);
 
 template <util::ArithmeticLike T, bool Inverted>
 class InertiaOperator {
@@ -564,12 +564,13 @@ using InvertedArticulatedInertiaOperator = InertiaOperator<T, true>;
 template <typename T>
 using InertiaOperatorAssembler = engine::
     Assembler<ArticulatedInertiaOperator, T, math::Matrix6x6Assembler<T>>;
-static_assert(engine::AssemblerLike<InertiaOperatorAssembler<float>>);
+static_assert(engine::BatchAssemblerLike<InertiaOperatorAssembler<float>>);
 template <typename T>
 using InvertedInertiaOperatorAssembler = engine::Assembler<
     InvertedArticulatedInertiaOperator,
     T,
     math::Matrix6x6Assembler<T>>;
-static_assert(engine::AssemblerLike<InvertedInertiaOperatorAssembler<float>>);
+static_assert(engine::BatchAssemblerLike<
+              InvertedInertiaOperatorAssembler<float>>);
 
 }  // namespace achilles::domain::spatial

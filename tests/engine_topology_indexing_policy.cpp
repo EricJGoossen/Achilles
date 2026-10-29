@@ -6,6 +6,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "domain/archetype.hpp"
 #include "domain/joint_layout.hpp"
 #include "engine/topology/indexing_policy.hpp"
 
@@ -93,4 +94,37 @@ TEST(GlobalIndexingSeedPadding, WritesNothing) {
       [&](std::size_t element) { written.push_back(element); }, layout, 16
   );
   EXPECT_TRUE(written.empty());
+}
+
+// ---------------------------------------------------------------------------
+// LaneGroupIndexing
+// ---------------------------------------------------------------------------
+
+using achilles::engine::topology::LaneGroupIndexing;
+
+static_assert(IndexingPolicyLike<LaneGroupIndexing<4>>);
+
+TEST(LaneGroupIndexingCount, IsOnePerLaneGroup) {
+  EXPECT_EQ(LaneGroupIndexing<4>::Count(16), 4U);
+  EXPECT_EQ(LaneGroupIndexing<8>::Count(16), 2U);
+  EXPECT_EQ(LaneGroupIndexing<4>::Count(0), 0U);
+}
+
+TEST(LaneGroupIndexingResolve, ResolvesToTheNamedSlotsGroupAsAScalar) {
+  const auto indices =
+      std::make_tuple(std::size_t{3}, BroadcastIndex{7}, std::size_t{5});
+  EXPECT_EQ((LaneGroupIndexing<4>::Resolve<0, 1>(indices, 16)), 3U);
+  EXPECT_EQ((LaneGroupIndexing<4>::Resolve<2, 1>(indices, 16)), 5U);
+}
+
+TEST(LaneGroupIndexingSeedPadding, WritesNothing) {
+  const std::vector<size_t> offsets = {0, 0};
+  const std::vector<size_t> sorted;
+  const std::vector<achilles::domain::ArchetypeJointHandle> joints;
+  const achilles::domain::JointLayout layout(offsets, sorted, joints);
+  int writes = 0;
+  LaneGroupIndexing<4>::SeedPadding(
+      [&](std::size_t /*element*/) { ++writes; }, layout, 16
+  );
+  EXPECT_EQ(writes, 0);
 }

@@ -3,12 +3,14 @@
 #include "algorithms/conventions.hpp"
 #include "algorithms/narrow_phase/narrow_phase_data.hpp"
 #include "algorithms/narrow_phase/narrow_phase_ops.hpp"
+#include "algorithms/orderings/collision_pairs.hpp"
 #include "algorithms/sim_config.hpp"
+#include "domain/joint_topology.hpp"
 #include "engine/algorithm_contract.hpp"
 #include "engine/pass/algorithm_step.hpp"
 #include "engine/pass/sim_context.hpp"
 #include "engine/pass/traversals.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 
 namespace achilles::algorithms::narrow_phase {
 
@@ -17,11 +19,12 @@ namespace achilles::algorithms::narrow_phase {
 // BroadPhaseStep looks up its own (see broad_phase_step.hpp).
 //
 // ComputeSweptBoxContactOp over PairBatched -- the same PairTraversal, with
-// the same Stride and the same TopologicalOrdering topology, the broad
-// phase's own pair test ran over, so each call lines up with exactly the
-// kBoundsOverlap word that test wrote for it. Every lane is computed and
-// kBoundsOverlap masks the result; the traversal's own PairStructure isn't
-// read again, since every candidate bit already has it ANDed in.
+// the same Stride over the same pairs (CollisionPairs,
+// orderings/collision_pairs.hpp) the broad phase's own pair test ran over, so
+// each call lines up with exactly the kBoundsOverlap word that test wrote for
+// it. Every lane is computed and kBoundsOverlap masks the result; the
+// traversal's own PairStructure isn't read again, since every candidate bit
+// already has it ANDed in.
 //
 // The one shape type pair today has the one Pass. Another type pair would
 // add its own contact Op here, writing the same contact fields (see
@@ -48,13 +51,16 @@ struct NarrowPhaseStep {
     const auto view = sim_state.template ViewFor<NarrowPhaseView>();
     const NarrowPhaseTopology& topology =
         sim_state.template TopologyFor<engine::topology::TopologicalOrdering>();
+    const domain::PairTopology& pairs =
+        sim_state.template TopologyFor<CollisionPairs>();
 
     engine::pass::Step(
         engine::pass::Ops<Pass<ComputeSweptBoxContactOp, PairBatched>>{
             ComputeSweptBoxContactOp{}
         },
         view,
-        topology
+        topology,
+        pairs
     );
   }
 };

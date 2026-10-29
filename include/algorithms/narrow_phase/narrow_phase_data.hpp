@@ -5,6 +5,7 @@
 #include <string_view>
 
 #include "algorithms/conventions.hpp"
+#include "algorithms/orderings/collision_pairs.hpp"
 #include "algorithms/shared_slots.hpp"
 #include "domain/joint_topology.hpp"
 #include "domain/math/activation_mask.hpp"
@@ -14,7 +15,7 @@
 #include "engine/field_contract.hpp"
 #include "engine/topology/indexing_policy.hpp"
 #include "engine/topology/layout_policy.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "engine/view/view_contract.hpp"
 #include "engine/view/view_factory.hpp"
 
@@ -36,7 +37,7 @@ using ContactDistances = math::Matrix<MathematicalT, kSweptBoxContactSlots, 1>;
 using ContactPoints = math::Matrix<MathematicalT, 3, kSweptBoxContactSlots>;
 
 // One bit per (slot, lane), bit (k * kLanes + t) for slot k of target lane
-// t, packed into one int32 word per (source row, target lane group) the same
+// t, packed into one int32 word per lane group of pairs the same
 // way kBoundsOverlap packs one bit per lane.
 using ContactActiveMask =
     math::ActivationMask<std::int32_t, kLanes * kSweptBoxContactSlots>;
@@ -59,13 +60,12 @@ static_assert(
 // Dense and masked, like the broad phase's own pair test: the contact Op
 // runs over the same PairTraversal, so it computes every lane of every call,
 // and only kContactActive says which of those lanes are real contacts. No
-// lane ever branches on whether it's a candidate; a GPU grid over (source,
-// target group) does the same work in every thread.
+// lane ever branches on whether it's a candidate; a GPU grid over lane
+// groups of pairs does the same work in every thread.
 //
 // Up to kSweptBoxContactSlots contacts per pair, as three per-pair fields
-// -- the rows x rows matrix of each, one batch per (source row, target lane
-// group), lane t for target (group * kLanes + t), see
-// topology::PairGroupIndexing<kLanes, kLanes>:
+// -- one value per row of CollisionPairs (orderings/collision_pairs.hpp), so
+// per pair, read a lane group of pairs at a time:
 //
 //   - kContactNormal: world unit vector from the source body toward the
 //     target body -- the direction pushing them apart moves the target. One
@@ -94,13 +94,13 @@ enum class NarrowPhaseField : uint8_t {
   kCollisionExtents,  // h (inner box half-extents, along the shape's axes)
   kCollisionRadius,   // r (sweep radius around the inner box)
   kCollisionMargin,   // m (contact margin)
-  kBoundsOverlap,     // per (source row, target lane group) candidate bits
+  kBoundsOverlap,     // per lane group of pairs, candidate bits
 
   // --- Narrow-phase outputs ---
   kContactNormal,    // n (world, source -> target)
   kContactDistance,  // d_k (signed surface distance, per slot)
   kContactPoint,     // p_k (world, per slot)
-  kContactActive,    // per (source row, target lane group) (slot, lane) bits
+  kContactActive,    // per lane group of pairs, (slot, lane) bits
 
   kCount
 };
@@ -109,10 +109,11 @@ static_assert(engine::FieldEnumLike<NarrowPhaseField>);
 template <NarrowPhaseField F>
 struct NarrowPhaseFieldTraits;
 
-// Every NarrowPhaseField binds Ordering = TopologicalOrdering for the same
-// reason every BroadPhaseField does (see broad_phase_data.hpp): it shares
-// rows with the broad phase's own fields, so it has to share the ordering
-// that numbered them.
+// Every per-body NarrowPhaseField binds Ordering = TopologicalOrdering for
+// the same reason every BroadPhaseField does (see broad_phase_data.hpp): it
+// shares rows with the broad phase's own fields, so it has to share the
+// ordering that numbered them. The per-pair ones bind the pairs,
+// CollisionPairs (orderings/collision_pairs.hpp).
 template <>
 struct NarrowPhaseFieldTraits<NarrowPhaseField::kWorldShapePose> {
   // SharedAs = WorldShapePoseSlot so this is the broad phase's own
@@ -153,8 +154,8 @@ struct NarrowPhaseFieldTraits<NarrowPhaseField::kBoundsOverlap> {
   // read-only here.
   using Assembler = math::ActivationMaskAssembler<kLanes>;
   using SharedAs = BoundsOverlapSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Indexing = engine::topology::PairGroupIndexing<kLanes>;
+  using Ordering = CollisionPairs;
+  using Indexing = engine::topology::LaneGroupIndexing<kLanes>;
   using Layout = engine::topology::PlanarLayout;
 };
 template <>
@@ -162,16 +163,14 @@ struct NarrowPhaseFieldTraits<NarrowPhaseField::kContactDistance> {
   using Assembler =
       math::MatrixAssembler<ScalarOperationT, kSweptBoxContactSlots, 1>;
   using SharedAs = ContactDistanceSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Indexing = engine::topology::PairGroupIndexing<kLanes, kLanes>;
+  using Ordering = CollisionPairs;
   using Layout = engine::topology::PlanarLayout;
 };
 template <>
 struct NarrowPhaseFieldTraits<NarrowPhaseField::kContactNormal> {
   using Assembler = math::Vector3Assembler<ScalarOperationT>;
   using SharedAs = ContactNormalSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Indexing = engine::topology::PairGroupIndexing<kLanes, kLanes>;
+  using Ordering = CollisionPairs;
   using Layout = engine::topology::PlanarLayout;
 };
 template <>
@@ -179,8 +178,7 @@ struct NarrowPhaseFieldTraits<NarrowPhaseField::kContactPoint> {
   using Assembler =
       math::MatrixAssembler<ScalarOperationT, 3, kSweptBoxContactSlots>;
   using SharedAs = ContactPointSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Indexing = engine::topology::PairGroupIndexing<kLanes, kLanes>;
+  using Ordering = CollisionPairs;
   using Layout = engine::topology::PlanarLayout;
 };
 template <>
@@ -188,8 +186,8 @@ struct NarrowPhaseFieldTraits<NarrowPhaseField::kContactActive> {
   using Assembler =
       math::ActivationMaskAssembler<kLanes * kSweptBoxContactSlots>;
   using SharedAs = ContactActiveSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Indexing = engine::topology::PairGroupIndexing<kLanes>;
+  using Ordering = CollisionPairs;
+  using Indexing = engine::topology::LaneGroupIndexing<kLanes>;
   using Layout = engine::topology::PlanarLayout;
 };
 static_assert(engine::

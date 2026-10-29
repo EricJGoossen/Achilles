@@ -173,6 +173,6 @@ using TransformAssembler = engine::Assembler<
     T,
     math::Vector3Assembler<T>,
     math::QuaternionAssembler<T>>;
-static_assert(engine::AssemblerLike<TransformAssembler<float>>);
+static_assert(engine::BatchAssemblerLike<TransformAssembler<float>>);
 
 }  // namespace achilles::domain::spatial

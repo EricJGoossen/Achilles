@@ -15,29 +15,37 @@
 #include "engine/memory/buffering_policy.hpp"
 #include "engine/topology/indexing_policy.hpp"
 #include "engine/topology/layout_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "util/simd_ops.hpp"
+#include "util/tmp.hpp"
 
 namespace achilles::engine::view {
 
-// One field's (memory-style, packing, index-space, buffering) tuple. Bundled
+// One field's (memory-style, packing, index-space, buffering, row order)
+// tuple. Bundled
 // rather than kept as parallel template packs, because a View's fields are
 // heterogeneous per-field, not uniform: there is no way to zip an
 // independent Policies... pack against an Assemblers... pack and know
 // Policies[i] belongs to Assemblers[i] specifically. ViewFactory builds this
 // pack from Traits (see view_factory.hpp); nothing else needs to construct
-// one by hand. IndexingT defaults to topology::RowIndexing and BufferingT to
-// memory::SingleBuffered, the same defaults memory::FieldIndexingT/
-// FieldBufferingT resolve a Traits<F> naming neither to.
+// one by hand. IndexingT defaults to topology::RowIndexing, BufferingT to
+// memory::SingleBuffered and OrderingT to topology::LinearOrdering, the same
+// defaults memory::FieldIndexingT/FieldBufferingT/FieldOrderingT resolve a
+// Traits<F> naming none of them to. OrderingT says which row count the
+// field's block is sized by (see View's row counts).
 template <
     topology::LayoutPolicyLike PolicyT,
     AssemblerLike AssemblerT,
     topology::IndexingPolicyLike IndexingT = topology::RowIndexing,
-    memory::BufferingPolicyLike BufferingT = memory::SingleBuffered>
+    memory::BufferingPolicyLike BufferingT = memory::SingleBuffered,
+    typename OrderingT = topology::LinearOrdering>
+  requires AssemblesThrough<AssemblerT, PolicyT>
 struct FieldBinding {
   using Layout = PolicyT;
   using Assembler = AssemblerT;
   using Indexing = IndexingT;
   using Buffering = BufferingT;
+  using Ordering = OrderingT;
 };
 
 template <typename T>
@@ -47,10 +55,49 @@ concept FieldBindingLike =
       typename T::Assembler;
       typename T::Indexing;
       typename T::Buffering;
+      typename T::Ordering;
     } && topology::LayoutPolicyLike<typename T::Layout> &&
-    AssemblerLike<typename T::Assembler> &&
+    AssemblesThrough<typename T::Assembler, typename T::Layout> &&
     topology::IndexingPolicyLike<typename T::Indexing> &&
     memory::BufferingPolicyLike<typename T::Buffering>;
+
+namespace detail {
+
+// One field's RowTable inside a View, tagged with its field index so every
+// slot is a distinct type. An empty table (a planar field's) is held as a
+// static, so its slot is an empty class -- an empty base taking no space.
+template <size_t I, typename Table>
+struct RowTableSlot {
+  Table table;
+};
+
+template <size_t I, typename Table>
+  requires std::is_empty_v<Table>
+struct RowTableSlot<I, Table> {
+  static constexpr Table kTable{};
+};
+
+// The table a slot holds.
+template <size_t I, typename Table>
+const Table& TableOf(const RowTableSlot<I, Table>& slot) {
+  return slot.table;
+}
+template <size_t I, typename Table>
+  requires std::is_empty_v<Table>
+const Table& TableOf(const RowTableSlot<I, Table>& /*slot*/) {
+  return RowTableSlot<I, Table>::kTable;
+}
+
+template <typename Fields, typename... Tables>
+struct RowTableSet;
+
+// Every field's RowTable, as an aggregate rather than a std::tuple, so a
+// View stays trivially copyable.
+template <size_t... Is, typename... Tables>
+struct RowTableSet<std::index_sequence<Is...>, Tables...>
+    : RowTableSlot<Is, Tables>... {};
+
+}  // namespace detail
 
 // A field-indexed view over externally-owned memory: every field's own
 // (memory-style Layout policy, Assembler) pair is resolved independently
@@ -71,24 +118,46 @@ class View {
   static constexpr size_t kNumTypes = sizeof...(Bindings);
 
  public:
+  // Every distinct row order this View's fields are sized by, in first-
+  // field order -- one row count each (see RowCounts). Nearly every View's
+  // fields share one; a View pairing two row spaces (a list and the joints
+  // it links to, pairs and the bodies they pair) has two.
+  using Orderings =
+      util::UniqueT<util::TypeList<typename Bindings::Ordering...>>;
+  static constexpr size_t kNumOrderings = util::kSizeV<Orderings>;
+  using RowCounts = std::array<size_t, kNumOrderings>;
+
+  // Every field's RowTable (see topology::PlanarLayout::RowTable), held by
+  // value: a segmented field's (topology::SegmentedLayout) is its segment
+  // table, read straight from the View on every lookup; every other
+  // field's is empty, so a View over planar fields only is exactly its
+  // bases, row count and parities.
+  using RowTables = detail::RowTableSet<
+      std::make_index_sequence<sizeof...(Bindings)>,
+      typename Bindings::Layout::template RowTable<
+          typename Bindings::Assembler>...>;
+
   // One base pointer per field (EnumT order). Each field's array is its own
-  // contiguous allocation -- of FieldIndexing<F>::Count(num_instances)
-  // elements, i.e. num_instances for an ordinary row-indexed field --
+  // contiguous allocation -- of FieldIndexing<F>::Count(rows) elements, rows
+  // being its ordering's entry in `row_counts` (Orderings order), i.e. rows
+  // for an ordinary row-indexed field --
   // independently placed by the allocator regardless of which Layout policy
   // it uses -- there is no shared arena to compute cross-field offsets into.
-  // A double-buffered field's base is the start of its whole
-  // [rest | half 0 | half 1] region (see memory::DoubleBuffered), and
-  // `parity` is the sim-wide flag saying which half is read this tick --
-  // only ever dereferenced for such a field, so a View with none may leave
-  // it null.
+  // A double-buffered field's base is the start of its two-half region
+  // (see memory::DoubleBuffered), and its entry in `parities` is its
+  // group's parity, saying which half it addresses; a single-buffered
+  // field's entry is ignored (null). `row_tables` is every field's
+  // RowTable (see RowTables).
   View(
       std::array<std::byte*, kNumTypes> type_bases,
-      size_t num_instances,
-      const memory::BufferParity* parity = nullptr
+      RowCounts row_counts,
+      std::array<const memory::BufferParity*, kNumTypes> parities = {},
+      RowTables row_tables = {}
   )
       : type_bases_(type_bases),
-        num_instances_(num_instances),
-        parity_(parity) {}
+        row_counts_(row_counts),
+        parities_(parities),
+        row_tables_(row_tables) {}
 
   template <EnumT F>
   using Binding = std::tuple_element_t<static_cast<size_t>(F), BindingTuple>;
@@ -113,42 +182,57 @@ class View {
   template <EnumT F>
   using FieldBuffering = typename Binding<F>::Buffering;
 
+  // How many rows field F's block is sized by: its own ordering's count.
+  template <EnumT F>
+  size_t Rows() const {
+    return row_counts_
+        [util::kIndexOfV<typename Binding<F>::Ordering, Orderings>];
+  }
+
+  // Field F's RowTable (see RowTables).
+  template <EnumT F>
+  using RowTable = typename FieldLayout<F>::template RowTable<Assembler<F>>;
+
   template <EnumT F>
   using Scalar = typename Assembler<F>::ScalarType;
 
   // T picks the shape read/written for field F: Scalar<F> for one plain
   // instance, or an xsimd::batch of it to gather several lanes' worth at
-  // once (Assembler<F>::Read/Write reject any other T). `index` is in units
+  // once (Assembler<F>::Value rejects any other T). `index` is in units
   // of however many raw instances one T covers -- instance index directly
   // when T is scalar, batch index when T is batched.
-  template <EnumT F, util::ArithmeticLike T>
-  using Value = decltype(Assembler<F>::template Read<T>(
-      std::declval<const std::byte*>(), size_t{0}
-  ));
+  template <EnumT F, FieldShapeLike T>
+  using Value = typename Assembler<F>::template Value<T>;
 
-  template <util::ArithmeticLike T>
+  template <FieldShapeLike T>
   static constexpr size_t LaneSize() {
     return util::LaneCountOf<T>();
   }
 
-  size_t Size() const { return num_instances_; }
-
-  template <EnumT F, util::ArithmeticLike T>
-  size_t NumBatches() const {
-    return FieldIndexing<F>::Count(num_instances_) / LaneSize<T>();
+  // The row count, for a View whose fields all share one row order -- what
+  // a pass over every row of it walks (see engine::pass::ViewStep).
+  size_t Size() const
+    requires(kNumOrderings == 1)
+  {
+    return row_counts_[0];
   }
 
-  template <EnumT F, util::ArithmeticLike T>
+  template <EnumT F, FieldShapeLike T>
+  size_t NumBatches() const {
+    return FieldIndexing<F>::Count(Rows<F>()) / LaneSize<T>();
+  }
+
+  template <EnumT F, FieldShapeLike T>
   Value<F, T> Load(size_t index) const {
-    return Assembler<F>::template Read<T>(
-        FieldZero<F>(index * LaneSize<T>()), FieldStrideBytes<F>()
+    return Assembler<F>::template Read<T, FieldLayout<F>>(
+        FieldAt<F, T>(index * LaneSize<T>()), FieldStrideBytes<F>()
     );
   }
 
-  template <EnumT F, util::ArithmeticLike T>
+  template <EnumT F, FieldShapeLike T>
   void Store(size_t index, const Value<F, T>& value) const {
-    Assembler<F>::template Write<T>(
-        FieldZero<F>(index * LaneSize<T>()), FieldStrideBytes<F>(), value
+    Assembler<F>::template Write<T, FieldLayout<F>>(
+        FieldAt<F, T>(index * LaneSize<T>()), FieldStrideBytes<F>(), value
     );
   }
 
@@ -168,25 +252,44 @@ class View {
     // PairTraversal (or a batched GlobalIndexing one anywhere), a
     // BroadcastIndex -- broadcast when loaded, a lane reduction when
     // stored.
-    template <util::ArithmeticLike T, size_t Slot, typename Indices>
+    template <FieldShapeLike T, size_t Slot, typename Indices>
     auto Resolve(const Indices& indices) const {
       return FieldIndexing<F>::template Resolve<Slot, LaneSize<T>()>(
           indices, rows_
       );
     }
 
-    template <util::ArithmeticLike T>
+    // Whether field F holds T as itself, whole, one per element -- a
+    // record (LeafAssembler<R>, or a segment's record), not a scalar,
+    // batch or value assembled from several leaves -- so an element can
+    // be handed out in place (Ref) instead of copied.
+    template <typename T>
+    static constexpr bool kHoldsRecord =
+        Assembler<F>::kNumFields == 1 && !std::is_arithmetic_v<T> &&
+        !xsimd::is_batch<T>::value && std::same_as<Value<F, T>, T>;
+
+    // The record at `index`, in place -- the T in memory itself, to read or
+    // write through without copying it in and out.
+    template <FieldShapeLike T>
+      requires kHoldsRecord<T>
+    T* Ref(size_t index) const {
+      return std::bit_cast<T*>(ElementAt<T>(index));
+    }
+
+    template <FieldShapeLike T>
     Value<F, T> Load(size_t index) const {
-      return Assembler<F>::template Read<T>(
-          ElementAt(index * LaneSize<T>()), stride_
+      return Assembler<F>::template Read<T, FieldLayout<F>>(
+          ElementAt<T>(index * LaneSize<T>()), stride_
       );
     }
 
     // One row's value, splatted across every lane of T -- see
     // topology::BroadcastIndex. An input's Load.
-    template <util::ArithmeticLike T>
+    template <FieldShapeLike T>
     Value<F, T> Load(topology::BroadcastIndex index) const {
-      return Assembler<F>::template Broadcast<T>(ElementAt(index.row), stride_);
+      return Assembler<F>::template Broadcast<T, FieldLayout<F>>(
+          ElementAt<T>(index.row), stride_
+      );
     }
 
     // What an output starts from before its Op runs. At a group index,
@@ -195,76 +298,92 @@ class View {
     // (see the accumulating Store below), so the Op adds its lanes'
     // contributions onto nothing, never onto a splat of the row that every
     // lane would then sum back in.
-    template <util::ArithmeticLike T>
+    template <FieldShapeLike T>
     Value<F, T> LoadOutput(size_t index) const {
       return Load<T>(index);
     }
-    template <util::ArithmeticLike T>
+    template <FieldShapeLike T>
     Value<F, T> LoadOutput(topology::BroadcastIndex /*index*/) const {
       return Assembler<F>::template Zero<T>();
     }
 
-    template <util::ArithmeticLike T>
+    template <FieldShapeLike T>
     void Store(size_t index, const Value<F, T>& value) const {
-      Assembler<F>::template Write<T>(
-          ElementAt(index * LaneSize<T>()), stride_, value
+      Assembler<F>::template Write<T, FieldLayout<F>>(
+          ElementAt<T>(index * LaneSize<T>()), stride_, value
       );
     }
 
     // row += (sum of value's lanes) -- see topology::BroadcastIndex.
     // Read-modify-write at store time, so it lands on top of anything
     // stored into the same memory earlier in the same call.
-    template <util::ArithmeticLike T>
+    template <FieldShapeLike T>
     void Store(topology::BroadcastIndex index, const Value<F, T>& value) const {
-      Assembler<F>::template Accumulate<T>(
-          ElementAt(index.row), stride_, value
+      Assembler<F>::template Accumulate<T, FieldLayout<F>>(
+          ElementAt<T>(index.row), stride_, value
       );
     }
 
    private:
     friend class View<EnumT, Bindings...>;
-    FieldCursor(std::byte* field0, size_t stride, size_t rows)
-        : field0_(field0), stride_(stride), rows_(rows) {}
+    using CursorTable =
+        typename FieldLayout<F>::template CursorTable<Assembler<F>>;
 
+    // Whatever F's layout addresses rows from, worked out once here rather
+    // than per row (see e.g. topology::SegmentedLayout::CursorTableOf);
+    // nothing for a planar field.
+    FieldCursor(
+        std::byte* field0,
+        size_t stride,
+        size_t rows,
+        const RowTable<F>& row_table
+    )
+        : field0_(field0),
+          stride_(stride),
+          rows_(rows),
+          table_(FieldLayout<F>::template CursorTableOf<Assembler<F>>(
+              field0, row_table
+          )) {}
+
+    template <typename T>
     std::byte* ElementAt(size_t instance) const {
-      return field0_ +
-             instance *
-                 FieldLayout<F>::template ElementStrideBytes<Assembler<F>>();
+      return FieldLayout<F>::template CursorElement<Assembler<F>, T>(
+          field0_, table_, instance
+      );
     }
 
     std::byte* field0_;
     size_t stride_;
     size_t rows_;
+    [[no_unique_address]] CursorTable table_;
   };
 
   template <EnumT F>
   FieldCursor<F> Field() const {
     return FieldCursor<F>(
-        FieldZero<F>(0), FieldStrideBytes<F>(), num_instances_
+        FieldBase<F>(), FieldStrideBytes<F>(), Rows<F>(), FieldRowTable<F>()
     );
   }
 
   // A handle to (row, leaf) of double-buffered field F's write half -- the
-  // half the sim is not reading this tick (see memory::BufferedScalar).
+  // half its group's read side is not on (see memory::BufferedScalar).
   // `leaf` is the scalar's position in F's Assembler flattening order.
   template <EnumT F>
-    requires std::same_as<FieldBuffering<F>, memory::DoubleBuffered>
+    requires memory::GroupBufferedLike<FieldBuffering<F>>
   memory::BufferedScalar<Scalar<F>> WriteSlot(size_t row, size_t leaf) const {
-    assert(row < FieldIndexing<F>::Count(num_instances_));
+    assert(row < FieldIndexing<F>::Count(Rows<F>()));
     assert(leaf < Assembler<F>::kNumFields);
-    std::byte* rest_element =
-        type_bases_[static_cast<size_t>(F)] + (leaf * FieldStrideBytes<F>()) +
-        (row * FieldLayout<F>::template ElementStrideBytes<Assembler<F>>());
-    return memory::BufferedScalar<Scalar<F>>(
-        rest_element, FieldBlockBytes<F>(), parity_
+    std::byte* first_element = FieldLayout<F>::LeafAt(
+        type_bases_[static_cast<size_t>(F)] +
+            FieldLayout<F>::template RowOffset<Assembler<F>, Scalar<F>>(
+                row, FieldRowTable<F>()
+            ),
+        leaf,
+        FieldStrideBytes<F>()
     );
-  }
-
-  // Resets every double-buffered field's write half to its rest contents
-  // (memory::DoubleBuffered::ResetWrite); a no-op for every other field.
-  // Called by pass::SimContext::SwapBuffers right after the parity flips.
-  void ResetWriteBuffers() const {
-    ResetWriteBuffers(std::make_index_sequence<kNumTypes>{});
+    return memory::BufferedScalar<Scalar<F>>(
+        first_element, FieldBlockBytes<F>(), parities_[static_cast<size_t>(F)]
+    );
   }
 
  private:
@@ -276,45 +395,51 @@ class View {
   template <EnumT F>
   size_t FieldStrideBytes() const {
     return FieldLayout<F>::template StrideBytes<Assembler<F>>(
-        FieldIndexing<F>::Count(num_instances_)
+        FieldIndexing<F>::Count(Rows<F>())
     );
   }
 
-  // Byte offset of `instance` within field F's block -- likewise entirely
-  // policy-dependent (e.g. topology::PlanarLayout's ElementStrideBytes<A>()
-  // is one scalar wide, sizeof(Scalar<F>), but a different policy answers
-  // this however its own storage shape requires).
-  // For a double-buffered field, offset into whichever half the sim reads
-  // this tick (FieldBuffering<F>::ReadOffset -- always 0 for any other
-  // field).
+  // Where field F's block starts: for a double-buffered field, whichever
+  // half this field's side addresses right now (FieldBuffering<F>::
+  // ReadOffset -- always 0 for any other field).
   template <EnumT F>
-  std::byte* FieldZero(size_t instance) const {
+  std::byte* FieldBase() const {
     return type_bases_[static_cast<size_t>(F)] +
-           FieldBuffering<F>::ReadOffset(parity_, FieldBlockBytes<F>()) +
-           instance *
-               FieldLayout<F>::template ElementStrideBytes<Assembler<F>>();
+           FieldBuffering<F>::ReadOffset(
+               parities_[static_cast<size_t>(F)], FieldBlockBytes<F>()
+           );
+  }
+
+  // Address of `instance`, read as T, within field F's block -- entirely
+  // policy-dependent (topology::PlanarLayout steps a fixed
+  // ElementStrideBytes<A>() per instance; topology::SegmentedLayout looks
+  // up T's segment in F's table).
+  template <EnumT F, typename T>
+  std::byte* FieldAt(size_t instance) const {
+    return FieldBase<F>() + FieldLayout<F>::template RowOffset<Assembler<F>, T>(
+                                instance, FieldRowTable<F>()
+                            );
   }
 
   // Bytes of ONE copy of field F's block -- the distance between a
-  // double-buffered field's rest block and each of its halves.
+  // double-buffered field's two halves.
   template <EnumT F>
   size_t FieldBlockBytes() const {
     return FieldLayout<F>::template BlockBytes<Assembler<F>>(
-        FieldIndexing<F>::Count(num_instances_)
+        FieldIndexing<F>::Count(Rows<F>()), FieldRowTable<F>()
     );
   }
 
-  template <size_t... Is>
-  void ResetWriteBuffers(std::index_sequence<Is...> /*fields*/) const {
-    (FieldBuffering<static_cast<EnumT>(Is)>::ResetWrite(
-         type_bases_[Is], parity_, FieldBlockBytes<static_cast<EnumT>(Is)>()
-     ),
-     ...);
+  template <EnumT F>
+  const RowTable<F>& FieldRowTable() const {
+    using Slot = detail::RowTableSlot<static_cast<size_t>(F), RowTable<F>>;
+    return detail::TableOf(static_cast<const Slot&>(row_tables_));
   }
 
   std::array<std::byte*, kNumTypes> type_bases_;
-  size_t num_instances_;
-  const memory::BufferParity* parity_;
+  RowCounts row_counts_;
+  std::array<const memory::BufferParity*, kNumTypes> parities_;
+  [[no_unique_address]] RowTables row_tables_;
 };
 
 }  // namespace achilles::engine::view

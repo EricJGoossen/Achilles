@@ -1,0 +1,399 @@
+# A walled maze and a robot that has to find its way out of it using only
+# its own sensors -- the sensing demo. The controller lives in this
+# folder's maze.cpp: it maps the maze from lidar scans, tracks its own pose
+# from wheel encoders and a gyroscope, and replans a path to the exit as
+# the map fills in. Run with scripts/run-maze.sh.
+#
+# This root file is the world: a massless "world" root carrying the welded
+# ground slab and the maze's walls, with the robot (robot.arow, which pulls
+# in its sensors) attached to it. The world is Z-up: the ground's top face
+# is the z = 0 plane and sim_config.yaml's gravity is along -z. Every body
+# is authored +y up, as in box_robot.arow (the viewer draws a box outward
+# along its body's local +y), so each root here gets a quarter turn about
+# x in its fixed transform (the &upright rotation) to stand it up.
+#
+# The maze is 6 x 6 cells of 1.5 m, centered on the origin (x and y in
+# [-4.5, 4.5]); the robot starts in the bottom-left cell, at (-3.75,
+# -3.75), and the exit is the gap in the top wall above the top-right cell,
+# leading out to (3.75, 5.25). Looking down, +x right, +y up:
+#
+#   +---+---+---+---+---+   +
+#   |   |               |   |
+#   +   +   +---+   +   +   +
+#   |   |   |       |   |   |
+#   +   +   +   +---+   +   +
+#   |       |       |       |
+#   +   +---+---+   +---+   +
+#   |           |   |   |   |
+#   +   +---+---+   +   +   +
+#   |   |           |   |   |
+#   +---+   +---+---+   +   +
+#   | S     |               |
+#   +---+---+---+---+---+---+
+#
+# Each wall is one straight run of that drawing: a 0.1 m thick, 0.8 m tall
+# box, welded to the world (a joint with no degrees of freedom).
+#
+# Collision groups: the ground and the walls are group 1 and collide with
+# group 2, the robot's bodies are group 2 and collide with group 1.
+archetype: maze
+includes:
+  - robot.arow
+joints:
+  - name: world
+    parent: null
+    fields:
+      joint_subspace: &welded [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: &inert [1, 0, 0, 0, 0.1, 0.1, 0.1, 0, 0, 0]
+      joint_position: &rest {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0, 0, 0]
+      visual_color: [0, 0, 0]
+      collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0, 0, 0]
+      collision_radius: [0]
+      collision_margin: [0]
+      collision_group: [0]
+      collision_mask: [0]
+  - name: ground
+    parent: world
+    fields:
+      joint_subspace: *welded
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [0, 0, -0.2], rotation: &upright [0.70710678, 0.70710678, 0, 0]}
+      rigid_body_inertia: *inert
+      joint_position: *rest
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [6.5, 0.1, 6.5]
+      visual_color: [0.3, 0.32, 0.3]
+      collision_pose: {translation: [0, 0.1, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [6.5, 0.1, 6.5]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [2]
+  - name: wall_00
+    parent: world
+    fields:
+      joint_subspace: *welded
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [0, -4.5, 0], rotation: *upright}
+      rigid_body_inertia: *inert
+      joint_position: *rest
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [4.55, 0.4, 0.05]
+      visual_color: [0.55, 0.6, 0.7]
+      collision_pose: {translation: [0, 0.4, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [4.55, 0.4, 0.05]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [2]
+  - name: wall_01
+    parent: world
+    fields:
+      joint_subspace: *welded
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [-3.75, -3, 0], rotation: *upright}
+      rigid_body_inertia: *inert
+      joint_position: *rest
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.8, 0.4, 0.05]
+      visual_color: [0.55, 0.6, 0.7]
+      collision_pose: {translation: [0, 0.4, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.8, 0.4, 0.05]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [2]
+  - name: wall_02
+    parent: world
+    fields:
+      joint_subspace: *welded
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [0, -3, 0], rotation: *upright}
+      rigid_body_inertia: *inert
+      joint_position: *rest
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [1.55, 0.4, 0.05]
+      visual_color: [0.55, 0.6, 0.7]
+      collision_pose: {translation: [0, 0.4, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [1.55, 0.4, 0.05]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [2]
+  - name: wall_03
+    parent: world
+    fields:
+      joint_subspace: *welded
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [-1.5, -1.5, 0], rotation: *upright}
+      rigid_body_inertia: *inert
+      joint_position: *rest
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [1.55, 0.4, 0.05]
+      visual_color: [0.55, 0.6, 0.7]
+      collision_pose: {translation: [0, 0.4, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [1.55, 0.4, 0.05]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [2]
+  - name: wall_04
+    parent: world
+    fields:
+      joint_subspace: *welded
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [-1.5, 0, 0], rotation: *upright}
+      rigid_body_inertia: *inert
+      joint_position: *rest
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [1.55, 0.4, 0.05]
+      visual_color: [0.55, 0.6, 0.7]
+      collision_pose: {translation: [0, 0.4, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [1.55, 0.4, 0.05]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [2]
+  - name: wall_05
+    parent: world
+    fields:
+      joint_subspace: *welded
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [2.25, 0, 0], rotation: *upright}
+      rigid_body_inertia: *inert
+      joint_position: *rest
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.8, 0.4, 0.05]
+      visual_color: [0.55, 0.6, 0.7]
+      collision_pose: {translation: [0, 0.4, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.8, 0.4, 0.05]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [2]
+  - name: wall_06
+    parent: world
+    fields:
+      joint_subspace: *welded
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [0.75, 1.5, 0], rotation: *upright}
+      rigid_body_inertia: *inert
+      joint_position: *rest
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.8, 0.4, 0.05]
+      visual_color: [0.55, 0.6, 0.7]
+      collision_pose: {translation: [0, 0.4, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.8, 0.4, 0.05]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [2]
+  - name: wall_07
+    parent: world
+    fields:
+      joint_subspace: *welded
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [-0.75, 3, 0], rotation: *upright}
+      rigid_body_inertia: *inert
+      joint_position: *rest
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.8, 0.4, 0.05]
+      visual_color: [0.55, 0.6, 0.7]
+      collision_pose: {translation: [0, 0.4, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.8, 0.4, 0.05]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [2]
+  - name: wall_08
+    parent: world
+    fields:
+      joint_subspace: *welded
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [-0.75, 4.5, 0], rotation: *upright}
+      rigid_body_inertia: *inert
+      joint_position: *rest
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [3.8, 0.4, 0.05]
+      visual_color: [0.55, 0.6, 0.7]
+      collision_pose: {translation: [0, 0.4, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [3.8, 0.4, 0.05]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [2]
+  - name: wall_09
+    parent: world
+    fields:
+      joint_subspace: *welded
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [-4.5, 0, 0], rotation: *upright}
+      rigid_body_inertia: *inert
+      joint_position: *rest
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.05, 0.4, 4.55]
+      visual_color: [0.55, 0.6, 0.7]
+      collision_pose: {translation: [0, 0.4, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.05, 0.4, 4.55]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [2]
+  - name: wall_10
+    parent: world
+    fields:
+      joint_subspace: *welded
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [-3, -2.25, 0], rotation: *upright}
+      rigid_body_inertia: *inert
+      joint_position: *rest
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.05, 0.4, 0.8]
+      visual_color: [0.55, 0.6, 0.7]
+      collision_pose: {translation: [0, 0.4, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.05, 0.4, 0.8]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [2]
+  - name: wall_11
+    parent: world
+    fields:
+      joint_subspace: *welded
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [-3, 3, 0], rotation: *upright}
+      rigid_body_inertia: *inert
+      joint_position: *rest
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.05, 0.4, 1.55]
+      visual_color: [0.55, 0.6, 0.7]
+      collision_pose: {translation: [0, 0.4, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.05, 0.4, 1.55]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [2]
+  - name: wall_12
+    parent: world
+    fields:
+      joint_subspace: *welded
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [-1.5, -3.75, 0], rotation: *upright}
+      rigid_body_inertia: *inert
+      joint_position: *rest
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.05, 0.4, 0.8]
+      visual_color: [0.55, 0.6, 0.7]
+      collision_pose: {translation: [0, 0.4, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.05, 0.4, 0.8]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [2]
+  - name: wall_13
+    parent: world
+    fields:
+      joint_subspace: *welded
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [-1.5, 1.5, 0], rotation: *upright}
+      rigid_body_inertia: *inert
+      joint_position: *rest
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.05, 0.4, 1.55]
+      visual_color: [0.55, 0.6, 0.7]
+      collision_pose: {translation: [0, 0.4, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.05, 0.4, 1.55]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [2]
+  - name: wall_14
+    parent: world
+    fields:
+      joint_subspace: *welded
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [0, -0.75, 0], rotation: *upright}
+      rigid_body_inertia: *inert
+      joint_position: *rest
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.05, 0.4, 0.8]
+      visual_color: [0.55, 0.6, 0.7]
+      collision_pose: {translation: [0, 0.4, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.05, 0.4, 0.8]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [2]
+  - name: wall_15
+    parent: world
+    fields:
+      joint_subspace: *welded
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [1.5, 0, 0], rotation: *upright}
+      rigid_body_inertia: *inert
+      joint_position: *rest
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.05, 0.4, 3.05]
+      visual_color: [0.55, 0.6, 0.7]
+      collision_pose: {translation: [0, 0.4, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.05, 0.4, 3.05]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [2]
+  - name: wall_16
+    parent: world
+    fields:
+      joint_subspace: *welded
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [3, -1.5, 0], rotation: *upright}
+      rigid_body_inertia: *inert
+      joint_position: *rest
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.05, 0.4, 1.55]
+      visual_color: [0.55, 0.6, 0.7]
+      collision_pose: {translation: [0, 0.4, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.05, 0.4, 1.55]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [2]
+  - name: wall_17
+    parent: world
+    fields:
+      joint_subspace: *welded
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [3, 3, 0], rotation: *upright}
+      rigid_body_inertia: *inert
+      joint_position: *rest
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.05, 0.4, 1.55]
+      visual_color: [0.55, 0.6, 0.7]
+      collision_pose: {translation: [0, 0.4, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.05, 0.4, 1.55]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [2]
+  - name: wall_18
+    parent: world
+    fields:
+      joint_subspace: *welded
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [4.5, 0, 0], rotation: *upright}
+      rigid_body_inertia: *inert
+      joint_position: *rest
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.05, 0.4, 4.55]
+      visual_color: [0.55, 0.6, 0.7]
+      collision_pose: {translation: [0, 0.4, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.05, 0.4, 4.55]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [2]

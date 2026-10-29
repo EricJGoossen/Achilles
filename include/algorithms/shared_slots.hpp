@@ -25,6 +25,10 @@ struct JointSubspaceSlot;
 struct JointPositionSlot;
 struct JointVelocitySlot;
 struct JointAccelerationSlot;
+// ABA's double-buffered joint torque (aba/aba_data.hpp) -- its read side
+// (kJointTorque) and write side (kJointTorqueNext) are one block, and this
+// is also the buffer group whose parity SwapTorqueStep flips.
+struct JointTorqueSlot;
 // ABA's own kWorldTransform (aba_data.hpp) -- shared so a read-only
 // consumer (e.g. algorithms::viz's own kWorldTransform, viz/viz_data.hpp,
 // or algorithms::broad_phase's, broad_phase/broad_phase_data.hpp) can see the
@@ -39,6 +43,9 @@ struct WorldTransformSlot;
 // re-deriving the other's work.
 struct CollisionExtentsSlot;
 struct CollisionRadiusSlot;
+// The shape's frame in its body's (static archetype data) -- shared so a
+// lidar (sensing/lidar.hpp) can place each body's shape in world itself.
+struct CollisionPoseSlot;
 struct CollisionMarginSlot;
 struct WorldShapePoseSlot;
 struct BoundsOverlapSlot;
@@ -53,6 +60,11 @@ struct ParentToBodyTransformSlot;
 struct SpatialVelocitySlot;
 struct UTermSlot;
 struct DInvTermSlot;
+// ABA's body acceleration (aba/aba_data.hpp) -- shared so the contact solver
+// can carry it along with qacc as it solves (StepBodyAccelerationOp), leaving
+// the *constrained* body acceleration there for whatever reads it after the
+// solve (an accelerometer, say).
+struct SpatialAccelerationSlot;
 // The narrow phase's contacts (narrow_phase/narrow_phase_data.hpp) -- shared
 // so the contact solver reads them as written.
 struct ContactNormalSlot;
@@ -66,5 +78,10 @@ struct JointLimitMarginSlot;
 struct JointLimitDistanceSlot;
 struct JointLimitSideSlot;
 struct JointLimitActiveSlot;
+
+// The sensing algorithm's output buffer (sensing/sensing_data.hpp): its
+// sim-side (kOutput) and user-side (kPublished) halves are one block, and
+// this is also the buffer group whose parity ReadStep flips.
+struct SensingOutputSlot;
 
 }  // namespace achilles::algorithms

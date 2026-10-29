@@ -1,12 +1,16 @@
 #pragma once
 
 #include <cstddef>
+#include <functional>
 #include <span>
+#include <string_view>
 #include <type_traits>
 #include <vector>
 
 #include "domain/archetype.hpp"
+#include "domain/joint_topology.hpp"
 #include "engine/topology/ordering_plan.hpp"
+#include "util/tmp.hpp"
 
 namespace achilles::engine::topology {
 
@@ -155,6 +159,161 @@ struct LinearOrdering : public Ordering {
   static OrderingPlan Build(
       std::span<ArchetypeTreeStructure> tree, std::size_t lane_size
   );
+};
+
+namespace detail {
+template <typename Policy>
+using DeclaredTopology = typename Policy::Topology;
+}  // namespace detail
+
+// The topology type an ordering's rows come with: domain::JointTopology,
+// unless the policy declares another (`using Topology = ...`) -- a list
+// ordering's domain::SegmentedTopology. So only the orderings that need
+// segments pay for them.
+template <typename Policy>
+using TopologyOfT =
+    util::DetectedOrT<domain::JointTopology, detail::DeclaredTopology, Policy>;
+
+// Every attachment (domain::ArchetypeAttachment) whose list is `list`, as
+// the joint it's linked to: archetype by archetype, instance by instance,
+// in each archetype's own declaration order -- the order ListOrdering
+// numbers its rows in.
+std::vector<ArchetypeJointHandle> CollectAttachments(
+    std::span<ArchetypeTreeStructure> tree, std::string_view list
+);
+
+// Shared by every ListOrdering: one row per entry of each of `lists`, list
+// by list, each linked to the row its entry names in `link_layout` (the
+// link ordering's own JointLayout). List k's rows are segment k of the
+// plan's topology, and its entry j is "instance k, joint j" of the plan's
+// own JointLayout. Padding rows, after every list, link to the link
+// ordering's base row.
+OrderingPlan BuildListPlan(
+    std::span<const std::vector<ArchetypeJointHandle>> lists,
+    const domain::JointLayout& link_layout,
+    std::size_t lane_size
+);
+
+// A list's tag: names the list (Tag::kListName) the attachments it orders
+// were declared under.
+template <typename Tag>
+concept ListTagLike = requires {
+  { Tag::kListName } -> std::convertible_to<std::string_view>;
+};
+
+// Rows that aren't joints: one per attachment the archetypes declare under
+// each of Lists' kListName (see CollectAttachments for the order within a
+// list), list by list in Lists' order, padded to a lane multiple --
+// sensors, say, rather than bodies. Lists is a util::TypeList of tags. Each
+// list's rows are one segment of the topology
+// (domain::JointTopology::SegmentBegin), so a pass can walk one list's rows
+// alone (SegmentTraversal, engine/pass/traversals.hpp). Each row's topology
+// entry is its *link*: the row, in LinkOrdering's own row space, of the
+// joint that entry is attached to -- handed as a pass's source index, so an
+// Op over a list can read any field ordered by LinkOrdering at the entry's
+// joint, the way a TreeTraversal hands a joint's parent.
+//
+// Plans LinkOrdering again to find those rows rather than looking up its
+// plan: a policy's Build is a pure function of the archetypes, so this
+// lands on the exact rows the sim's own LinkOrdering plan does.
+template <OrderingPolicyLike LinkOrdering, typename Lists>
+struct ListOrdering;
+
+template <OrderingPolicyLike LinkOrdering, ListTagLike... Tags>
+  requires(sizeof...(Tags) > 0)
+struct ListOrdering<LinkOrdering, util::TypeList<Tags...>> {
+  // Its rows come in segments, one per list -- the only topology that
+  // carries them (see TopologyOfT). List k is instance k of its JointLayout,
+  // its entries in order, so the layout's instance offsets are the segment
+  // boundaries.
+  using Topology = domain::SegmentedTopology;
+
+  static OrderingPlan Build(
+      std::span<ArchetypeTreeStructure> tree, std::size_t lane_size
+  ) {
+    const OrderingPlan link_plan = LinkOrdering::Build(tree, lane_size);
+    const std::vector<std::vector<ArchetypeJointHandle>> lists = {
+        CollectAttachments(tree, Tags::kListName)...
+    };
+    return BuildListPlan(lists, link_plan.Layout(), lane_size);
+  }
+};
+
+// Which rows ever pair up, decided from their archetypes' own data:
+// Key(archetype, joint) reads whatever one row's answer depends on, once
+// per row, and Admits(a, b) is the pair test on two rows' keys.
+template <typename F>
+concept PairFilterLike =
+    std::is_empty_v<F> && requires(const ArchetypeTreeStructure& archetype) {
+      {
+        F::Admits(F::Key(archetype, 0), F::Key(archetype, 0))
+      } -> std::same_as<bool>;
+    };
+
+// Shared by every PairOrdering: the pairs of `row_plan`'s rows, a lane
+// group at a time (see PairOrdering), keeping each pair `admits` -- a
+// filter's verdict on two real rows -- allows, as long as the partner is
+// above the source and neither is the other's parent.
+OrderingPlan BuildPairPlan(
+    const OrderingPlan& row_plan,
+    const std::function<bool(std::size_t, std::size_t)>& admits,
+    std::size_t lane_size
+);
+
+// One row per pair of RowOrdering's rows that might interact -- bodies
+// that might collide, say -- worked out once from the archetypes rather
+// than every tick. Rows come a lane group at a time: one source row of
+// RowOrdering against one lane group of its rows, lane t holding the pair
+// (source, group * lanes + t). Each row's topology entry is its source, and
+// its partner the other row (domain::PairTopology), so a pass over pairs
+// (PairTraversal, engine/pass/traversals.hpp) can read RowOrdering's fields
+// at either row and its own at the pair.
+//
+// A pair is kept when its partner is a real row above the source -- so
+// each unordered pair appears once, and never a row against itself --
+// neither row is the other's parent (a joint's two bodies always touch
+// where they meet), and Filter admits it. A lane group is kept when any of
+// its lanes is; its other lanes are padding, partnered with nothing
+// (domain::PairTopology::kNoPartner). Everything that varies tick to tick
+// is the pass's own business.
+//
+// The pairs are this plan's one JointLayout instance, its kept pairs that
+// instance's joints in row order, the same way a ListOrdering numbers a
+// list. Plans RowOrdering again to find its rows, as ListOrdering plans its
+// LinkOrdering.
+template <OrderingPolicyLike RowOrdering, PairFilterLike Filter>
+struct PairOrdering {
+  using Topology = domain::PairTopology;
+
+  static OrderingPlan Build(
+      std::span<ArchetypeTreeStructure> tree, std::size_t lane_size
+  ) {
+    const OrderingPlan row_plan = RowOrdering::Build(tree, lane_size);
+    const domain::JointLayout layout = row_plan.Layout();
+
+    // Each global instance's archetype, then each real row's key.
+    std::vector<std::size_t> archetype_of;
+    for (std::size_t a = 0; a < tree.size(); ++a) {
+      archetype_of.insert(archetype_of.end(), tree[a].root_parents.size(), a);
+    }
+    using Key = decltype(Filter::Key(tree[0], 0));
+    std::vector<Key> keys(layout.PaddedSize());
+    for (std::size_t row = 0; row < layout.PaddedSize(); ++row) {
+      if (!layout.IsPadding(row)) {
+        const ArchetypeJointHandle joint = layout.ToPhysical(row);
+        keys[row] = Filter::Key(
+            tree[archetype_of[joint.instance_index]], joint.joint_index
+        );
+      }
+    }
+    return BuildPairPlan(
+        row_plan,
+        [&](std::size_t source, std::size_t partner) {
+          return Filter::Admits(keys[source], keys[partner]);
+        },
+        lane_size
+    );
+  }
 };
 
 }  // namespace achilles::engine::topology

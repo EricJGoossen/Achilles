@@ -53,5 +53,6 @@ Checks: >
     clang-analyzer-apiModeling.TrustNonnull,
     clang-analyzer-apiModeling.TrustReturnsNonnull,
     clang-analyzer-apiModeling.google.GTest,
+    google-runtime-int,
 
 HeaderFilterRegex: '(src|include|tests)/.*'

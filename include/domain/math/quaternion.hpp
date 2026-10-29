@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cmath>
+#include <numbers>
+#include <type_traits>
 #include <xsimd/xsimd.hpp>
 
 #include "engine/assembler.hpp"
@@ -174,6 +176,25 @@ class Quaternion {
   }
 
   // Geometry
+
+  // The signed rotation angle about unit `axis`, in (-pi, pi]: the twist
+  // part of this rotation's swing-twist decomposition -- exactly the angle
+  // for a rotation purely about `axis`.
+  T AngleAbout(const Vector3<T>& axis) const
+    requires std::is_floating_point_v<T>
+  {
+    const T along = (X() * axis.X()) + (Y() * axis.Y()) + (Z() * axis.Z());
+    T angle = T{2} * std::atan2(along, W());
+    // atan2 of (along, w), doubled, spans (-2pi, 2pi]; fold to (-pi, pi].
+    constexpr T kPi = std::numbers::pi_v<T>;
+    if (angle > kPi) {
+      angle -= T{2} * kPi;
+    } else if (angle <= -kPi) {
+      angle += T{2} * kPi;
+    }
+    return angle;
+  }
+
   constexpr Vector3<T> Rotate(const Vector3<T>& v) const {
     Vector3<T> qv(X(), Y(), Z());
 
@@ -258,6 +279,6 @@ class Quaternion {
 template <typename T>
 using QuaternionAssembler =
     engine::Assembler<Quaternion, T, engine::RepeatTypes<4>>;
-static_assert(engine::AssemblerLike<QuaternionAssembler<float>>);
+static_assert(engine::BatchAssemblerLike<QuaternionAssembler<float>>);
 
 }  // namespace achilles::domain::math

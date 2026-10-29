@@ -3,12 +3,14 @@
 #include "algorithms/contact_solver/contact_solver_data.hpp"
 #include "algorithms/contact_solver/contact_solver_ops.hpp"
 #include "algorithms/conventions.hpp"
+#include "algorithms/orderings/collision_pairs.hpp"
 #include "algorithms/sim_config.hpp"
+#include "domain/joint_topology.hpp"
 #include "engine/algorithm_contract.hpp"
 #include "engine/pass/algorithm_step.hpp"
 #include "engine/pass/sim_context.hpp"
 #include "engine/pass/traversals.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "util/tmp.hpp"
 
 namespace achilles::algorithms::contact_solver {
@@ -23,12 +25,13 @@ using PairBatched =
     engine::pass::PairTraversal<engine::pass::Direction::kForward, kLanes>;
 using Global = engine::pass::GlobalTraversal;
 
-// Every solver Step: one engine::pass::Step over the ContactSolverView and
-// the TopologicalOrdering topology, of whatever Ops Derived::MakeOps
-// returns -- tree, linear, pair and global passes alike, since each
-// traversal takes the topology. The Steps below are the solver's own stages;
-// how often each runs is the tick's step list (algorithms/integrators.hpp),
-// never a loop in here.
+// Every solver Step: one engine::pass::Step over the ContactSolverView, the
+// TopologicalOrdering topology and CollisionPairs'
+// (orderings/collision_pairs.hpp), of whatever Ops Derived::MakeOps returns --
+// tree, linear, pair and global passes alike: the body passes walk the first,
+// the pair passes the second. The Steps below are the solver's own stages; how
+// often each runs is the tick's step list (algorithms/integrators.hpp), never a
+// loop in here.
 template <typename Derived>
 struct SolverStep {
   using FieldEnum = ContactSolverField;
@@ -42,7 +45,9 @@ struct SolverStep {
     const auto view = sim_state.template ViewFor<ContactSolverView>();
     const ContactSolverTopology& topology =
         sim_state.template TopologyFor<engine::topology::TopologicalOrdering>();
-    engine::pass::Step(Derived::MakeOps(sim_config, dt), view, topology);
+    const domain::PairTopology& pairs =
+        sim_state.template TopologyFor<CollisionPairs>();
+    engine::pass::Step(Derived::MakeOps(sim_config, dt), view, topology, pairs);
   }
 };
 
@@ -139,7 +144,8 @@ struct LineSearchStep : SolverStep<LineSearchStep> {
   }
 };
 
-// Steps qacc to alpha, then everything the next direction needs: each
+// Steps qacc (and, with it, every body's acceleration) to alpha, then
+// everything the next direction needs: each
 // contact row's force and the wrench it puts on both bodies, J^T f of
 // those, then each limit row's force added onto it, the gradient,
 // M^-1 of it, and the conjugate direction (steepest descent right after
@@ -149,6 +155,7 @@ struct UpdateStep : SolverStep<UpdateStep> {
   MakeOps(const SimConfig& /*sim_config*/, ScalarOperationT /*dt*/) {
     return engine::pass::Ops<
         Pass<StepJointOp, LinearBatched>,
+        Pass<StepBodyAccelerationOp, LinearBatched>,
         Pass<ContactForceOp, PairBatched>,
         Pass<ConstraintForceOp, BackwardBatched>,
         Pass<LimitForceOp, LinearBatched>,
@@ -159,6 +166,7 @@ struct UpdateStep : SolverStep<UpdateStep> {
         Pass<ConjugateOp, Global>,
         Pass<UpdateSearchOp, LinearBatched>>{
         StepJointOp{},
+        StepBodyAccelerationOp{},
         ContactForceOp{},
         ConstraintForceOp{},
         LimitForceOp{},

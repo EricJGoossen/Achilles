@@ -11,9 +11,10 @@
 #include "algorithms/conventions.hpp"
 #include "domain/archetype.hpp"
 #include "domain/math/vector3.hpp"
+#include "domain/spatial/dual.hpp"
 #include "engine/memory/buffering_policy.hpp"
 #include "engine/pass/sim_context.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 
 namespace achilles::interface {
 
@@ -37,11 +38,11 @@ enum class ActuatorKind : std::uint8_t { kLinear, kAngular };
 // never iterates actuators. It stays valid until the Simulation that made it
 // is destroyed or re-Init()ed.
 //
-// Apply() accumulates into the *next* tick's torque. Simulation::Step swaps
-// buffers at its start, so whatever is Apply()ed between two Step() calls is
-// exactly what the second one integrates -- and then it's gone: the half
-// resets to the archetype's own joint_torque, so an effort meant to persist
-// must be Apply()ed again before every Step().
+// Apply() accumulates into the *next* tick's torque. Every integrator swaps
+// the halves at its start (aba::SwapTorqueStep), so whatever is Apply()ed
+// between two Step() calls is exactly what the second one integrates -- and
+// then it's gone: the half is zeroed, so an effort meant to persist must be
+// Apply()ed again before every Step().
 //
 // A model of a real actuator (motor constant, gearing, saturation, ...) is
 // a class deriving from LinearActuator or AngularActuator, constructed from
@@ -91,12 +92,11 @@ class JointActuator {
     const auto subspace =
         view.template Load<ABAField::kJointSubspace, ScalarOperationT>(row);
 
+    const auto weights =
+        domain::spatial::AxisWeights(subspace, unit, kFirstSpatialRow);
     std::vector<Term> terms;
-    for (std::size_t k = 0; k < kCoordinates; ++k) {
-      ScalarOperationT weight = 0;
-      for (std::size_t i = 0; i < 3; ++i) {
-        weight += subspace(kFirstSpatialRow + i, k) * unit[i];
-      }
+    for (std::size_t k = 0; k < weights.size(); ++k) {
+      const ScalarOperationT weight = weights[k];
       if (std::abs(weight) > kNegligible) {
         terms.push_back(Term{
             view.template WriteSlot<ABAField::kJointTorque>(row, k), weight
@@ -113,11 +113,10 @@ class JointActuator {
   }
 
  private:
-  // Dual's row order (domain/spatial/dual.hpp) is roll, pitch, yaw, x, y, z:
-  // angular first, then linear.
+  // Which half of S the axis is in (domain/spatial/dual.hpp).
   static constexpr std::size_t kFirstSpatialRow =
-      Kind == ActuatorKind::kAngular ? 0 : 3;
-  static constexpr std::size_t kCoordinates = 6;
+      Kind == ActuatorKind::kAngular ? domain::spatial::kAngularRows
+                                     : domain::spatial::kLinearRows;
   // Below this an axis counts as zero, and a coordinate's weight as no
   // coupling -- so float noise from an axis meant to be orthogonal to a
   // joint's freedom doesn't leave a near-zero term behind.

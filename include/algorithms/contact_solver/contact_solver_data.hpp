@@ -7,6 +7,7 @@
 #include "algorithms/conventions.hpp"
 #include "algorithms/joint_limit/joint_limit_data.hpp"
 #include "algorithms/narrow_phase/narrow_phase_data.hpp"
+#include "algorithms/orderings/collision_pairs.hpp"
 #include "algorithms/shared_slots.hpp"
 #include "domain/joint_topology.hpp"
 #include "domain/math/activation_mask.hpp"
@@ -19,7 +20,7 @@
 #include "engine/field_contract.hpp"
 #include "engine/topology/indexing_policy.hpp"
 #include "engine/topology/layout_policy.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "engine/view/view_contract.hpp"
 #include "engine/view/view_factory.hpp"
 
@@ -91,6 +92,7 @@ enum class ContactSolverField : uint8_t {
   kDInvTerm,               // D^-1
   kJointVelocity,          // qd
   kJointAcceleration,      // qdd: qacc_smooth in, constrained qacc out
+  kSpatialAcceleration,    // a: ABA's (smooth) in, constrained out
 
   // --- Narrow-phase contacts (shared, read-only here) ---
   kCollisionMargin,  // m
@@ -178,11 +180,12 @@ static_assert(engine::FieldEnumLike<ContactSolverField>);
 template <ContactSolverField F>
 struct ContactSolverFieldTraits;
 
-// Every field shares ABA's TopologicalOrdering, for the same reason the
-// collision fields do: rows are joints, numbered once for every algorithm.
-// Row fields hold one value per joint; pair fields one per (source, target)
-// pair, a lane group at a time, lined up with the narrow phase's own; global
-// fields one value for the whole sim (topology::GlobalIndexing).
+// Row and global fields share ABA's TopologicalOrdering, for the same reason
+// the collision fields do: rows are joints, numbered once for every
+// algorithm. Row fields hold one value per joint; pair fields one per pair
+// (CollisionPairs, orderings/collision_pairs.hpp -- so ordered by it instead),
+// a lane group at a time, lined up with the narrow phase's own; global fields
+// one value for the whole sim (topology::GlobalIndexing).
 template <typename A>
 struct RowField {
   using Assembler = A;
@@ -190,8 +193,10 @@ struct RowField {
   using Layout = engine::topology::PlanarLayout;
 };
 template <typename A>
-struct PairField : RowField<A> {
-  using Indexing = engine::topology::PairGroupIndexing<kLanes, kLanes>;
+struct PairField {
+  using Assembler = A;
+  using Ordering = CollisionPairs;
+  using Layout = engine::topology::PlanarLayout;
 };
 template <typename A>
 struct GlobalField : RowField<A> {
@@ -266,6 +271,9 @@ struct ContactSolverFieldTraits<ContactSolverField::kJointVelocity>
 template <>
 struct ContactSolverFieldTraits<ContactSolverField::kJointAcceleration>
     : SharedRowField<AccelerationAssembler, JointAccelerationSlot> {};
+template <>
+struct ContactSolverFieldTraits<ContactSolverField::kSpatialAcceleration>
+    : SharedRowField<AccelerationAssembler, SpatialAccelerationSlot> {};
 
 // --- Narrow phase (shared) ---
 template <>
@@ -299,7 +307,8 @@ struct ContactSolverFieldTraits<ContactSolverField::kContactActive>
     : RowField<math::ActivationMaskAssembler<
           kLanes * narrow_phase::kSweptBoxContactSlots>> {
   using SharedAs = ContactActiveSlot;
-  using Indexing = engine::topology::PairGroupIndexing<kLanes>;
+  using Ordering = CollisionPairs;
+  using Indexing = engine::topology::LaneGroupIndexing<kLanes>;
 };
 
 // --- Joint limits (shared) ---

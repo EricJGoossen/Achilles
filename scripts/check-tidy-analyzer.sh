@@ -82,7 +82,25 @@ fi
 declare -A NEW_CACHE
 
 STATUS=0
-JOBS="${CHECK_TIDY_JOBS:-$(nproc 2>/dev/null || echo 4)}"
+# One clang-tidy over a sim-heavy file takes 1-2 GB, so by default run as
+# many at once as both the cores and the available memory allow (2 GB
+# each) -- one per core alone outruns memory on a 16-core, 16 GB machine,
+# and the kernel kills or swaps jobs instead. CHECK_TIDY_JOBS overrides it.
+default_jobs() {
+    local cores available_kb by_memory
+    cores="$(nproc 2>/dev/null || echo 4)"
+    available_kb="$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+    by_memory=$((available_kb / (2 * 1024 * 1024)))
+    if [ "$by_memory" -lt 1 ]; then
+        by_memory=1
+    fi
+    if [ "$by_memory" -lt "$cores" ]; then
+        echo "$by_memory"
+    else
+        echo "$cores"
+    fi
+}
+JOBS="${CHECK_TIDY_JOBS:-$(default_jobs)}"
 # A fresh, unique directory per invocation -- see check-tidy.sh's identical
 # comment for why a fixed name under $BUILD_DIR isn't safe here.
 RESULT_DIR="$(mktemp -d "$BUILD_DIR/.check-tidy-analyzer-parallel.XXXXXX")"

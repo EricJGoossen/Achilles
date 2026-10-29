@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <utility>
 
 #include "domain/math/matrix.hpp"
@@ -205,7 +207,7 @@ class SpatialPosition : public Dual<SpatialPosition, T> {
 template <typename T>
 using SpatialPositionAssembler =
     engine::Assembler<SpatialPosition, T, math::Vector6Assembler<T>>;
-static_assert(engine::AssemblerLike<SpatialPositionAssembler<float>>);
+static_assert(engine::BatchAssemblerLike<SpatialPositionAssembler<float>>);
 
 template <util::ArithmeticLike T>
 class SpatialVelocity : public Dual<SpatialVelocity, T> {
@@ -230,7 +232,7 @@ class SpatialVelocity : public Dual<SpatialVelocity, T> {
 template <typename T>
 using SpatialVelocityAssembler =
     engine::Assembler<SpatialVelocity, T, math::Vector6Assembler<T>>;
-static_assert(engine::AssemblerLike<SpatialVelocityAssembler<float>>);
+static_assert(engine::BatchAssemblerLike<SpatialVelocityAssembler<float>>);
 
 template <util::ArithmeticLike T>
 class SpatialAcceleration : public Dual<SpatialAcceleration, T> {
@@ -244,7 +246,7 @@ class SpatialAcceleration : public Dual<SpatialAcceleration, T> {
 template <typename T>
 using SpatialAccelerationAssembler =
     engine::Assembler<SpatialAcceleration, T, math::Vector6Assembler<T>>;
-static_assert(engine::AssemblerLike<SpatialAccelerationAssembler<float>>);
+static_assert(engine::BatchAssemblerLike<SpatialAccelerationAssembler<float>>);
 
 template <util::ArithmeticLike T>
 class SpatialMomentum : public Dual<SpatialMomentum, T> {
@@ -254,7 +256,7 @@ class SpatialMomentum : public Dual<SpatialMomentum, T> {
 template <typename T>
 using SpatialMomentumAssembler =
     engine::Assembler<SpatialMomentum, T, math::Vector6Assembler<T>>;
-static_assert(engine::AssemblerLike<SpatialMomentumAssembler<float>>);
+static_assert(engine::BatchAssemblerLike<SpatialMomentumAssembler<float>>);
 
 template <util::ArithmeticLike T>
 class SpatialForce : public Dual<SpatialForce, T> {
@@ -269,6 +271,33 @@ class SpatialForce : public Dual<SpatialForce, T> {
 template <typename T>
 using SpatialForceAssembler =
     engine::Assembler<SpatialForce, T, math::Vector6Assembler<T>>;
-static_assert(engine::AssemblerLike<SpatialForceAssembler<float>>);
+static_assert(engine::BatchAssemblerLike<SpatialForceAssembler<float>>);
+
+// The first row of a motion subspace's angular block (roll, pitch, yaw) and
+// of its linear block (x, y, z): Dual's row order is angular first, then
+// linear.
+inline constexpr std::size_t kAngularRows = 0;
+inline constexpr std::size_t kLinearRows = 3;
+
+// How much each of a joint's generalized coordinates moves along unit
+// direction `axis` (in the joint's frame), within S's angular or linear
+// block (`first_row`): weight_k = sum_i S(first_row + i, k) * axis_i -- the
+// columns of S projected on the axis. An effort along the axis enters
+// coordinate k as effort * weight_k (S^T e); a coordinate rate qd_k moves
+// along the axis at qd_k * weight_k.
+template <typename T>
+constexpr std::array<T, 6> AxisWeights(
+    const math::Matrix<T, 6, 6>& subspace,
+    const math::Vector3<T>& axis,
+    std::size_t first_row
+) {
+  std::array<T, 6> weights{};
+  for (std::size_t k = 0; k < 6; ++k) {
+    for (std::size_t i = 0; i < 3; ++i) {
+      weights[k] += subspace(first_row + i, k) * axis[i];
+    }
+  }
+  return weights;
+}
 
 }  // namespace achilles::domain::spatial

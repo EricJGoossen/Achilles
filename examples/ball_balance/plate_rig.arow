@@ -23,7 +23,6 @@ joints:
       rigid_body_inertia: [1, 0, 0, 0, 0.1, 0.1, 0.1, 0, 0, 0]
       joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
       joint_velocity: [0, 0, 0, 0, 0, 0]
-      joint_torque: [0, 0, 0, 0, 0, 0]
       visual_extents: [0.025, 0.24, 0.025]
       visual_color: [0.25, 0.27, 0.32]
       collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
@@ -45,7 +44,6 @@ joints:
       rigid_body_inertia: [0.1, 0, 0, 0, 0.01, 0.01, 0.01, 0, 0, 0]
       joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
       joint_velocity: [0, 0, 0, 0, 0, 0]
-      joint_torque: [0, 0, 0, 0, 0, 0]
       visual_extents: [0, 0, 0]
       visual_color: [0, 0, 0]
       collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
@@ -68,7 +66,6 @@ joints:
       rigid_body_inertia: [1, 0, 0.01, 0, 0.013467, 0.026667, 0.013467, 0, 0, 0]
       joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
       joint_velocity: [0, 0, 0, 0, 0, 0]
-      joint_torque: [0, 0, 0, 0, 0, 0]
       visual_extents: [0.2, 0.01, 0.2]
       visual_color: [0.75, 0.75, 0.78]
       collision_pose: {translation: [0, 0.01, 0], rotation: [1, 0, 0, 0]}

@@ -313,21 +313,21 @@ struct SetupRowsOp : SolverOp {
       ArgData{FieldEnum::kContactDistance, ArgIndex::kTarget},
       ArgData{FieldEnum::kContactPoint, ArgIndex::kTarget},
       ArgData{FieldEnum::kContactActive, ArgIndex::kTarget},
-      ArgData{FieldEnum::kCollisionMargin, ArgIndex::kTarget},
+      ArgData{FieldEnum::kCollisionMargin, ArgIndex::kPartner},
       ArgData{FieldEnum::kCollisionMargin, ArgIndex::kSource},
-      ArgData{FieldEnum::kContactFriction, ArgIndex::kTarget},
+      ArgData{FieldEnum::kContactFriction, ArgIndex::kPartner},
       ArgData{FieldEnum::kContactFriction, ArgIndex::kSource},
-      ArgData{FieldEnum::kContactSolref, ArgIndex::kTarget},
+      ArgData{FieldEnum::kContactSolref, ArgIndex::kPartner},
       ArgData{FieldEnum::kContactSolref, ArgIndex::kSource},
-      ArgData{FieldEnum::kContactSolimp, ArgIndex::kTarget},
+      ArgData{FieldEnum::kContactSolimp, ArgIndex::kPartner},
       ArgData{FieldEnum::kContactSolimp, ArgIndex::kSource},
-      ArgData{FieldEnum::kInvWeight, ArgIndex::kTarget},
+      ArgData{FieldEnum::kInvWeight, ArgIndex::kPartner},
       ArgData{FieldEnum::kInvWeight, ArgIndex::kSource},
-      ArgData{FieldEnum::kWorldTransform, ArgIndex::kTarget},
+      ArgData{FieldEnum::kWorldTransform, ArgIndex::kPartner},
       ArgData{FieldEnum::kWorldTransform, ArgIndex::kSource},
-      ArgData{FieldEnum::kSpatialVelocity, ArgIndex::kTarget},
+      ArgData{FieldEnum::kSpatialVelocity, ArgIndex::kPartner},
       ArgData{FieldEnum::kSpatialVelocity, ArgIndex::kSource},
-      ArgData{FieldEnum::kBodyAcceleration, ArgIndex::kTarget},
+      ArgData{FieldEnum::kBodyAcceleration, ArgIndex::kPartner},
       ArgData{FieldEnum::kBodyAcceleration, ArgIndex::kSource},
   };
   static constexpr std::array<ArgData, 5> kOutputs = {
@@ -379,9 +379,9 @@ struct ProjectSearchOp : SolverOp {
   static constexpr std::array<ArgData, 6> kInputs = {
       ArgData{FieldEnum::kEdgeDirections, ArgIndex::kTarget},
       ArgData{FieldEnum::kRowPoint, ArgIndex::kTarget},
-      ArgData{FieldEnum::kWorldTransform, ArgIndex::kTarget},
+      ArgData{FieldEnum::kWorldTransform, ArgIndex::kPartner},
       ArgData{FieldEnum::kWorldTransform, ArgIndex::kSource},
-      ArgData{FieldEnum::kBodyAcceleration, ArgIndex::kTarget},
+      ArgData{FieldEnum::kBodyAcceleration, ArgIndex::kPartner},
       ArgData{FieldEnum::kBodyAcceleration, ArgIndex::kSource},
   };
   static constexpr std::array<ArgData, 1> kOutputs = {
@@ -415,7 +415,7 @@ struct ContactForceOp : SolverOp {
   };
   static constexpr std::array<ArgData, 3> kOutputs = {
       ArgData{FieldEnum::kRowResidual, ArgIndex::kTarget},
-      ArgData{FieldEnum::kBodyWrenchTarget, ArgIndex::kTarget},
+      ArgData{FieldEnum::kBodyWrenchTarget, ArgIndex::kPartner},
       ArgData{FieldEnum::kBodyWrenchSource, ArgIndex::kSource},
   };
   void operator()(
@@ -700,6 +700,32 @@ struct StepJointOp : SolverOp {
     *wrench_source_out = Force::Zero();
     *f_out = Force::Zero();
     *p_out = Force::Zero();
+  }
+};
+
+// a += alpha (body motion of search): keeps every body's acceleration in
+// step with qacc. Body acceleration is linear in qdd -- a_i = X_up a_parent
+// + c_i + S_i qdd_i -- and qacc only ever moves by alpha search
+// (StepJointOp), whose body motion ApplyInertiaForwardOp<kSearch> has just
+// left in kBodyAcceleration (with a zero base: no bias, no gravity). So
+// starting from ABA's smooth acceleration at qacc_smooth (BeginSolveOp),
+// this ends the solve at the body acceleration of the constrained qacc --
+// with no tree pass of its own. Runs right after StepJointOp, before
+// UpdateStep's inverse-inertia passes reuse kBodyAcceleration as scratch.
+struct StepBodyAccelerationOp : SolverOp {
+  static constexpr std::array<ArgData, 2> kInputs = {
+      ArgData{FieldEnum::kStep, ArgIndex::kTarget},
+      ArgData{FieldEnum::kBodyAcceleration, ArgIndex::kTarget},
+  };
+  static constexpr std::array<ArgData, 1> kOutputs = {
+      ArgData{FieldEnum::kSpatialAcceleration, ArgIndex::kTarget},
+  };
+  void operator()(
+      const Scalar& alpha,
+      const Acceleration& search_motion,
+      Acceleration* a_out
+  ) const {
+    *a_out = *a_out + (search_motion * alpha.Value());
   }
 };
 

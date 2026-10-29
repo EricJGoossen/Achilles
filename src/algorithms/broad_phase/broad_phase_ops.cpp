@@ -6,7 +6,7 @@
 
 #include "algorithms/broad_phase/broad_phase_data.hpp"
 #include "algorithms/conventions.hpp"
-#include "engine/pass/traversals.hpp"
+#include "engine/pass/row_policies.hpp"
 #include "util/simd_ops.hpp"
 
 namespace achilles::algorithms::broad_phase {

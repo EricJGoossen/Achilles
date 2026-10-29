@@ -180,6 +180,6 @@ class Vector3 {
 
 template <typename T>
 using Vector3Assembler = engine::Assembler<Vector3, T, engine::RepeatTypes<3>>;
-static_assert(engine::AssemblerLike<Vector3Assembler<float>>);
+static_assert(engine::BatchAssemblerLike<Vector3Assembler<float>>);
 
 }  // namespace achilles::domain::math

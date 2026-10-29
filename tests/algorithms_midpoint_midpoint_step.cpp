@@ -14,7 +14,7 @@
 #include "domain/archetype.hpp"
 #include "domain/joint_layout.hpp"
 #include "engine/memory/sim_allocator.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "util/simd_ops.hpp"
 
 // BeginStep, TrialStep, UpdateStep and CommitStep wire implicit midpoint's

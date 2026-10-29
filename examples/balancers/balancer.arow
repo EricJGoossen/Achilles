@@ -9,8 +9,8 @@
 # and it starts pitched 5 degrees forward (toward +z) so every robot has to
 # catch itself. Each wheel turns about its own local X (the axle, along the
 # body's width), collides as a sphere of radius 0.1, and is drawn as a
-# single spoke so you can see it turn. Every joint_torque is zero: the only
-# torque comes from the actuators, and since a wheel's torque pushes back
+# single spoke so you can see it turn. The only torque comes from the
+# actuators, and since a wheel's torque pushes back
 # on the body, driving the wheels is also what tips the body.
 archetype: balancer
 copies: 8
@@ -31,7 +31,6 @@ joints:
       rigid_body_inertia: [3, 0, 0.9, 0, 0.3636, 0.018, 0.3744, 0, 0, 0]
       joint_position: {translation: [0, 0.102, 0], rotation: [0.999048, 0.043619, 0, 0]}
       joint_velocity: [0, 0, 0, 0, 0, 0]
-      joint_torque: [0, 0, 0, 0, 0, 0]
       visual_extents: [0.12, 0.3, 0.06]
       visual_color: [0.2, 0.5, 0.85]
       collision_pose: {translation: [0, 0.3, 0], rotation: [1, 0, 0, 0]}
@@ -54,7 +53,6 @@ joints:
       rigid_body_inertia: [0.3, 0, 0.0045, 0, 0.00265, 0.00512, 0.00265, 0, 0, 0]
       joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
       joint_velocity: [0, 0, 0, 0, 0, 0]
-      joint_torque: [0, 0, 0, 0, 0, 0]
       visual_extents: [0.16, 0.015, 0.16]
       visual_color: [0.75, 0.75, 0.78]
       collision_pose: {translation: [0, 0.015, 0], rotation: [1, 0, 0, 0]}
@@ -75,7 +73,6 @@ joints:
       rigid_body_inertia: [0.3, 0, 0, 0, 0.0012, 0.0012, 0.0012, 0, 0, 0]
       joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
       joint_velocity: [0, 0, 0, 0, 0, 0]
-      joint_torque: [0, 0, 0, 0, 0, 0]
       visual_extents: [0.02, 0.05, 0.02]
       visual_color: [0.15, 0.15, 0.17]
       collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
@@ -93,7 +90,6 @@ joints:
       rigid_body_inertia: [0.3, 0, 0, 0, 0.0012, 0.0012, 0.0012, 0, 0, 0]
       joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
       joint_velocity: [0, 0, 0, 0, 0, 0]
-      joint_torque: [0, 0, 0, 0, 0, 0]
       visual_extents: [0.02, 0.05, 0.02]
       visual_color: [0.15, 0.15, 0.17]
       collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}

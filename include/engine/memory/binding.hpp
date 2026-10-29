@@ -6,7 +6,7 @@
 #include "engine/memory/buffering_policy.hpp"
 #include "engine/topology/indexing_policy.hpp"
 #include "engine/topology/layout_policy.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "util/tmp.hpp"
 
 namespace achilles::engine::memory {
@@ -24,12 +24,12 @@ namespace achilles::engine::memory {
 //     using SharedAs  = FixedJointTransformSlot;                     // opt
 //     using Ordering  = topology::TopologicalOrdering;               // opt
 //     using Indexing  = topology::RowIndexing;                       // opt
-//     using Buffering = memory::DoubleBuffered;                      // opt
+//     using Buffering = memory::DoubleBuffered<Group, Side>;         // opt
 //     using Layout    = topology::PlanarLayout;                // mandatory
 //   };
 //
 // No SharedAs -> private to this field. No Ordering -> topology::
-// LinearOrdering (every instance stands alone -- see ordering_policy.hpp).
+// LinearOrdering (every instance stands alone -- see orderings.hpp).
 // No Indexing -> topology::RowIndexing (see indexing_policy.hpp).
 // No Buffering -> SingleBuffered (see buffering_policy.hpp).
 // Layout has no default -- omitting it is a compile error. None of these
@@ -84,8 +84,8 @@ using FieldOrderingT = detail::CheckedOrdering<util::DetectedOrT<
 
 // Optional, like Ordering: no Indexing -> topology::RowIndexing (one value
 // per row, every field's shape before index spaces existed). A field that
-// holds one value per pair of rows (e.g. a broad phase's overlap result)
-// names topology::PairGroupIndexing instead -- see indexing_policy.hpp.
+// holds one value per lane group (e.g. a broad phase's overlap bits) names
+// topology::LaneGroupIndexing instead -- see indexing_policy.hpp.
 template <typename EnumT, template <EnumT> class Traits, EnumT F>
 using FieldIndexingT = detail::CheckedIndexing<util::DetectedOrT<
     topology::RowIndexing,
@@ -93,8 +93,8 @@ using FieldIndexingT = detail::CheckedIndexing<util::DetectedOrT<
     Traits<F>>>;
 
 // Optional, like Indexing: no Buffering -> SingleBuffered (one block, read in
-// place). A field written from outside the sim between ticks names
-// DoubleBuffered instead -- see buffering_policy.hpp.
+// place). A field one side writes while another reads the previous value
+// names DoubleBuffered<Group, Side> instead -- see buffering_policy.hpp.
 template <typename EnumT, template <EnumT> class Traits, EnumT F>
 using FieldBufferingT = detail::CheckedBuffering<
     util::DetectedOrT<SingleBuffered, detail::DeclaredBuffering, Traits<F>>>;

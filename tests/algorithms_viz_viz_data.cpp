@@ -15,7 +15,7 @@
 #include "domain/joint_layout.hpp"
 #include "domain/math/vector3.hpp"
 #include "engine/memory/sim_allocator.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "support/aba_reference.hpp"
 #include "util/simd_ops.hpp"
 

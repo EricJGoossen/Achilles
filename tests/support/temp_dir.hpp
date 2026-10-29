@@ -46,6 +46,8 @@ class TempDir {
     return file;
   }
 
+  const std::filesystem::path& Path() const { return path_; }
+
  private:
   std::filesystem::path path_;
 };

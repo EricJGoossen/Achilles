@@ -1,14 +1,20 @@
 #include <gtest/gtest.h>
 
+#include <array>
+#include <bit>
 #include <cstddef>
+#include <cstdint>
 #include <tuple>
 #include <xsimd/xsimd.hpp>
 
 #include "domain/math/scalar.hpp"
 #include "domain/math/vector3.hpp"
+#include "engine/memory/buffering_policy.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/indexing_policy.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/layout_policy.hpp"
+#include "engine/topology/orderings.hpp"
+#include "engine/view/view.hpp"
 #include "support/toy_buffered_field.hpp"
 #include "support/toy_field.hpp"
 #include "support/toy_reduce_field.hpp"
@@ -21,6 +27,7 @@ using achilles::engine::topology::LinearOrdering;
 using achilles::test_support::MakeToyBufferedSim;
 using achilles::test_support::MakeToyReduceSim;
 using achilles::test_support::MakeToySim;
+using achilles::test_support::SwapToyBuffers;
 using achilles::test_support::ToyAlgorithm;
 using achilles::test_support::ToyBufferedField;
 using achilles::test_support::ToyCommandRest;
@@ -254,15 +261,15 @@ void ExpectVector3Eq(
 
 }  // namespace
 
-// Both halves start as the populated rest block, so the first tick reads
-// archetype data whichever half the parity happens to point at.
+// Both halves start as the populated archetype data, so the first tick
+// reads it whichever half the parity happens to point at.
 TEST(ViewDoubleBuffered, LoadReadsTheRestValueOnEitherHalf) {
   auto sim = MakeToyBufferedSim(2);
   auto view = sim.ViewFor<achilles::test_support::ToyBufferedAlgorithm>();
   ExpectVector3Eq(
       view.Load<ToyBufferedField::kCommand, float>(1), ToyCommandRest(1)
   );
-  sim.SimContext().SwapBuffers();
+  SwapToyBuffers(sim);
   ExpectVector3Eq(
       view.Load<ToyBufferedField::kCommand, float>(1), ToyCommandRest(1)
   );
@@ -280,7 +287,7 @@ TEST(ViewDoubleBuffered, StoreWritesOnlyTheHalfBeingRead) {
       view.Load<ToyBufferedField::kCommand, float>(0),
       Vector3<float>(1.0F, 2.0F, 3.0F)
   );
-  sim.SimContext().SwapBuffers();
+  SwapToyBuffers(sim);
   ExpectVector3Eq(
       view.Load<ToyBufferedField::kCommand, float>(0), ToyCommandRest(0)
   );
@@ -297,7 +304,7 @@ TEST(ViewDoubleBuffered, WriteSlotIsInvisibleUntilTheHalvesSwap) {
       view.Load<ToyBufferedField::kCommand, float>(1), ToyCommandRest(1)
   );
 
-  sim.SimContext().SwapBuffers();
+  SwapToyBuffers(sim);
   ExpectVector3Eq(
       view.Load<ToyBufferedField::kCommand, float>(0), ToyCommandRest(0)
   );
@@ -317,7 +324,7 @@ TEST(ViewDoubleBuffered, FieldCursorReadsTheSameHalfAsLoad) {
   ExpectVector3Eq(
       view.Field<ToyBufferedField::kCommand>().Load<float>(0), ToyCommandRest(0)
   );
-  sim.SimContext().SwapBuffers();
+  SwapToyBuffers(sim);
   ExpectVector3Eq(
       view.Field<ToyBufferedField::kCommand>().Load<float>(0),
       view.Load<ToyBufferedField::kCommand, float>(0)
@@ -325,20 +332,6 @@ TEST(ViewDoubleBuffered, FieldCursorReadsTheSameHalfAsLoad) {
   ExpectVector3Eq(
       view.Field<ToyBufferedField::kCommand>().Load<float>(0),
       ToyCommandRest(0) + Vector3<float>(4.0F, 0.0F, 0.0F)
-  );
-}
-
-// ResetWriteBuffers is what throws away the previous tick's scratch -- it
-// must restore the write half to the rest value, discarding anything
-// written there.
-TEST(ViewDoubleBuffered, ResetWriteBuffersDiscardsPendingWrites) {
-  auto sim = MakeToyBufferedSim(1);
-  auto view = sim.ViewFor<achilles::test_support::ToyBufferedAlgorithm>();
-  view.WriteSlot<ToyBufferedField::kCommand>(0, 1).Add(9.0F);
-  view.ResetWriteBuffers();
-  sim.SimContext().SwapBuffers();
-  ExpectVector3Eq(
-      view.Load<ToyBufferedField::kCommand, float>(0), ToyCommandRest(0)
   );
 }
 
@@ -350,7 +343,7 @@ TEST(ViewDoubleBuffered, SingleBufferedFieldIsUnaffectedBySwaps) {
   view.Store<ToyBufferedField::kState, float>(
       0, Vector3<float>(5.0F, 6.0F, 7.0F)
   );
-  sim.SimContext().SwapBuffers();
+  SwapToyBuffers(sim);
   ExpectVector3Eq(
       view.Load<ToyBufferedField::kState, float>(0),
       Vector3<float>(5.0F, 6.0F, 7.0F)
@@ -365,4 +358,69 @@ TEST(ViewDoubleBuffered, DiesOnAWriteSlotPastTheLastRow) {
   EXPECT_DEATH(
       (void)view.WriteSlot<ToyBufferedField::kCommand>(view.Size(), 0), "row <"
   );
+}
+
+// ---------------------------------------------------------------------------
+// Row counts per ordering
+// ---------------------------------------------------------------------------
+
+namespace {
+
+using achilles::engine::memory::SingleBuffered;
+using achilles::engine::topology::PlanarLayout;
+using achilles::engine::topology::RowIndexing;
+using achilles::engine::topology::TopologicalOrdering;
+
+enum class TwoSpaceField : std::uint8_t { kBody, kPair, kCount };
+
+using FloatAssembler = achilles::domain::math::ScalarAssembler<float>;
+// One field over each of two row orders -- the bodies and, say, pairs of
+// them -- sized by different counts.
+using TwoSpaceView = achilles::engine::view::View<
+    TwoSpaceField,
+    achilles::engine::view::FieldBinding<
+        PlanarLayout,
+        FloatAssembler,
+        RowIndexing,
+        SingleBuffered,
+        TopologicalOrdering>,
+    achilles::engine::view::FieldBinding<
+        PlanarLayout,
+        FloatAssembler,
+        RowIndexing,
+        SingleBuffered,
+        LinearOrdering>>;
+
+template <typename V>
+concept HasSize = requires(const V& view) { view.Size(); };
+
+}  // namespace
+
+static_assert(TwoSpaceView::kNumOrderings == 2);
+static_assert(!HasSize<TwoSpaceView>, "two row orders have no one Size()");
+static_assert(ToyView::kNumOrderings == 1);
+static_assert(HasSize<ToyView>);
+
+TEST(ViewRowCounts, EachFieldIsSizedByItsOwnOrderingsCount) {
+  std::array<float, 4> bodies{};
+  std::array<float, 12> pairs{};
+  const TwoSpaceView view(
+      {std::bit_cast<std::byte*>(bodies.data()),
+       std::bit_cast<std::byte*>(pairs.data())},
+      TwoSpaceView::RowCounts{4, 12}
+  );
+  EXPECT_EQ(view.Rows<TwoSpaceField::kBody>(), 4U);
+  EXPECT_EQ(view.Rows<TwoSpaceField::kPair>(), 12U);
+  EXPECT_EQ((view.NumBatches<TwoSpaceField::kPair, float>()), 12U);
+
+  view.Store<TwoSpaceField::kBody, float>(3, Scalar<float>(1.5F));
+  view.Store<TwoSpaceField::kPair, float>(11, Scalar<float>(2.5F));
+  EXPECT_FLOAT_EQ(bodies[3], 1.5F);
+  EXPECT_FLOAT_EQ(pairs[11], 2.5F);
+}
+
+TEST(ViewRowCounts, AnAllocatedViewCountsItsOrderingsOwnRows) {
+  SimAllocator<ToyAlgorithm> sim = MakeToySim(8);
+  ToyView view = sim.ViewFor<ToyAlgorithm>();
+  EXPECT_EQ(view.Rows<ToyField::kPosition>(), ExpectedViewSize(sim));
 }

@@ -6,6 +6,7 @@
 #include <utility>
 #include <xsimd/xsimd.hpp>
 
+#include "engine/assembler.hpp"
 #include "engine/field_contract.hpp"
 
 namespace achilles::engine::view {
@@ -40,15 +41,19 @@ concept ViewFieldLikeForT =
 
 // A view supports field F if it exposes F's own scalar type and supports F
 // at both that scalar shape and the matching batched shape.
+// Every field reads/writes at its own scalar; a field whose Assembler also
+// batches (BatchAssemblerLike, not merely AssemblerLike -- see
+// engine/assembler.hpp) must read/write batched too.
 template <typename View, typename EnumT, EnumT F>
 concept ViewFieldLike =
     requires { typename View::template Scalar<F>; } &&
     ViewFieldLikeForT<View, EnumT, F, typename View::template Scalar<F>> &&
-    ViewFieldLikeForT<
-        View,
-        EnumT,
-        F,
-        xsimd::batch<typename View::template Scalar<F>>>;
+    (!BatchAssemblerLike<typename View::template Assembler<F>> ||
+     ViewFieldLikeForT<
+         View,
+         EnumT,
+         F,
+         xsimd::batch<typename View::template Scalar<F>>>);
 
 template <typename View, typename EnumT, size_t... Is>
 consteval bool AllFieldsViewLike(std::index_sequence<Is...>) {

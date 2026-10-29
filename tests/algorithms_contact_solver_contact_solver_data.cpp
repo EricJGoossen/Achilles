@@ -11,7 +11,7 @@
 #include "algorithms/conventions.hpp"
 #include "algorithms/narrow_phase/narrow_phase_data.hpp"
 #include "algorithms/narrow_phase/narrow_phase_step.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "support/registered_sim.hpp"
 #include "support/temp_dir.hpp"
 #include "util/simd_ops.hpp"

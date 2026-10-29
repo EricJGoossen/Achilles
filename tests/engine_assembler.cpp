@@ -8,6 +8,7 @@
 #include "domain/math/vector3.hpp"
 #include "domain/spatial/inertia.hpp"
 #include "engine/assembler.hpp"
+#include "engine/topology/layout_policy.hpp"
 
 using achilles::domain::math::Vector3;
 using achilles::domain::math::Vector3Assembler;
@@ -15,9 +16,10 @@ using achilles::domain::spatial::Inertia;
 using achilles::domain::spatial::InertiaAssembler;
 using achilles::engine::AssemblableLike;
 using achilles::engine::Assembler;
-using achilles::engine::AssemblerLike;
+using achilles::engine::BatchAssemblerLike;
 using achilles::engine::RepeatTypes;
 using achilles::engine::Templated;
+using achilles::engine::topology::PlanarLayout;
 
 namespace {
 
@@ -89,7 +91,7 @@ std::size_t StrideFor(std::size_t num_instances) {
 // Read/Write round-trip through a real, single-leaf-group Assembler
 // (Vector3Assembler), scalar and batched -- the same shape already
 // exercised indirectly via every domain/math type's own
-// static_assert(AssemblerLike<...>), checked here directly against a raw
+// static_assert(BatchAssemblerLike<...>), checked here directly against a raw
 // buffer instead.
 TEST(AssemblerRoundTrip, ScalarLeafGroup) {
   using A = Vector3Assembler<float>;
@@ -98,8 +100,8 @@ TEST(AssemblerRoundTrip, ScalarLeafGroup) {
   std::size_t stride = StrideFor<A>(n);
 
   Vector3<float> value(1.0F, 2.0F, 3.0F);
-  A::Write<float>(buf.Get(), stride, value);
-  Vector3<float> read_back = A::Read<float>(buf.Get(), stride);
+  A::Write<float, PlanarLayout>(buf.Get(), stride, value);
+  Vector3<float> read_back = A::Read<float, PlanarLayout>(buf.Get(), stride);
 
   EXPECT_TRUE(read_back.IsApprox(value));
 }
@@ -112,8 +114,8 @@ TEST(AssemblerRoundTrip, BatchedLeafGroup) {
   std::size_t stride = StrideFor<A>(n);
 
   Vector3<Batch> value(Batch(1.0F), Batch(2.0F), Batch(3.0F));
-  A::Write<Batch>(buf.Get(), stride, value);
-  Vector3<Batch> read_back = A::Read<Batch>(buf.Get(), stride);
+  A::Write<Batch, PlanarLayout>(buf.Get(), stride, value);
+  Vector3<Batch> read_back = A::Read<Batch, PlanarLayout>(buf.Get(), stride);
 
   EXPECT_FLOAT_EQ(read_back.X().get(0), 1.0F);
   EXPECT_FLOAT_EQ(read_back.Y().get(0), 2.0F);
@@ -143,8 +145,8 @@ TEST(AssemblerRoundTrip, CompositeAssemblerWithNestedAndRepeatedChildren) {
       0.0F,
       0.0F
   );
-  A::Write<float>(buf.Get(), stride, value);
-  Inertia<float> read_back = A::Read<float>(buf.Get(), stride);
+  A::Write<float, PlanarLayout>(buf.Get(), stride, value);
+  Inertia<float> read_back = A::Read<float, PlanarLayout>(buf.Get(), stride);
 
   EXPECT_TRUE(read_back.IsApprox(value));
 }
@@ -178,7 +180,6 @@ TEST(AssemblerZero, TargetWithAValidatingConstructorUsesItsOwnZero) {
   EXPECT_TRUE(zero.IsApprox(Inertia<float>::Zero()));
 }
 
-
 // Accumulate<float> is one plain += per leaf onto what the buffer holds.
 TEST(AssemblerAccumulate, ScalarAddsOntoTheStoredValue) {
   using A = Vector3Assembler<float>;
@@ -186,11 +187,15 @@ TEST(AssemblerAccumulate, ScalarAddsOntoTheStoredValue) {
   Buffer buf = MakeAssemblerBuffer<A>(n);
   std::size_t stride = StrideFor<A>(n);
 
-  A::Write<float>(buf.Get(), stride, Vector3<float>(1.0F, 2.0F, 3.0F));
-  A::Accumulate<float>(buf.Get(), stride, Vector3<float>(0.5F, -1.0F, 4.0F));
+  A::Write<float, PlanarLayout>(
+      buf.Get(), stride, Vector3<float>(1.0F, 2.0F, 3.0F)
+  );
+  A::Accumulate<float, PlanarLayout>(
+      buf.Get(), stride, Vector3<float>(0.5F, -1.0F, 4.0F)
+  );
 
-  EXPECT_TRUE(A::Read<float>(buf.Get(), stride)
-                  .IsApprox(Vector3<float>(1.5F, 1.0F, 7.0F)));
+  EXPECT_TRUE((A::Read<float, PlanarLayout>(buf.Get(), stride)
+                   .IsApprox(Vector3<float>(1.5F, 1.0F, 7.0F))));
 }
 
 // Accumulate<batch> folds every lane of each leaf into that leaf's one
@@ -204,20 +209,24 @@ TEST(AssemblerAccumulate, BatchSumsEveryLaneIntoTheOneInstance) {
   std::size_t stride = StrideFor<A>(n);
   auto lanes = static_cast<float>(Batch::size);
 
-  A::Write<float>(buf.Get(), stride, Vector3<float>(10.0F, 20.0F, 30.0F));
-  A::Write<float>(
+  A::Write<float, PlanarLayout>(
+      buf.Get(), stride, Vector3<float>(10.0F, 20.0F, 30.0F)
+  );
+  A::Write<float, PlanarLayout>(
       buf.Get() + sizeof(float), stride, Vector3<float>(7.0F, 7.0F, 7.0F)
   );
-  A::Accumulate<Batch>(
+  A::Accumulate<Batch, PlanarLayout>(
       buf.Get(), stride, Vector3<Batch>(Batch(1.0F), Batch(2.0F), Batch(-3.0F))
   );
 
-  EXPECT_TRUE(A::Read<float>(buf.Get(), stride)
-                  .IsApprox(Vector3<float>(
-                      10.0F + lanes, 20.0F + (2.0F * lanes), 30.0F - (3.0F * lanes)
-                  )));
-  EXPECT_TRUE(A::Read<float>(buf.Get() + sizeof(float), stride)
-                  .IsApprox(Vector3<float>(7.0F, 7.0F, 7.0F)));
+  EXPECT_TRUE(
+      (A::Read<float, PlanarLayout>(buf.Get(), stride)
+           .IsApprox(Vector3<float>(
+               10.0F + lanes, 20.0F + (2.0F * lanes), 30.0F - (3.0F * lanes)
+           )))
+  );
+  EXPECT_TRUE((A::Read<float, PlanarLayout>(buf.Get() + sizeof(float), stride)
+                   .IsApprox(Vector3<float>(7.0F, 7.0F, 7.0F))));
 }
 
 // The nested-Assembler half of AccumulateChild's dispatch: every leaf of a
@@ -234,10 +243,17 @@ TEST(AssemblerAccumulate, CompositeAssemblerAccumulatesEveryLeaf) {
   float scale = 1.0F + static_cast<float>(Batch::size);
 
   Inertia<float> stored(
-      2.0F, Vector3<float>(0.1F, -0.2F, 0.3F), 2.0F, 3.0F, 4.0F, 0.1F, 0.2F, 0.3F
+      2.0F,
+      Vector3<float>(0.1F, -0.2F, 0.3F),
+      2.0F,
+      3.0F,
+      4.0F,
+      0.1F,
+      0.2F,
+      0.3F
   );
-  A::Write<float>(buf.Get(), stride, stored);
-  A::Accumulate<Batch>(
+  A::Write<float, PlanarLayout>(buf.Get(), stride, stored);
+  A::Accumulate<Batch, PlanarLayout>(
       buf.Get(),
       stride,
       Inertia<Batch>(
@@ -252,9 +268,10 @@ TEST(AssemblerAccumulate, CompositeAssemblerAccumulatesEveryLeaf) {
       )
   );
 
-  Inertia<float> read_back = A::Read<float>(buf.Get(), stride);
+  Inertia<float> read_back = A::Read<float, PlanarLayout>(buf.Get(), stride);
   EXPECT_FLOAT_EQ(read_back.Mass(), 2.0F * scale);
-  EXPECT_TRUE(read_back.H().IsApprox(Vector3<float>(0.1F, -0.2F, 0.3F) * scale));
+  EXPECT_TRUE(read_back.H().IsApprox(Vector3<float>(0.1F, -0.2F, 0.3F) * scale)
+  );
   EXPECT_FLOAT_EQ(read_back.Ixx(), 2.0F * scale);
   EXPECT_FLOAT_EQ(read_back.Iyy(), 3.0F * scale);
   EXPECT_FLOAT_EQ(read_back.Izz(), 4.0F * scale);
@@ -307,7 +324,7 @@ struct TwoVector3s {
 
 using TwoVector3sAssembler =
     Assembler<TwoVector3s, float, RepeatTypes<2, Vector3Assembler<float>>>;
-static_assert(AssemblerLike<TwoVector3sAssembler>);
+static_assert(BatchAssemblerLike<TwoVector3sAssembler>);
 
 }  // namespace
 
@@ -329,8 +346,9 @@ TEST(AssemblerRepeatTypesExplicitChildType, RoundTrips) {
   TwoVector3s<float> value(
       Vector3<float>(1.0F, 2.0F, 3.0F), Vector3<float>(4.0F, 5.0F, 6.0F)
   );
-  A::Write<float>(buf.Get(), stride, value);
-  TwoVector3s<float> read_back = A::Read<float>(buf.Get(), stride);
+  A::Write<float, PlanarLayout>(buf.Get(), stride, value);
+  TwoVector3s<float> read_back =
+      A::Read<float, PlanarLayout>(buf.Get(), stride);
 
   EXPECT_TRUE(read_back.a.IsApprox(value.a));
   EXPECT_TRUE(read_back.b.IsApprox(value.b));
@@ -368,7 +386,7 @@ struct LeafAndVector {
 
 using LeafAndVectorAssembler =
     Assembler<LeafAndVector, float, float, Templated<Vector3Assembler>>;
-static_assert(AssemblerLike<LeafAndVectorAssembler>);
+static_assert(BatchAssemblerLike<LeafAndVectorAssembler>);
 
 }  // namespace
 
@@ -379,8 +397,9 @@ TEST(AssemblerTemplatedMarker, RoundTrips) {
   std::size_t stride = StrideFor<A>(n);
 
   LeafAndVector<float> value(5.0F, Vector3<float>(1.0F, 2.0F, 3.0F));
-  A::Write<float>(buf.Get(), stride, value);
-  LeafAndVector<float> read_back = A::Read<float>(buf.Get(), stride);
+  A::Write<float, PlanarLayout>(buf.Get(), stride, value);
+  LeafAndVector<float> read_back =
+      A::Read<float, PlanarLayout>(buf.Get(), stride);
 
   EXPECT_FLOAT_EQ(read_back.scale, 5.0F);
   EXPECT_TRUE(read_back.offset.IsApprox(value.offset));
@@ -410,7 +429,7 @@ namespace {
 
 // A ToTuple() with the wrong shape -- here, an extra unused field folded
 // into the tuple -- must be rejected by AssemblableLike (and therefore
-// AssemblerLike) even though every individual Read/Write call still
+// BatchAssemblerLike) even though every individual Read/Write call still
 // type-checks; see the comment on AssemblableLike in assembler.hpp for
 // why that's a separate check from "does a call to Write resolve".
 template <typename T>
@@ -427,7 +446,7 @@ struct WrongShapeTarget {
 
 using WrongShapeAssembler = Assembler<WrongShapeTarget, float, RepeatTypes<3>>;
 static_assert(!AssemblableLike<WrongShapeAssembler>);
-static_assert(!AssemblerLike<WrongShapeAssembler>);
+static_assert(!BatchAssemblerLike<WrongShapeAssembler>);
 
 }  // namespace
 

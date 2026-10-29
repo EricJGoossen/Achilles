@@ -9,7 +9,7 @@
 #include "engine/pass/algorithm_step.hpp"
 #include "engine/pass/sim_context.hpp"
 #include "engine/pass/traversals.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "engine/view/view.hpp"
 #include "engine/view/view_contract.hpp"
 
@@ -102,6 +102,33 @@ struct ABAStep {
         },
         view,
         topology
+    );
+  }
+};
+
+// Swaps kJointTorque's halves: what actuators accumulated since the last
+// swap becomes what ABA reads, and the half ABA was reading -- scratch and
+// all -- is zeroed for the actuators to accumulate into next. Once per tick, at
+// the start of every integrator's step list (algorithms/integrators.hpp),
+// however many times that list evaluates ABA.
+struct SwapTorqueStep {
+  using FieldEnum = ABAField;
+  using LinearBatched =
+      engine::pass::LinearTraversal<engine::pass::Direction::kForward, kLanes>;
+
+  template <engine::pass::SimContextLike SimStateT>
+  static void Step(
+      const SimStateT& sim_state,
+      const SimConfig& /*sim_config*/,
+      ScalarOperationT /*dt*/
+  ) {
+    sim_state.template FlipParity<JointTorqueSlot>();
+    engine::pass::Step(
+        engine::pass::Ops<engine::pass::Pass<ZeroJointTorqueOp, LinearBatched>>{
+            {}
+        },
+        sim_state.template ViewFor<ABAView>(),
+        sim_state.template TopologyFor<engine::topology::TopologicalOrdering>()
     );
   }
 };

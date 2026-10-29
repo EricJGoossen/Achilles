@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <optional>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -15,9 +17,10 @@
 #include "domain/joint_topology.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/layout_policy.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "interface/actuator.hpp"
 #include "interface/archetype_loader.hpp"
+#include "interface/sensor_handle.hpp"
 #include "interface/sim_config_loader.hpp"
 #include "render/scene_renderer.hpp"
 #include "util/io.hpp"
@@ -57,33 +60,49 @@ class Simulation {
     return true;
   }
 
-  bool Init() {
+  // Builds the sim from the loaded .arow and runs its Setup list. `seed`
+  // keys every sensor's noise -- the same seed gives the same readings, run
+  // after run; without one, a fresh seed is drawn (GenerateSeed) and can be
+  // read back with Seed() to reproduce the run.
+  bool Init(std::optional<std::uint64_t> seed = std::nullopt) {
     if (archetypes_.empty()) {
       return util::Warning(
           "Simulation::Init() called before Simulation::LoadArowFile() -- no "
           "archetypes loaded."
       );
     }
+    seed_ = seed.value_or(GenerateSeed());
     try {
       state_ = Allocator::Build(archetypes_);
+      WriteSensorConfigs(state_->context, archetypes_, seed_);
     } catch (const std::exception& e) {
+      state_.reset();
       return util::Warning("Simulation allocation failed", e.what());
     }
-    // Model constants derived from the initial state (algorithms::Setup).
+    // Model constants derived from the initial state, and every sensor's
+    // starting state (algorithms::Setup).
     return RunStepList(&algorithms::StepIntegrator<algorithms::Setup>, 0.0F);
   }
+
+  // A seed drawn from the system's random source -- what Init() uses when
+  // it's given none.
+  static std::uint64_t GenerateSeed() {
+    std::random_device device;
+    return (static_cast<std::uint64_t>(device()) << 32U) | device();
+  }
+
+  // The seed the sim was last Init()ed with.
+  std::uint64_t Seed() const { return seed_; }
 
   // Advances the physics by one tick of the selected integrator (see
   // SetIntegrator) over `dt`. Never renders -- see Render(). Returns false
   // (after warning) if the sim isn't initialized or the step throws.
   //
-  // Swaps every double-buffered field first (SimContext::SwapBuffers), so
-  // the tick reads exactly what actuators Apply()ed since the previous
-  // Step() -- however many times its step list evaluates ABA.
+  // Every integrator starts by swapping actuator torque
+  // (aba::SwapTorqueStep), so the tick reads exactly what actuators
+  // Apply()ed since the previous Step() -- however many times its step list
+  // evaluates ABA.
   bool Step(algorithms::ScalarOperationT dt) {
-    if (state_.has_value()) {
-      state_->context.SwapBuffers();
-    }
     return RunStepList(integrator_step_, dt);
   }
 
@@ -91,9 +110,10 @@ class Simulation {
   // once, over the same state Step() advances -- e.g.
   // StepWith<util::TypeList<algorithms::aba::ABAStep>>(0) re-evaluates the
   // dynamics at the current (q, qd) without integrating anything. Same
-  // return contract as Step(). Does not swap buffers: it reads the same
-  // actuator torque the last Step() did, and leaves pending Apply()s for
-  // the next Step().
+  // return contract as Step(). Swaps actuator torque only if StepList
+  // starts with aba::SwapTorqueStep (an integrator does); otherwise it
+  // reads the same torque the last Step() did, and leaves pending Apply()s
+  // for the next Step().
   template <typename StepList>
   bool StepWith(algorithms::ScalarOperationT dt) {
     return RunStepList(&algorithms::StepIntegrator<StepList>, dt);
@@ -194,7 +214,7 @@ class Simulation {
   // parent (e.g. to draw a bone from a joint to its parent's world
   // position) the same way ABAStep itself does.
   template <engine::topology::LayoutPolicyLike PolicyT>
-  domain::JointTopology TopologyFor() const {
+  engine::topology::TopologyOfT<PolicyT> TopologyFor() const {
     if (!state_.has_value()) {
       throw std::runtime_error(
           "Simulation::TopologyFor() called before Simulation::Init() -- "
@@ -202,6 +222,36 @@ class Simulation {
       );
     }
     return state_->context.template TopologyFor<PolicyT>();
+  }
+
+  // The sensor `address` names (see SensorAddress), as a handle of its kind
+  // K -- e.g. FindSensor<algorithms::sensing::TruthOf<aba::ABAAlgorithm,
+  // aba::ABAField::kWorldTransform>>({"body_pose", 0}). Throws
+  // std::runtime_error before Init(), std::invalid_argument for an unknown
+  // sensor or instance, or one that isn't a K.
+  template <algorithms::sensing::SensorLike K>
+  SensorHandle<K> FindSensor(const SensorAddress& address) const {
+    return interface::FindSensor<K>(
+        Context("FindSensor"), archetypes_, address
+    );
+  }
+
+  // The sensor's latest reading, as of the last Step().
+  template <algorithms::sensing::SensorLike K>
+  algorithms::sensing::Reading<typename K::Output> Read(SensorHandle<K> handle
+  ) const {
+    return ReadSensor(Context("Read"), handle);
+  }
+
+  // The sensor's configuration, and replacing it: the sensor starts over
+  // from the new one (see interface::SetSensorConfig).
+  template <algorithms::sensing::SensorLike K>
+  K SensorConfig(SensorHandle<K> handle) const {
+    return interface::SensorConfig(Context("SensorConfig"), handle);
+  }
+  template <algorithms::sensing::SensorLike K>
+  void SetSensorConfig(SensorHandle<K> handle, const K& config) const {
+    interface::SetSensorConfig(Context("SetSensorConfig"), handle, config);
   }
 
   // The row `joint` lives at in every View whose fields PolicyT orders --
@@ -225,6 +275,19 @@ class Simulation {
   }
 
  private:
+  // The built sim's context, for a call that needs one; throws before
+  // Init().
+  const algorithms::RegisteredSimContext& Context(const char* caller) const {
+    if (!state_.has_value()) {
+      throw std::runtime_error(
+          std::string("Simulation::") + caller +
+          "() called before Simulation::Init() -- the sim is not yet "
+          "initialized."
+      );
+    }
+    return state_->context;
+  }
+
   // Runs one pass of a step list (`step`, an IntegratorStepFn) over this
   // sim's state: a tick (Step/StepWith) or the one-time Setup list (Init).
   bool RunStepList(
@@ -247,6 +310,7 @@ class Simulation {
   algorithms::SimConfig config_;
   std::optional<Allocator::State> state_;
   std::vector<domain::Archetype> archetypes_;
+  std::uint64_t seed_ = 0;
   std::optional<render::SceneRenderer> renderer_;
   algorithms::IntegratorStepFn integrator_step_ =
       algorithms::StepFnFor(Integrator::kSemiImplicitEuler);

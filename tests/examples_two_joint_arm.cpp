@@ -1,9 +1,10 @@
-// Validates examples/two_joint_arm/two_joint_arm.arow + examples/two_joint_arm/sim_config.yaml -- the
-// scene scripts/run-example.sh actually launches -- against an *independent*
-// closed-form model of the same physical system, derived from scratch via
-// Lagrangian mechanics rather than by reading algorithms/aba's own source.
-// The point is to catch a bug in the engine's dynamics that a test built
-// from the same equations the engine itself implements never could.
+// Validates examples/two_joint_arm/two_joint_arm.arow +
+// examples/two_joint_arm/sim_config.yaml -- the scene scripts/run-example.sh
+// actually launches -- against an *independent* closed-form model of the same
+// physical system, derived from scratch via Lagrangian mechanics rather than by
+// reading algorithms/aba's own source. The point is to catch a bug in the
+// engine's dynamics that a test built from the same equations the engine itself
+// implements never could.
 //
 // The real scene is a planar double pendulum: two rigid links, hinged in
 // series about parallel axes (both joints rotate about their own local X --
@@ -49,7 +50,7 @@
 #include "algorithms/integrators.hpp"
 #include "domain/joint_topology.hpp"
 #include "domain/math/vector3.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "interface/simulation.hpp"
 #include "support/temp_dir.hpp"
 #include "util/tmp.hpp"
@@ -70,15 +71,15 @@ using B = MathematicalT;
 
 namespace {
 
-// Mirrors examples/two_joint_arm/two_joint_arm.arow exactly (mass, center-of-mass offset,
-// inertia about each joint, and the 1.0-unit shoulder-to-elbow offset) --
-// see that file's own comments for where each of these numbers comes from
-// (in particular, the parallel-axis-theorem reasoning behind Ixx/Izz).
-// Kept as literal constants here, rather than parsed from the real .arow
-// file, so this test's own reference model and the archetype it builds
-// below are provably built from the same numbers -- a drift between this
-// file and examples/two_joint_arm/two_joint_arm.arow would just make this test wrong
-// about which scene it's checking, not silently pass on stale physics.
+// Mirrors examples/two_joint_arm/two_joint_arm.arow exactly (mass,
+// center-of-mass offset, inertia about each joint, and the 1.0-unit
+// shoulder-to-elbow offset) -- see that file's own comments for where each of
+// these numbers comes from (in particular, the parallel-axis-theorem reasoning
+// behind Ixx/Izz). Kept as literal constants here, rather than parsed from the
+// real .arow file, so this test's own reference model and the archetype it
+// builds below are provably built from the same numbers -- a drift between this
+// file and examples/two_joint_arm/two_joint_arm.arow would just make this test
+// wrong about which scene it's checking, not silently pass on stale physics.
 struct LinkParams {
   ScalarOperationT mass;
   ScalarOperationT
@@ -96,9 +97,9 @@ constexpr LinkParams kElbow{
 constexpr ScalarOperationT kLinkLength =
     1.0F;  // shoulder -> elbow offset (local Y)
 
-// examples/two_joint_arm/sim_config.yaml's own base_acceleration.linear.z. ABA treats a
-// fixed base's own configured acceleration as *minus* true gravity (see
-// algorithms/sim_config.hpp's own comment on base_acceleration), so the
+// examples/two_joint_arm/sim_config.yaml's own base_acceleration.linear.z. ABA
+// treats a fixed base's own configured acceleration as *minus* true gravity
+// (see algorithms/sim_config.hpp's own comment on base_acceleration), so the
 // real gravitational acceleration every body actually falls under is
 // +9.8 along world Z, not -9.8 -- this constant is that already-negated,
 // "as Lagrangian mechanics wants it" value, not sim_config.yaml's literal
@@ -108,8 +109,8 @@ constexpr ScalarOperationT kGravity = 9.8F;
 constexpr ScalarOperationT kDt = 1.0F / 120.0F;
 
 std::string TwoJointArmYaml() {
-  // Physically identical to examples/two_joint_arm/two_joint_arm.arow -- same joint
-  // axes, offsets, masses, and inertias -- just inlined here (rather than
+  // Physically identical to examples/two_joint_arm/two_joint_arm.arow -- same
+  // joint axes, offsets, masses, and inertias -- just inlined here (rather than
   // read from disk) so this test doesn't depend on the working directory
   // ctest happens to run in.
   std::ostringstream out;
@@ -130,7 +131,6 @@ std::string TwoJointArmYaml() {
          "        translation: [0, 0, 0]\n"
          "        rotation: [1, 0, 0, 0]\n"
          "      joint_velocity: [0, 0, 0, 0, 0, 0]\n"
-         "      joint_torque: [0, 0, 0, 0, 0, 0]\n"
          "      visual_extents: [0.15, 0.5, 0.15]\n"
          "      visual_color: [0.85, 0.3, 0.2]\n"
          "  - name: elbow\n"
@@ -148,7 +148,6 @@ std::string TwoJointArmYaml() {
          "        translation: [0, 0, 0]\n"
          "        rotation: [1, 0, 0, 0]\n"
          "      joint_velocity: [0, 0, 0, 0, 0, 0]\n"
-         "      joint_torque: [0, 0, 0, 0, 0, 0]\n"
          "      visual_extents: [0.12, 0.4, 0.12]\n"
          "      visual_color: [0.2, 0.55, 0.9]\n";
   return out.str();

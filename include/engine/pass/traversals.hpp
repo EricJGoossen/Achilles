@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "domain/joint_topology.hpp"
+#include "engine/pass/row_policies.hpp"
 #include "engine/topology/indexing_policy.hpp"
 
 namespace achilles::engine::pass {
@@ -25,6 +26,8 @@ namespace detail {
 struct TraversalProbe {
   size_t Size() const { return 0; }
   size_t operator[](size_t) const { return 0; }
+  size_t SegmentBegin(size_t) const { return 0; }
+  size_t SegmentEnd(size_t) const { return 0; }
   explicit operator size_t() const { return 0; }
 };
 
@@ -47,14 +50,34 @@ concept TraversalLike =
     requires {
       { T::kDirection } -> std::same_as<const Direction&>;
     } &&
-    requires(
-        void (&callable)(size_t, size_t), detail::TraversalProbe topology
-    ) {
-      { T::Apply(callable, topology) } -> std::same_as<void>;
-    } &&
-    requires(void (&callable)(size_t), detail::TraversalProbe topology) {
-      { T::InitOp(callable, topology) } -> std::same_as<void>;
-    };
+    ((
+         requires(
+             void (&callable)(size_t, size_t), detail::TraversalProbe topology
+         ) {
+           { T::Apply(callable, topology) } -> std::same_as<void>;
+         } &&
+         requires(void (&callable)(size_t), detail::TraversalProbe topology) {
+           { T::InitOp(callable, topology) } -> std::same_as<void>;
+         }
+     ) ||
+     // A pass over pairs (PairTraversal) takes the pair topology after the
+     // rows.
+     (
+         requires(
+             void (&callable)(size_t, size_t),
+             detail::TraversalProbe topology,
+             const domain::PairTopology& pairs
+         ) {
+           { T::Apply(callable, topology, pairs) } -> std::same_as<void>;
+         } &&
+         requires(
+             void (&callable)(size_t),
+             detail::TraversalProbe topology,
+             const domain::PairTopology& pairs
+         ) {
+           { T::InitOp(callable, topology, pairs) } -> std::same_as<void>;
+         }
+     ));
 
 // A traversal, shaped like an Op: a stateless callable, default-constructed
 // fresh per use, invoked with the OpInvoker plus *everything* Step (see
@@ -84,38 +107,141 @@ concept TraversalLike =
 // straddles two different tree positions. Stride=1 (every existing scalar
 // caller) makes every division here a no-op, so this is a strictly
 // backward-compatible extension.
-template <Direction Dir, size_t Stride>
-struct TreeTraversal {
+
+// Row groups of one ordering, one call per group with (target = the group,
+// source = Source's index for it) -- forward or backward -- or, scanning,
+// one per (group, real row of a second layout) pair (see Scan). The only
+// things that distinguish a tree, linear, linked, segment, scanning or pair
+// pass are Source, Range and Scan; the loop is the same, and all three are
+// resolved at compile time, so each costs exactly what its own
+// hand-written loop did. Rows is whatever
+// the Step call hands first after the view: a JointTopology, or
+// (SelfSource only) a bare row count -- so a linear pass can share a Step
+// call with a tree pass and its topology.
+template <
+    Direction Dir,
+    size_t Stride,
+    typename Source,
+    typename Range = AllRows,
+    typename Scan = NoScan>
+  requires(
+      (Stride == 1 || Source::kBatchable) && (Stride == 1 || Scan::kBatchable)
+  )
+struct RowTraversal {
   static constexpr Direction kDirection = Dir;
   static constexpr size_t kStride = Stride;
 
-  template <typename Callable, domain::TopologyLike Topology, typename... Rest>
+  template <typename Callable, typename Rows, typename... Rest>
+    requires(Dir == Direction::kForward)
   static constexpr void Apply(
-      const Callable& callable, const Topology& topology, const Rest&...
+      const Callable& callable, const Rows& rows, const Rest&... rest
   ) {
-    size_t groups = topology.Size() / Stride;
-    if constexpr (Dir == Direction::kForward) {
-      for (size_t j = 0; j < groups; ++j) {
-        callable(j, topology[j * Stride] / Stride);
-      }
-    } else {
-      for (size_t j = groups; j-- > 0;) {
-        callable(j, topology[j * Stride] / Stride);
-      }
+    const size_t end = Range::template End<Stride>(rows);
+    for (size_t j = Range::template Begin<Stride>(rows); j < end; ++j) {
+      Scan::template Visit<Stride>(
+          callable, rows, j, Source::template Of<Stride>(rows, j), rest...
+      );
     }
   }
 
-  template <typename Callable, typename Topology, typename... Rest>
-  static constexpr void InitOp(
-      const Callable& callable, const Topology& topology, const Rest&...
+  template <typename Callable, typename Rows, typename... Rest>
+    requires(Dir == Direction::kBackward)
+  static constexpr void Apply(
+      const Callable& callable, const Rows& rows, const Rest&... rest
   ) {
-    if (topology.Size() > 0) {
-      callable.Initialize(topology[0] / Stride);
+    const size_t begin = Range::template Begin<Stride>(rows);
+    for (size_t j = Range::template End<Stride>(rows); j-- > begin;) {
+      Scan::template Visit<Stride>(
+          callable, rows, j, Source::template Of<Stride>(rows, j), rest...
+      );
+    }
+  }
+
+  template <typename Callable, typename Rows, typename... Rest>
+  static constexpr void InitOp(
+      const Callable& callable, const Rows& rows, const Rest&... rest
+  ) {
+    if (Range::template Begin<Stride>(rows) <
+            Range::template End<Stride>(rows) &&
+        Scan::HasWork(rest...)) {
+      callable.Initialize(Source::template InitRow<Stride>(rows));
     }
   }
 };
+
+// Each joint after its parent (forward) or before it (backward), handed
+// that parent's group as ArgIndex::kParent.
+template <Direction Dir, size_t Stride>
+using TreeTraversal = RowTraversal<Dir, Stride, ParentSource>;
+
+// Every row on its own, handed itself as the source -- so a parentless
+// field (the only kind that makes sense here) reads/writes itself either
+// way.
+template <Direction Dir, size_t Stride>
+using LinearTraversal = RowTraversal<Dir, Stride, SelfSource>;
+
+// Every entry of a list ordering, handed its link as ArgIndex::kLink.
+using LinkedTraversal = RowTraversal<Direction::kForward, 1, LinkSource>;
+
+// Only segment K's rows, forward, each handed its source -- by default its
+// link (ArgIndex::kLink) -- so a pass can run an Op written for one list's
+// entries over exactly those rows.
+template <size_t K, typename Source = LinkSource>
+using SegmentTraversal =
+    RowTraversal<Direction::kForward, 1, Source, Segment<K>>;
+
+// The per-segment traversals SegmentOps (algorithm_step.hpp) builds passes
+// from, by segment index: each row of segment K handed its link or itself,
+// or paired against every real row of a second layout (ScanRows).
+template <size_t K>
+using LinkedSegmentTraversal = SegmentTraversal<K, LinkSource>;
+template <size_t K>
+using SelfSegmentTraversal = SegmentTraversal<K, SelfSource>;
+template <size_t K>
+using LinkedSegmentScanTraversal =
+    RowTraversal<Direction::kForward, 1, LinkSource, Segment<K>, ScanRows>;
+
+// Every lane group of a pair ordering (topology::PairOrdering), handed its
+// source (ArgIndex::kSource, broadcast), its partners (ArgIndex::kPartner)
+// and which lanes are pairs (ArgIndex::kStructure) -- the pairs a broad
+// phase, narrow phase or contact solver walks. A Step over pairs is given
+// the pair topology after the rows (the other passes' topology), since a
+// pass over pairs usually shares a Step with passes over the bodies they
+// pair; this walks that second argument as its rows. Its Op's Initialize
+// runs even when there are no pairs: a pass over pairs that reduces into a
+// whole-sim value (topology::GlobalIndexing) starts that value from it, and
+// passes over the bodies may add to the same value after it.
+template <Direction Dir, size_t Stride>
+struct PairTraversal {
+  static constexpr Direction kDirection = Dir;
+  static constexpr size_t kStride = Stride;
+  using Walk = RowTraversal<Dir, Stride, PairSource, AllRows, PairedRows>;
+
+  template <typename Callable, typename Rows, typename... Rest>
+  static constexpr void Apply(
+      const Callable& callable,
+      const Rows& /*rows*/,
+      const domain::PairTopology& pairs,
+      const Rest&... /*rest*/
+  ) {
+    Walk::Apply(callable, pairs);
+  }
+
+  template <typename Callable, typename Rows, typename... Rest>
+  static constexpr void InitOp(
+      const Callable& callable,
+      const Rows& /*rows*/,
+      const domain::PairTopology& pairs,
+      const Rest&... /*rest*/
+  ) {
+    callable.Initialize(PairSource::InitRow<Stride>(pairs));
+  }
+};
+
 using ForwardTreeTraversal = TreeTraversal<Direction::kForward, 1>;
 using BackwardTreeTraversal = TreeTraversal<Direction::kBackward, 1>;
+using ForwardLinearTraversal = LinearTraversal<Direction::kForward, 1>;
+using BackwardLinearTraversal = LinearTraversal<Direction::kBackward, 1>;
 static_assert(
     TraversalLike<ForwardTreeTraversal>,
     "ForwardTreeTraversal must satisfy TraversalLike concept"
@@ -124,71 +250,6 @@ static_assert(
     TraversalLike<BackwardTreeTraversal>,
     "BackwardTreeTraversal must satisfy TraversalLike concept"
 );
-
-// Accepts either a bare size, or anything with a Size() (a JointTopology
-// works here too) -- so a linear pass can be driven by the same topology
-// argument a tree pass in the same Step call uses. LinearTraversal itself
-// only ever hands back one index (there's no parent to also report), while
-// an OpInvoker always expects (target_index, parent_index) -- Apply bridges
-// that by calling the callable with the same index twice, so a parentless
-// field (the only kind that makes sense on a linear pass) reads/writes
-// itself either way.
-//
-// Stride -- same meaning and same backward-compatible default as
-// TreeTraversal's own (see its comment): `size` is always a raw-row/raw-
-// instance count, and a batched Op needs size/Stride groups, not size raw
-// steps. There's no separate parent value to divide here (target and
-// parent are always the same group index already).
-template <Direction Dir, size_t Stride>
-struct LinearTraversal {
-  static constexpr Direction kDirection = Dir;
-  static constexpr size_t kStride = Stride;
-
-  template <typename Callable, typename SizeOrTopology, typename... Rest>
-  static constexpr void Apply(
-      const Callable& callable,
-      const SizeOrTopology& size_or_topology,
-      const Rest&...
-  ) {
-    size_t size = [&] {
-      if constexpr (requires { size_or_topology.Size(); }) {
-        return size_or_topology.Size();
-      } else {
-        return size_or_topology;
-      }
-    }();
-    size_t groups = size / Stride;
-    if constexpr (Dir == Direction::kForward) {
-      for (size_t j = 0; j < groups; ++j) {
-        callable(j, j);
-      }
-    } else {
-      for (size_t j = groups; j-- > 0;) {
-        callable(j, j);
-      }
-    }
-  }
-
-  template <typename Callable, typename SizeOrTopology, typename... Rest>
-  static constexpr void InitOp(
-      const Callable& callable,
-      const SizeOrTopology& size_or_topology,
-      const Rest&...
-  ) {
-    size_t size = [&] {
-      if constexpr (requires { size_or_topology.Size(); }) {
-        return size_or_topology.Size();
-      } else {
-        return size_or_topology;
-      }
-    }();
-    if (size / Stride > 0) {
-      callable.Initialize(0);
-    }
-  }
-};
-using ForwardLinearTraversal = LinearTraversal<Direction::kForward, 1>;
-using BackwardLinearTraversal = LinearTraversal<Direction::kBackward, 1>;
 static_assert(
     TraversalLike<ForwardLinearTraversal>,
     "ForwardLinearTraversal must satisfy TraversalLike concept"
@@ -196,6 +257,18 @@ static_assert(
 static_assert(
     TraversalLike<BackwardLinearTraversal>,
     "BackwardLinearTraversal must satisfy TraversalLike concept"
+);
+static_assert(
+    TraversalLike<LinkedTraversal>,
+    "LinkedTraversal must satisfy TraversalLike concept"
+);
+static_assert(
+    TraversalLike<SegmentTraversal<0>>,
+    "SegmentTraversal must satisfy TraversalLike concept"
+);
+static_assert(
+    TraversalLike<LinkedSegmentScanTraversal<0>>,
+    "LinkedSegmentScanTraversal must satisfy TraversalLike concept"
 );
 
 // One call, at index 0 -- for an Op whose work is a single value the whole
@@ -225,119 +298,6 @@ static_assert(
     "GlobalTraversal must satisfy TraversalLike concept"
 );
 
-// What a PairTraversal knows about one (source row, target group) call
-// from its own topology alone, handed to an Op through its tuple's
-// ArgIndex::kStructure slot (see kTraversalInputs, engine/op_contract.hpp):
-// bit t of distinct_lanes is set when lane t's target row is a pair worth
-// testing at all -- above the source row (so each unordered pair appears
-// exactly once, and never a row against itself), and neither row the
-// other's parent (a joint's two bodies always touch where they meet).
-// Everything else about whether the pair matters (geometry, filtering) is
-// the Op's own business.
-struct PairStructure {
-  std::uint64_t distinct_lanes;
-};
-
-// Every source row against every lane group of targets -- the all-pairs
-// walk a broad phase brute-forces. The callable gets (target_group,
-// BroadcastIndex{source_row}, PairStructure): a row-indexed argument
-// naming ArgIndex::kSource reads source_row's own value splatted across
-// every lane, so one call compares that one row against a whole lane group
-// of targets at once; a PairGroupIndexing<Stride> field (see
-// topology/indexing_policy.hpp) addresses the one (source_row,
-// target_group) element summarizing that whole call, and a
-// PairGroupIndexing<Stride, Stride> field that call's own batch of
-// per-pair values, lane for lane with the targets; and kStructure says
-// which of those lanes are real, distinct, non-parent/child pairs.
-//
-// Driven by the topology, like TreeTraversal: it's what PairStructure is
-// computed from (each row's parent), and its Size() -- every real and
-// padding row, but not the reserved base row or lane filler -- is how many
-// rows are walked.
-//
-// Only the upper triangle, by group: source row s is paired with target
-// groups s / Stride onward, never the groups wholly before its own. Within
-// s's own group, the lanes at or below s are still visited, with their
-// PairStructure bits clear. Elements of a PairGroupIndexing output whose
-// target group comes wholly before its source's are never written, so they
-// keep whatever Carve/SeedPadding left there.
-template <Direction Dir, size_t Stride>
-struct PairTraversal {
-  static constexpr Direction kDirection = Dir;
-  static constexpr size_t kStride = Stride;
-
-  template <typename Callable, domain::TopologyLike Topology, typename... Rest>
-    requires(Dir == Direction::kForward)
-  static constexpr void Apply(
-      const Callable& callable, const Topology& joints, const Rest&...
-  ) {
-    size_t size = joints.Size();
-    size_t groups = size / Stride;
-    for (size_t source = 0; source < size; ++source) {
-      for (size_t j = source / Stride; j < groups; ++j) {
-        Visit(callable, joints, source, j);
-      }
-    }
-  }
-
-  template <typename Callable, domain::TopologyLike Topology, typename... Rest>
-    requires(Dir == Direction::kBackward)
-  static constexpr void Apply(
-      const Callable& callable, const Topology& joints, const Rest&...
-  ) {
-    size_t size = joints.Size();
-    size_t groups = size / Stride;
-    for (size_t source = size; source-- > 0;) {
-      for (size_t j = groups; j-- > source / Stride;) {
-        Visit(callable, joints, source, j);
-      }
-    }
-  }
-
-  // Initialize at index 0 if there's anything to walk at all, the same as
-  // LinearTraversal's.
-  template <typename Callable, domain::TopologyLike Topology, typename... Rest>
-  static constexpr void InitOp(
-      const Callable& callable, const Topology& joints, const Rest&...
-  ) {
-    if (joints.Size() / Stride > 0) {
-      callable.Initialize(0);
-    }
-  }
-
- private:
-  template <typename Callable, domain::TopologyLike Topology>
-  static constexpr void Visit(
-      const Callable& callable,
-      const Topology& joints,
-      size_t source,
-      size_t group
-  ) {
-    callable(
-        group,
-        topology::BroadcastIndex{source},
-        Structure(joints, source, group)
-    );
-  }
-
-  // t > s && parent(t) != s && parent(s) != t, one bit per lane. A padding
-  // row's parent is the reserved base row, which is never a walked row, so
-  // padding never reads as anyone's parent or child.
-  template <domain::TopologyLike Topology>
-  static constexpr PairStructure Structure(
-      const Topology& joints, size_t source, size_t group
-  ) {
-    size_t source_parent = joints[source];
-    std::uint64_t lanes = 0;
-    for (size_t lane = 0; lane < Stride; ++lane) {
-      size_t target = (group * Stride) + lane;
-      bool distinct = target > source && joints[target] != source &&
-                      source_parent != target;
-      lanes |= std::uint64_t{distinct} << lane;
-    }
-    return PairStructure{lanes};
-  }
-};
 using ForwardPairTraversal = PairTraversal<Direction::kForward, 1>;
 using BackwardPairTraversal = PairTraversal<Direction::kBackward, 1>;
 static_assert(

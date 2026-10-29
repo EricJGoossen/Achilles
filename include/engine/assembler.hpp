@@ -27,6 +27,100 @@ struct RepeatTypes {};
 template <template <typename> class TT>
 struct Templated {};
 
+// One leaf: a record, read and written whole through the Layout (which
+// decides where it sits and how to load it). A scalar is just the simplest
+// record. Every Assembler tree bottoms out in these -- an arithmetic child
+// listed in an Assembler's Children (float, RepeatTypes<3>, ...) is a
+// LeafAssembler<float> -- and one can also be a whole field on its own:
+// LeafAssembler<LidarConfig> is a field holding one LidarConfig per row,
+// which an Op takes directly as `const LidarConfig&` / `LidarConfig*`.
+//
+// With several record types, each row holds one of them: Rs' k-th type in
+// segment k of the field's ordering (see topology::SegmentedLayout, the
+// layout such a field uses), so an Op written for segment k takes
+// `const R_k&` / `R_k*`. ScalarType is the first record.
+//
+// A single arithmetic record reads as itself or as a batch of itself, and
+// can be zeroed and accumulated into; any other record only reads as itself
+// -- one instance at a time, no lanes.
+template <typename... Rs>
+  requires(
+      sizeof...(Rs) > 0 && ((std::is_trivially_copyable_v<Rs> &&
+                             std::is_default_constructible_v<Rs>) &&
+                            ...)
+  )
+struct LeafAssembler {
+  using Records = util::TypeList<Rs...>;
+  using ScalarType = std::tuple_element_t<0, std::tuple<Rs...>>;
+  static constexpr size_t kNumFields = 1;
+
+ private:
+  static constexpr bool kScalar =
+      sizeof...(Rs) == 1 && std::is_arithmetic_v<ScalarType>;
+
+  // The record a read or write as TargetScalar touches: itself, or a
+  // batch's own scalar.
+  template <typename TargetScalar>
+  using LeafOf = std::conditional_t<
+      util::kIsOneOfV<TargetScalar, Rs...>,
+      TargetScalar,
+      ScalarType>;
+
+ public:
+  template <typename TargetScalar>
+    requires(util::kIsOneOfV<TargetScalar, Rs...> ||
+             (kScalar && std::same_as<TargetScalar, xsimd::batch<ScalarType>>))
+  using Value = TargetScalar;
+
+  template <typename TargetScalar, typename Layout>
+  static Value<TargetScalar> Read(
+      const std::byte* field0, size_t /*field_stride_bytes*/
+  ) {
+    return Layout::template LoadLeaf<TargetScalar, LeafOf<TargetScalar>>(field0
+    );
+  }
+
+  template <typename TargetScalar, typename Layout>
+  static Value<TargetScalar> Broadcast(
+      const std::byte* field0, size_t /*field_stride_bytes*/
+  ) {
+    return Layout::template BroadcastLeaf<TargetScalar, LeafOf<TargetScalar>>(
+        field0
+    );
+  }
+
+  template <typename TargetScalar, typename Layout>
+  static void Write(
+      std::byte* field0,
+      size_t /*field_stride_bytes*/,
+      const Value<TargetScalar>& value
+  ) {
+    Layout::template StoreLeaf<LeafOf<TargetScalar>>(field0, value);
+  }
+
+  template <typename TargetScalar>
+    requires kScalar
+  static Value<TargetScalar> Zero() {
+    return TargetScalar(0);
+  }
+
+  template <typename TargetScalar, typename Layout>
+    requires kScalar
+  static void Accumulate(
+      std::byte* field0,
+      size_t /*field_stride_bytes*/,
+      const Value<TargetScalar>& value
+  ) {
+    Layout::template AccumulateLeaf<ScalarType>(field0, value);
+  }
+
+  // What a padding row holds when this leaf is a whole field: a
+  // value-initialized record. (Inside an Assembler tree the tree's own
+  // Target decides -- see Assembler::PaddingSeed. A segmented field's
+  // padding rows have no storage, so its seed is never written.)
+  static ScalarType PaddingSeed() { return ScalarType{}; }
+};
+
 namespace assembler_detail {
 
 using util::Concat;
@@ -37,11 +131,24 @@ using util::TypeList;
 
 // -- Flattening (expands RepeatTypes in place) --
 
+// A child as an assembler: an arithmetic child is its LeafAssembler, a
+// nested Assembler is itself -- so after flattening, every child is
+// handled the same way.
+template <typename Child>
+struct ChildAssembler {
+  using Type = Child;
+};
+template <typename Child>
+  requires std::is_arithmetic_v<Child>
+struct ChildAssembler<Child> {
+  using Type = LeafAssembler<Child>;
+};
+
 // ResolveT is the enclosing Assembler's own scalar type T, used to
 // resolve a bare RepeatTypes<N>. Ordinary children ignore it.
 template <typename ResolveT, typename Child>
 struct FlattenOne {
-  using Type = TypeList<Child>;
+  using Type = TypeList<typename ChildAssembler<Child>::Type>;
 };
 
 template <typename ResolveT, template <typename> class TT>
@@ -67,67 +174,17 @@ using FlattenPackT = typename FlattenPack<ResolveT, Ts...>::Type;
 using util::ToTuple;
 using util::ToTupleT;
 
-// -- Leaf/scalar/offset helpers (operate on the flattened list) --
-
-template <typename T>
-inline constexpr bool kIsLeaf = std::is_arithmetic_v<T>;
-
-template <typename Child>
-constexpr size_t ChildNumFields() {
-  if constexpr (kIsLeaf<Child>) {
-    return 1;
-  } else {
-    return Child::kNumFields;
-  }
-}
-
-// Tag-dispatched so we never instantiate `Child::ScalarType` for a
-// leaf (int::ScalarType would be ill-formed even under conditional_t).
-template <typename Child, bool = kIsLeaf<Child>>
-struct ChildScalarImpl;
-
-template <typename Child>
-struct ChildScalarImpl<Child, true> {
-  using Type = Child;
-};
-
-template <typename Child>
-struct ChildScalarImpl<Child, false> {
-  using Type = typename Child::ScalarType;
-};
-
-template <typename Child>
-using ChildScalarT = typename ChildScalarImpl<Child>::Type;
-
-// Tag-dispatched for the same reason as ChildScalarImpl above:
-// `Child::template Read<TargetScalar>` would be ill-formed for a leaf
-// Child (float has no Read member), and conditional_t substitutes both
-// of its type arguments regardless of which one it ends up selecting --
-// it doesn't short-circuit the way `if constexpr` does in a function
-// body.
-template <typename TargetScalar, typename Child, bool = kIsLeaf<Child>>
-struct ExpectedElemImpl;
+// -- Scalar/offset helpers (operate on the flattened list, every element
+// an assembler) --
 
 template <typename TargetScalar, typename Child>
-struct ExpectedElemImpl<TargetScalar, Child, true> {
-  using Type = TargetScalar;
-};
-
-template <typename TargetScalar, typename Child>
-struct ExpectedElemImpl<TargetScalar, Child, false> {
-  using Type = decltype(Child::template Read<TargetScalar>(
-      std::declval<const std::byte*>(), size_t{0}
-  ));
-};
-
-template <typename TargetScalar, typename Child>
-using ExpectedElemT = typename ExpectedElemImpl<TargetScalar, Child>::Type;
+using ExpectedElemT = typename Child::template Value<TargetScalar>;
 
 template <typename Tuple, size_t Index>
 struct FieldOffset {
   static constexpr size_t kValue =
       FieldOffset<Tuple, Index - 1>::kValue +
-      ChildNumFields<std::tuple_element_t<Index - 1, Tuple>>();
+      std::tuple_element_t<Index - 1, Tuple>::kNumFields;
 };
 
 template <typename Tuple>
@@ -137,17 +194,29 @@ struct FieldOffset<Tuple, 0> {
 
 template <typename Tuple, size_t... Is>
 constexpr size_t SumFields(std::index_sequence<Is...>) {
-  return (ChildNumFields<std::tuple_element_t<Is, Tuple>>() + ...);
+  return (std::tuple_element_t<Is, Tuple>::kNumFields + ...);
 }
 
 template <typename T, typename Tuple, size_t... Is>
 constexpr bool AllMatchScalar(std::index_sequence<Is...>) {
   return (
-      std::is_same_v<T, ChildScalarT<std::tuple_element_t<Is, Tuple>>> && ...
+      std::is_same_v<T, typename std::tuple_element_t<Is, Tuple>::ScalarType> &&
+      ...
   );
 }
 
 }  // namespace assembler_detail
+
+// A domain type's own statement of what's safe to write into a SIMD lane that
+// no real Op will ever read meaningfully -- a padding row or the sink row.
+// Lives on the type itself because only the type knows: Vector3::Zero() is
+// inert, but Quaternion::Zero() is degenerate (normalizes to NaN), so the
+// right answer is Identity() -- Quaternion is the only thing that should get
+// to make that call, not a per-field enum guessing at it from outside.
+template <typename Target>
+concept SeedableLike = requires {
+  { Target::PaddingSeed() } -> std::same_as<Target>;
+};
 
 template <template <typename> class Target, typename T, typename... Children>
 class Assembler {
@@ -165,20 +234,26 @@ class Assembler {
   static constexpr size_t kNumFields =
       assembler_detail::SumFields<ChildTuple>(ChildIndices{});
 
-  // TargetScalar picks the shape to read/write as: this Assembler's own
-  // ScalarType for one plain instance, or an xsimd::batch of it to gather
-  // several lanes' worth at once. Any other TargetScalar is rejected --
-  // the same underlying planar float storage backs both, so the two are
-  // just different strides over it, never different data.
+  // What Read/Broadcast/Zero produce at TargetScalar: Target built at it.
+  // Only this Assembler's ScalarType or an xsimd::batch of it -- the same
+  // underlying storage backs both, so the two are just different reads of
+  // it, never different data. Declared here, so anything that needs the
+  // type (a View, the concepts below) names it without instantiating Read.
   template <typename TargetScalar>
-  static auto Read(const std::byte* field0, size_t field_stride_bytes) {
-    static_assert(
-        std::is_same_v<TargetScalar, ScalarType> ||
-            std::is_same_v<TargetScalar, xsimd::batch<ScalarType>>,
-        "Read<TargetScalar> requires TargetScalar to be this "
-        "Assembler's ScalarType or an xsimd::batch of it."
-    );
-    return ReadImpl<TargetScalar, false>(
+    requires(std::same_as<TargetScalar, T> ||
+             std::same_as<TargetScalar, xsimd::batch<T>>)
+  using Value = Target<TargetScalar>;
+
+  // TargetScalar picks the shape to read/write as (see Value): one plain
+  // instance, or a batch gathering several lanes' worth at once. Layout
+  // (engine/topology/layout_policy.hpp) is how the leaves sit in storage:
+  // this class only knows which leaves a Target has, and asks Layout where
+  // each one is and how to load it -- all resolved at compile time.
+  template <typename TargetScalar, typename Layout>
+  static Value<TargetScalar> Read(
+      const std::byte* field0, size_t field_stride_bytes
+  ) {
+    return ReadImpl<TargetScalar, Layout, false>(
         field0, field_stride_bytes, ChildIndices{}
     );
   }
@@ -189,20 +264,16 @@ class Assembler {
   // through a topology::BroadcastIndex (engine/topology/indexing_policy.hpp).
   // Same TargetScalar restriction and same result type as Read, so an Op
   // never sees any difference between a gathered and a broadcast argument.
-  template <typename TargetScalar>
-  static auto Broadcast(const std::byte* field0, size_t field_stride_bytes) {
-    static_assert(
-        std::is_same_v<TargetScalar, ScalarType> ||
-            std::is_same_v<TargetScalar, xsimd::batch<ScalarType>>,
-        "Broadcast<TargetScalar> requires TargetScalar to be this "
-        "Assembler's ScalarType or an xsimd::batch of it."
-    );
-    return ReadImpl<TargetScalar, true>(
+  template <typename TargetScalar, typename Layout>
+  static Value<TargetScalar> Broadcast(
+      const std::byte* field0, size_t field_stride_bytes
+  ) {
+    return ReadImpl<TargetScalar, Layout, true>(
         field0, field_stride_bytes, ChildIndices{}
     );
   }
 
-  template <typename TargetScalar, typename ValueT>
+  template <typename TargetScalar, typename Layout, typename ValueT>
   static void Write(
       std::byte* field0, size_t field_stride_bytes, const ValueT& value
   ) {
@@ -212,7 +283,7 @@ class Assembler {
         "Write<TargetScalar> requires TargetScalar to be this "
         "Assembler's ScalarType or an xsimd::batch of it."
     );
-    WriteImpl<TargetScalar>(
+    WriteImpl<TargetScalar, Layout>(
         field0, field_stride_bytes, value.ToTuple(), ChildIndices{}
     );
   }
@@ -221,13 +292,7 @@ class Assembler {
   // (one stored through Accumulate below) starts from, so an Op adding
   // onto it adds onto nothing.
   template <typename TargetScalar>
-  static auto Zero() {
-    static_assert(
-        std::is_same_v<TargetScalar, ScalarType> ||
-            std::is_same_v<TargetScalar, xsimd::batch<ScalarType>>,
-        "Zero<TargetScalar> requires TargetScalar to be this "
-        "Assembler's ScalarType or an xsimd::batch of it."
-    );
+  static Value<TargetScalar> Zero() {
     return ZeroImpl<TargetScalar>(ChildIndices{});
   }
 
@@ -235,7 +300,7 @@ class Assembler {
   // into the one instance at field0, leaf by leaf (see
   // util::SimdAccumulate) -- what a View does with an output stored
   // through a topology::BroadcastIndex (engine/topology/indexing_policy.hpp).
-  template <typename TargetScalar, typename ValueT>
+  template <typename TargetScalar, typename Layout, typename ValueT>
   static void Accumulate(
       std::byte* field0, size_t field_stride_bytes, const ValueT& value
   ) {
@@ -245,9 +310,17 @@ class Assembler {
         "Accumulate<TargetScalar> requires TargetScalar to be this "
         "Assembler's ScalarType or an xsimd::batch of it."
     );
-    AccumulateImpl<TargetScalar>(
+    AccumulateImpl<TargetScalar, Layout>(
         field0, field_stride_bytes, value.ToTuple(), ChildIndices{}
     );
+  }
+
+  // What a padding row holds: Target's own PaddingSeed (see SeedableLike
+  // below -- only the type knows what's inert for it).
+  static Target<ScalarType> PaddingSeed()
+    requires SeedableLike<Target<ScalarType>>
+  {
+    return Target<ScalarType>::PaddingSeed();
   }
 
  private:
@@ -265,10 +338,9 @@ class Assembler {
 
  public:
   // The exact tuple type Write<TargetScalar> needs `value.ToTuple()` to
-  // return: one element per child, each either TargetScalar itself (a
-  // leaf) or whatever that child's own Read<TargetScalar> produces (a
-  // nested Assembler) -- WriteChild hands that element straight to
-  // SimdStore or to the child's own Write, respectively. AssemblableLike
+  // return: one element per child, each that child's own Value at
+  // TargetScalar (TargetScalar itself for a leaf) -- WriteImpl hands each
+  // element straight to that child's own Write. AssemblableLike
   // below checks a domain type's real ToTuple() against this instead of
   // merely checking that *a* call to Write type-checks -- see there for
   // why that distinction matters.
@@ -287,72 +359,21 @@ class Assembler {
     return assembler_detail::FieldOffset<ChildTuple, Index>::kValue;
   }
 
-  // One overload per (leaf or nested Assembler) x (gather or splat) case,
-  // picked by its requires-clause: a leaf is loaded straight out of its own
-  // planar array, a nested Assembler recurses into its own Read/Broadcast.
-  template <typename Child, typename TargetScalar, bool Splat>
-    requires(assembler_detail::kIsLeaf<Child> && !Splat)
-  static auto
-  ReadChild(const std::byte* field0, size_t /*field_stride_bytes*/) {
-    return util::SimdLoad<TargetScalar>(std::bit_cast<const Child*>(field0), 0);
-  }
-  template <typename Child, typename TargetScalar, bool Splat>
-    requires(assembler_detail::kIsLeaf<Child> && Splat)
-  static auto
-  ReadChild(const std::byte* field0, size_t /*field_stride_bytes*/) {
-    return util::SimdBroadcast<TargetScalar>(std::bit_cast<const Child*>(field0)
+  // A child's gather or splat read -- every child is an assembler (a leaf
+  // or a nested Assembler), so the only choice is which of its reads.
+  template <typename Child, typename TargetScalar, typename Layout, bool Splat>
+    requires(!Splat)
+  static auto ReadChild(const std::byte* field0, size_t field_stride_bytes) {
+    return Child::template Read<TargetScalar, Layout>(
+        field0, field_stride_bytes
     );
   }
-  template <typename Child, typename TargetScalar, bool Splat>
-    requires(!assembler_detail::kIsLeaf<Child> && !Splat)
+  template <typename Child, typename TargetScalar, typename Layout, bool Splat>
+    requires(Splat)
   static auto ReadChild(const std::byte* field0, size_t field_stride_bytes) {
-    return Child::template Read<TargetScalar>(field0, field_stride_bytes);
-  }
-  template <typename Child, typename TargetScalar, bool Splat>
-    requires(!assembler_detail::kIsLeaf<Child> && Splat)
-  static auto ReadChild(const std::byte* field0, size_t field_stride_bytes) {
-    return Child::template Broadcast<TargetScalar>(field0, field_stride_bytes);
-  }
-
-  template <typename Child, typename TargetScalar, typename ValueT>
-    requires(assembler_detail::kIsLeaf<Child>)
-  static void WriteChild(
-      std::byte* field0, size_t /*field_stride_bytes*/, const ValueT& value
-  ) {
-    util::SimdStore(std::bit_cast<Child*>(field0), 0, value);
-  }
-  template <typename Child, typename TargetScalar, typename ValueT>
-    requires(!assembler_detail::kIsLeaf<Child>)
-  static void WriteChild(
-      std::byte* field0, size_t field_stride_bytes, const ValueT& value
-  ) {
-    Child::template Write<TargetScalar>(field0, field_stride_bytes, value);
-  }
-
-  template <typename Child, typename TargetScalar>
-    requires(assembler_detail::kIsLeaf<Child>)
-  static auto ZeroChild() {
-    return TargetScalar(0);
-  }
-  template <typename Child, typename TargetScalar>
-    requires(!assembler_detail::kIsLeaf<Child>)
-  static auto ZeroChild() {
-    return Child::template Zero<TargetScalar>();
-  }
-
-  template <typename Child, typename TargetScalar, typename ValueT>
-    requires(assembler_detail::kIsLeaf<Child>)
-  static void AccumulateChild(
-      std::byte* field0, size_t /*field_stride_bytes*/, const ValueT& value
-  ) {
-    util::SimdAccumulate(std::bit_cast<Child*>(field0), value);
-  }
-  template <typename Child, typename TargetScalar, typename ValueT>
-    requires(!assembler_detail::kIsLeaf<Child>)
-  static void AccumulateChild(
-      std::byte* field0, size_t field_stride_bytes, const ValueT& value
-  ) {
-    Child::template Accumulate<TargetScalar>(field0, field_stride_bytes, value);
+    return Child::template Broadcast<TargetScalar, Layout>(
+        field0, field_stride_bytes
+    );
   }
 
   // A Target with its own Zero() builds it that way: a type whose
@@ -367,36 +388,48 @@ class Assembler {
   template <typename TargetScalar, size_t... Is>
   static Target<TargetScalar> ZeroImpl(std::index_sequence<Is...>) {
     return Target<TargetScalar>(
-        ZeroChild<std::tuple_element_t<Is, ChildTuple>, TargetScalar>()...
+        std::tuple_element_t<Is, ChildTuple>::template Zero<TargetScalar>()...
     );
   }
 
-  template <typename TargetScalar, typename Tuple, size_t... Is>
+  template <
+      typename TargetScalar,
+      typename Layout,
+      typename Tuple,
+      size_t... Is>
   static void
   AccumulateImpl(std::byte* field0, size_t field_stride_bytes, const Tuple& parts, std::index_sequence<Is...>) {
-    (AccumulateChild<std::tuple_element_t<Is, ChildTuple>, TargetScalar>(
-         field0 + FieldOffset<Is>() * field_stride_bytes,
-         field_stride_bytes,
-         std::get<Is>(parts)
-     ),
+    (std::tuple_element_t<Is, ChildTuple>::
+         template Accumulate<TargetScalar, Layout>(
+             Layout::LeafAt(field0, FieldOffset<Is>(), field_stride_bytes),
+             field_stride_bytes,
+             std::get<Is>(parts)
+         ),
      ...);
   }
 
-  template <typename TargetScalar, bool Splat, size_t... Is>
+  template <typename TargetScalar, typename Layout, bool Splat, size_t... Is>
   static Target<TargetScalar>
   ReadImpl(const std::byte* field0, size_t field_stride_bytes, std::index_sequence<Is...>) {
-    return Target<TargetScalar>(
-        ReadChild<std::tuple_element_t<Is, ChildTuple>, TargetScalar, Splat>(
-            field0 + FieldOffset<Is>() * field_stride_bytes, field_stride_bytes
-        )...
-    );
+    return Target<TargetScalar>(ReadChild<
+                                std::tuple_element_t<Is, ChildTuple>,
+                                TargetScalar,
+                                Layout,
+                                Splat>(
+        Layout::LeafAt(field0, FieldOffset<Is>(), field_stride_bytes),
+        field_stride_bytes
+    )...);
   }
 
-  template <typename TargetScalar, typename Tuple, size_t... Is>
+  template <
+      typename TargetScalar,
+      typename Layout,
+      typename Tuple,
+      size_t... Is>
   static void
   WriteImpl(std::byte* field0, size_t field_stride_bytes, const Tuple& parts, std::index_sequence<Is...>) {
-    (WriteChild<std::tuple_element_t<Is, ChildTuple>, TargetScalar>(
-         field0 + FieldOffset<Is>() * field_stride_bytes,
+    (std::tuple_element_t<Is, ChildTuple>::template Write<TargetScalar, Layout>(
+         Layout::LeafAt(field0, FieldOffset<Is>(), field_stride_bytes),
          field_stride_bytes,
          std::get<Is>(parts)
      ),
@@ -406,12 +439,12 @@ class Assembler {
 
 // A domain type is assemblable by A when its own ToTuple() -- for both the
 // scalar and batched TargetScalar -- returns exactly A::ExpectedTupleT:
-// one element per child, matching what WriteChild recurses through. This
+// one element per child, matching what WriteImpl recurses through. This
 // is deliberately a separate check from "does A::Write<T>(...) type-check
 // as a call", because it isn't enough on its own: Write's return type is
 // declared `void`, so checking that a call to it resolves never needs to
 // instantiate Write's *body* -- and value.ToTuple() is read only inside
-// that body, several calls deep through WriteImpl/WriteChild. A ToTuple()
+// that body, several calls deep through WriteImpl. A ToTuple()
 // with the wrong shape (wrong arity, or wrapping/unwrapping a member
 // incorrectly) compiled clean under the old check and only failed the
 // first time something actually called Write for real, which could be a
@@ -419,12 +452,8 @@ class Assembler {
 // catches that at the type's own static_assert instead.
 template <typename A>
 concept AssemblableLike = requires(
-    decltype(A::template Read<typename A::ScalarType>(
-        std::declval<const std::byte*>(), size_t{0}
-    )) value,
-    decltype(A::template Read<xsimd::batch<typename A::ScalarType>>(
-        std::declval<const std::byte*>(), size_t{0}
-    )) batch_value
+    typename A::template Value<typename A::ScalarType> value,
+    typename A::template Value<xsimd::batch<typename A::ScalarType>> batch_value
 ) {
   {
     value.ToTuple()
@@ -436,57 +465,66 @@ concept AssemblableLike = requires(
         xsimd::batch<typename A::ScalarType>>>;
 };
 
-// A domain type's own statement of what's safe to write into a SIMD lane that
-// no real Op will ever read meaningfully -- a padding row or the sink row.
-// Lives on the type itself because only the type knows: Vector3::Zero() is
-// inert, but Quaternion::Zero() is degenerate (normalizes to NaN), so the
-// right answer is Identity() -- Quaternion is the only thing that should get
-// to make that call, not a per-field enum guessing at it from outside.
-template <typename Target>
-concept SeedableLike = requires {
-  { Target::PaddingSeed() } -> std::same_as<Target>;
+// What a field can be read/written as: an Assembler's ScalarType or a
+// batch of it -- which, for a LeafAssembler<R> field, is the whole R.
+// Which of those a given field accepts, its Assembler's Value enforces.
+template <typename T>
+concept FieldShapeLike = std::is_trivially_copyable_v<T>;
+
+// The value A reads one instance as: what a View hands an Op for a plain
+// (unbatched) read of a field A assembles.
+template <typename A>
+using AssembledT = typename A::template Value<typename A::ScalarType>;
+
+// What every field's Assembler must declare, whatever memory it's read
+// from: empty (View never instantiates one; a non-static data member would
+// silently do nothing), a scalar type and a field count, the Value it reads
+// one instance as, and the value a padding row holds. Enough for a field
+// that's one whole trivially-copyable record (LeafAssembler<R>), which has
+// no lanes to batch and no children to tuple up. Whether
+// it actually reads and writes through a given Layout is AssemblesThrough,
+// checked where a field pairs the two.
+template <typename A>
+concept AssemblerLike = std::is_empty_v<A> && requires {
+  typename A::ScalarType;
+  { A::kNumFields } -> std::convertible_to<size_t>;
+  requires A::kNumFields > 0;
+  typename AssembledT<A>;
+  { A::PaddingSeed() } -> std::same_as<AssembledT<A>>;
 };
 
-// A well-formed Assembler is empty (View never instantiates one; a
-// non-static data member would silently do nothing), exposes its scalar
-// type and field count, its Read/Write pair round-trips (Write must accept
-// whatever Read returns, for both the scalar and batched forms), and the
-// domain type it reads/writes is AssemblableLike -- see there for why
-// that's not implied by the round-trip check. This is the exact surface
-// View relies on when it treats a template parameter as "an Assembler".
+// A builds its value from children (an Assembler tree) rather than being
+// a single leaf.
 template <typename A>
-concept AssemblerLike =
-    std::is_empty_v<A> &&
-    requires {
-      typename A::ScalarType;
-      requires std::is_arithmetic_v<typename A::ScalarType>;
-      { A::kNumFields } -> std::convertible_to<size_t>;
-      requires A::kNumFields > 0;
-    } &&
+concept DecomposesLike =
+    requires { typename A::template ExpectedTupleT<typename A::ScalarType>; };
+
+// An Assembler whose values can also be read lane-wide: AssemblerLike with
+// a batched Value -- which only an arithmetic scalar has -- and, if it
+// builds its value from children, a domain type that's AssemblableLike at
+// both shapes (see there for why that shape check is what catches a
+// malformed ToTuple() early). This is the surface a batched Op's View
+// relies on.
+template <typename A>
+concept BatchAssemblerLike = AssemblerLike<A> && requires {
+  typename A::template Value<xsimd::batch<typename A::ScalarType>>;
+} && (!DecomposesLike<A> || AssemblableLike<A>);
+
+// A reads and writes one instance through Layout: Read gives back its
+// Value, and Write takes it. The pairing a field binding makes (see
+// view::FieldBinding), and so where it's checked.
+template <typename A, typename Layout>
+concept AssemblesThrough =
+    AssemblerLike<A> &&
     requires(const std::byte* read_ptr, std::byte* write_ptr, size_t stride) {
-      { A::template Read<typename A::ScalarType>(read_ptr, stride) };
       {
-        A::template Read<xsimd::batch<typename A::ScalarType>>(read_ptr, stride)
-      };
+        A::template Read<typename A::ScalarType, Layout>(read_ptr, stride)
+      } -> std::same_as<AssembledT<A>>;
       {
-        A::template Write<typename A::ScalarType>(
-            write_ptr,
-            stride,
-            A::template Read<typename A::ScalarType>(read_ptr, stride)
+        A::template Write<typename A::ScalarType, Layout>(
+            write_ptr, stride, A::PaddingSeed()
         )
       } -> std::same_as<void>;
-      {
-        A::template Write<xsimd::batch<typename A::ScalarType>>(
-            write_ptr,
-            stride,
-            A::template Read<xsimd::batch<typename A::ScalarType>>(
-                read_ptr, stride
-            )
-        )
-      } -> std::same_as<void>;
-    } && AssemblableLike<A> &&
-    SeedableLike<decltype(A::template Read<typename A::ScalarType>(
-        std::declval<const std::byte*>(), size_t{0}
-    ))>;
+    };
 
 }  // namespace achilles::engine

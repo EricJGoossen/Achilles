@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <tuple>
 #include <type_traits>
 
@@ -142,6 +143,43 @@ struct Transform<F, TypeList<Ts...>> {
 
 template <template <typename> class F, typename List>
 using TransformT = typename Transform<F, List>::Type;
+
+// F<Ts...> for a TypeList<Ts...> -- spreads a list into a variadic
+// template, e.g. ApplyT<LeafAssembler, Records>.
+template <template <typename...> class F, typename List>
+struct Apply;
+
+template <template <typename...> class F, typename... Ts>
+struct Apply<F, TypeList<Ts...>> {
+  using Type = F<Ts...>;
+};
+
+template <template <typename...> class F, typename List>
+using ApplyT = typename Apply<F, List>::Type;
+
+// How many types a TypeList holds.
+template <typename List>
+inline constexpr std::size_t kSizeV = 0;
+template <typename... Ts>
+inline constexpr std::size_t kSizeV<TypeList<Ts...>> = sizeof...(Ts);
+
+// Where T first appears in a TypeList; T must be in it.
+template <typename T, typename List>
+struct IndexOf;
+
+template <typename T, typename... Rest>
+struct IndexOf<T, TypeList<T, Rest...>> {
+  static constexpr std::size_t kValue = 0;
+};
+
+template <typename T, typename First, typename... Rest>
+struct IndexOf<T, TypeList<First, Rest...>> {
+  static constexpr std::size_t kValue =
+      1 + IndexOf<T, TypeList<Rest...>>::kValue;
+};
+
+template <typename T, typename List>
+inline constexpr std::size_t kIndexOfV = IndexOf<T, List>::kValue;
 
 // Op<Args...> if that names a valid type, Default otherwise -- an optional
 // member type with a fallback (std::experimental::detected_or). Op is usually

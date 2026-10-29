@@ -69,6 +69,15 @@ class JointLayout {
 
   std::size_t InstanceCount() const { return instance_offsets_.size() - 1; }
 
+  // Where each instance's joints begin among the sorted entries, then their
+  // total: instance i's are [InstanceOffsets()[i], InstanceOffsets()[i + 1]).
+  // A list ordering numbers list k as instance k with its rows in order, so
+  // for it these are each list's rows -- its segments (see
+  // domain::SegmentedTopology).
+  std::span<const std::size_t> InstanceOffsets() const {
+    return instance_offsets_;
+  }
+
  private:
   std::span<const std::size_t> instance_offsets_;
   std::span<const std::size_t> sorted_rows_;

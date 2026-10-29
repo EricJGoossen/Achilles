@@ -5,6 +5,7 @@
 #include <string_view>
 
 #include "algorithms/conventions.hpp"
+#include "algorithms/orderings/collision_pairs.hpp"
 #include "algorithms/shared_slots.hpp"
 #include "domain/joint_topology.hpp"
 #include "domain/math/activation_mask.hpp"
@@ -14,7 +15,7 @@
 #include "engine/field_contract.hpp"
 #include "engine/topology/indexing_policy.hpp"
 #include "engine/topology/layout_policy.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "engine/view/view_contract.hpp"
 #include "engine/view/view_factory.hpp"
 #include "util/simd_ops.hpp"
@@ -83,20 +84,20 @@ using CollisionGroupMask = math::
 // per lane, no branch. A padding row (or a body whose archetype gives no
 // "collision_group") reads Zero() and so never collides with anything.
 //
-// On top of that, the PairTraversal itself works out from the topology
-// which lanes of each call are distinct, non-parent/child pairs with the
-// target row above the source row (engine::pass::PairStructure), and the
-// pair test ANDs that in, still without a branch -- dropping a parent/child
-// pair, which always touches at the joint it shares (MuJoCo's
-// filterparent), a body paired with itself, and the duplicate half of every
-// pair.
+// Groups and masks never change, so the pairs they rule out are dropped
+// once, before the first tick: the pair test runs over CollisionPairs
+// (orderings/collision_pairs.hpp), one row per pair of bodies that can collide,
+// not every pair of rows. Its lanes are distinct, non-parent/child pairs with
+// the partner row above the source row (engine::pass::PairStructure), and
+// the pair test ANDs that in, still without a branch -- dropping a
+// parent/child pair, which always touches at the joint it shares (MuJoCo's
+// filterparent), a body paired with itself, the duplicate half of every
+// pair, and every pair the filter rules out.
 //
-// The result, kBoundsOverlap, is the rows x (rows / kLanes) bit matrix
-// of which pairs both pass the filter and overlap -- one LaneMask word
-// per (source row, target lane group), see topology::PairGroupIndexing.
-// Every set bit is a real, distinct candidate pair with target row >
-// source row; words wholly below the diagonal are never written and stay
-// zero.
+// The result, kBoundsOverlap, is one LaneMask word per lane group of
+// CollisionPairs (topology::LaneGroupIndexing): bit t set when lane t's
+// pair both passes the filter and overlaps. Every set bit is a real,
+// distinct candidate pair with partner row > source row.
 enum class BroadPhaseField : uint8_t {
   // --- Model/kinematic inputs ---
   kWorldTransform,    // x_world -- ABA's own kWorldTransform, read-only here
@@ -111,7 +112,7 @@ enum class BroadPhaseField : uint8_t {
   kWorldShapePose,     // x_world x_shape (the shape's frame, in the world)
   kWorldBoundCenter,   // c_world
   kWorldBoundExtents,  // h_world (half-extents, along the world axes)
-  kBoundsOverlap,      // per (source row, target lane group) overlap bits
+  kBoundsOverlap,      // per lane group of pairs, overlap bits
 
   kCount
 };
@@ -140,6 +141,7 @@ struct BroadPhaseFieldTraits<BroadPhaseField::kWorldTransform> {
 template <>
 struct BroadPhaseFieldTraits<BroadPhaseField::kCollisionPose> {
   using Assembler = spatial::TransformAssembler<ScalarOperationT>;
+  using SharedAs = CollisionPoseSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
   static constexpr std::string_view kName = "collision_pose";
@@ -173,14 +175,14 @@ struct BroadPhaseFieldTraits<BroadPhaseField::kCollisionGroup> {
   using Assembler = math::ActivationMaskAssembler<kCollisionGroupCount>;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
-  static constexpr std::string_view kName = "collision_group";
+  static constexpr std::string_view kName = CollisionMaskFields::kGroup;
 };
 template <>
 struct BroadPhaseFieldTraits<BroadPhaseField::kCollisionMask> {
   using Assembler = math::ActivationMaskAssembler<kCollisionGroupCount>;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
-  static constexpr std::string_view kName = "collision_mask";
+  static constexpr std::string_view kName = CollisionMaskFields::kMask;
 };
 template <>
 struct BroadPhaseFieldTraits<BroadPhaseField::kWorldShapePose> {
@@ -205,8 +207,8 @@ template <>
 struct BroadPhaseFieldTraits<BroadPhaseField::kBoundsOverlap> {
   using Assembler = math::ActivationMaskAssembler<kLanes>;
   using SharedAs = BoundsOverlapSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Indexing = engine::topology::PairGroupIndexing<kLanes>;
+  using Ordering = CollisionPairs;
+  using Indexing = engine::topology::LaneGroupIndexing<kLanes>;
   using Layout = engine::topology::PlanarLayout;
 };
 static_assert(engine::FieldTraitsLike<BroadPhaseField, BroadPhaseFieldTraits>);

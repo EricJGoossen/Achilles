@@ -23,7 +23,9 @@ concept FieldEnumLike = std::is_enum_v<EnumT> && requires {
   static_cast<std::size_t>(EnumT::kCount);
 };
 
-// Traits<F>::Assembler exists and is AssemblerLike, for one field F.
+// Traits<F>::Assembler exists and is AssemblerLike, for one field F --
+// whether it batches too (BatchAssemblerLike) is only checked where an Op
+// reads it batched.
 template <typename EnumT, template <EnumT> class Traits, EnumT F>
 concept HasFieldAssembler = requires { typename Traits<F>::Assembler; } &&
                             AssemblerLike<typename Traits<F>::Assembler>;

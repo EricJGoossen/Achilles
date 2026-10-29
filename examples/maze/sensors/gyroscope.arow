@@ -1,0 +1,11 @@
+# A MEMS-grade rate gyroscope in the chassis, in the chassis's own axes
+# (yaw is about its +y): a turn-on bias of a few tenths of a degree per
+# second -- enough to wreck a heading within a minute if it isn't
+# calibrated out -- plus white noise and a slowly wandering bias.
+sensor: gyroscope
+kind: gyroscope
+attach: {archetype: robot, joint: chassis}
+config:
+  bias: [0.004, -0.006, 0.005]
+  noise_density: 0.002
+  bias_instability: 0.0002

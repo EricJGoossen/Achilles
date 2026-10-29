@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Blocks the commit if src/ or include/ isn't clang-format clean. Fast
+# Blocks the commit if src/, include/, or examples/ isn't clang-format clean. Fast
 # (sub-second, no build needed), unlike clang-tidy which stays a CI-only
 # check (see .github/workflows/ci.yml) rather than a local hook.
 #

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <concepts>
 #include <cstddef>
@@ -95,7 +96,7 @@ class OpInvokerBase {
         output_cursors_(MakeOutputCursors(view, OutputSeq{})) {}
 
   // The T to gather/scatter field I as: operator()'s own declared
-  // parameter type at that position names it via ScalarType, so a field
+  // parameter type at that position names it (ParamScalarT), so a field
   // that's batched needs no different handling here than one that isn't
   // -- Load<T>/Store<T> take whichever T the Op actually asked for.
   template <size_t I>
@@ -145,32 +146,135 @@ class OpInvokerBase {
     );
   }
 
+  // -- In place or copied. An argument whose field holds it as a whole
+  // record (FieldCursor::kHoldsRecord), at a plain element index (not a
+  // BroadcastIndex), is handed to the Op as the record in memory itself --
+  // a const reference for an input, a pointer for an output -- rather than
+  // copied in and out, which for a large record (a lidar's beams) would
+  // cost far more than the Op's own work. Everything else -- scalars,
+  // batches, values assembled from several leaves, broadcasts and
+  // reductions -- is gathered and scattered as before. An output whose
+  // field the Op also reads keeps the copy, so it never sees its own write
+  // through that input mid-call.
+
+  template <typename T, ArgIndex Index, typename Cursor, typename Indices>
+  static constexpr bool kInPlace =
+      Cursor::template kHoldsRecord<T> &&
+      std::same_as<
+          decltype(std::declval<const Cursor&>()
+                       .template Resolve<T, static_cast<size_t>(Index)>(
+                           std::declval<const Indices&>()
+                       )),
+          size_t>;
+
+  template <size_t I>
+  static constexpr bool kOutputAlsoRead =
+      std::ranges::any_of(Op::kInputs, [](const auto& input) {
+        return input.field == Op::kOutputs[I].field;
+      });
+
+  template <size_t I>
+  using InputCursorT = std::tuple_element_t<I, InputCursors>;
+  template <size_t I>
+  using OutputCursorT = std::tuple_element_t<I, OutputCursors>;
+
+  template <size_t I, typename Indices>
+  static constexpr bool kInputInPlace = kInPlace<
+      ParamScalarT<InputParam<I>>,
+      Op::kInputs[I].index,
+      InputCursorT<I>,
+      Indices>;
+  template <size_t I, typename Indices>
+  static constexpr bool kOutputInPlace =
+      !kOutputAlsoRead<I> && kInPlace<
+                                 ParamScalarT<OutputParam<I>>,
+                                 Op::kOutputs[I].index,
+                                 OutputCursorT<I>,
+                                 Indices>;
+
+  template <size_t I, typename Indices>
+    requires kInputInPlace<I, Indices>
+  const InputParam<I>& InputAt(const Indices& indices) const {
+    const auto& cursor = std::get<I>(this->input_cursors_);
+    return *cursor.template Ref<InputParam<I>>(
+        cursor.template Resolve<
+            InputParam<I>,
+            static_cast<size_t>(Op::kInputs[I].index)>(indices)
+    );
+  }
+  template <size_t I, typename Indices>
+    requires(!kInputInPlace<I, Indices>)
+  auto InputAt(const Indices& indices) const {
+    return LoadAt<ParamScalarT<InputParam<I>>, Op::kInputs[I].index>(
+        std::get<I>(this->input_cursors_), indices
+    );
+  }
+
+  // An output the Op writes through: its own copy, stored back after the
+  // call, or the record in memory.
+  template <typename T>
+  struct CopiedOutput {
+    T value;
+  };
+  template <typename T>
+  struct InPlaceOutput {
+    T* record;
+  };
+  // Where the Op writes either one.
+  template <typename T>
+  static T* Target(CopiedOutput<T>& output) {
+    return &output.value;
+  }
+  template <typename T>
+  static T* Target(InPlaceOutput<T>& output) {
+    return output.record;
+  }
+
+  template <size_t I, typename Indices>
+    requires kOutputInPlace<I, Indices>
+  InPlaceOutput<OutputParam<I>> OutputAt(const Indices& indices) const {
+    const auto& cursor = std::get<I>(this->output_cursors_);
+    return {cursor.template Ref<OutputParam<I>>(
+        cursor.template Resolve<
+            OutputParam<I>,
+            static_cast<size_t>(Op::kOutputs[I].index)>(indices)
+    )};
+  }
+  template <size_t I, typename Indices>
+    requires(!kOutputInPlace<I, Indices>)
+  CopiedOutput<OutputParam<I>> OutputAt(const Indices& indices) const {
+    return {LoadOutputAt<ParamScalarT<OutputParam<I>>, Op::kOutputs[I].index>(
+        std::get<I>(this->output_cursors_), indices
+    )};
+  }
+
+  template <size_t I, typename Indices>
+  void Commit(
+      const InPlaceOutput<OutputParam<I>>& /*output*/,
+      const Indices& /*indices*/
+  ) const {}
+  template <size_t I, typename Indices>
+  void Commit(
+      const CopiedOutput<OutputParam<I>>& output, const Indices& indices
+  ) const {
+    StoreAt<ParamScalarT<OutputParam<I>>, Op::kOutputs[I].index>(
+        std::get<I>(this->output_cursors_), indices, output.value
+    );
+  }
+
   template <typename Indices, size_t... InIs, size_t... TrIs, size_t... OutIs>
   void
   Invoke(const Indices& indices, std::index_sequence<InIs...>, std::index_sequence<TrIs...>, std::index_sequence<OutIs...>)
       const {
-    std::tuple<OutputParam<OutIs>...> outputs{LoadOutputAt<
-        typename OutputParam<OutIs>::ScalarType,
-        Op::kOutputs[OutIs].index>(
-        std::get<OutIs>(this->output_cursors_), indices
-    )...};
+    auto outputs = std::tuple{OutputAt<OutIs>(indices)...};
 
     this->op_->operator()(
-        LoadAt<typename InputParam<InIs>::ScalarType, Op::kInputs[InIs].index>(
-            std::get<InIs>(this->input_cursors_), indices
-        )...,
+        InputAt<InIs>(indices)...,
         TraversalInputAt<TrIs>(indices)...,
-        &std::get<OutIs>(outputs)...
+        Target(std::get<OutIs>(outputs))...
     );
 
-    (StoreAt<
-         typename OutputParam<OutIs>::ScalarType,
-         Op::kOutputs[OutIs].index>(
-         std::get<OutIs>(this->output_cursors_),
-         indices,
-         std::get<OutIs>(outputs)
-     ),
-     ...);
+    (Commit<OutIs>(std::get<OutIs>(outputs), indices), ...);
   }
 
  private:
@@ -260,20 +364,17 @@ class OpInitInvoker<Op, View, true> {
       const {
     std::tuple<InitOutputParam<OutIs>...> outputs{
         std::get<OutIs>(init_output_cursors_)
-            .template Load<typename InitOutputParam<OutIs>::ScalarType>(
-                base_index
-            )...
+            .template Load<ParamScalarT<InitOutputParam<OutIs>>>(base_index)...
     };
 
     init_op_->Initialize(
         std::get<InIs>(init_input_cursors_)
-            .template Load<typename InitInputParam<InIs>::ScalarType>(base_index
-            )...,
+            .template Load<ParamScalarT<InitInputParam<InIs>>>(base_index)...,
         &std::get<OutIs>(outputs)...
     );
 
     (std::get<OutIs>(init_output_cursors_)
-         .template Store<typename InitOutputParam<OutIs>::ScalarType>(
+         .template Store<ParamScalarT<InitOutputParam<OutIs>>>(
              base_index, std::get<OutIs>(outputs)
          ),
      ...);

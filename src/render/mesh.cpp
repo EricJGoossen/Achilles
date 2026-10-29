@@ -123,7 +123,7 @@ std::vector<GLuint> SphereIndices() {
 // pointer -- a historical GL API wart every loader/wrapper has to work
 // around somehow. std::bit_cast (same tool gl.cpp's own Load<Fn> uses for
 // its function-pointer conversion, and the one
-// engine/topology/ordering_policy.hpp already uses for its own pointer casts)
+// engine/topology/orderings.hpp already uses for its own pointer casts)
 // stands in for reinterpret_cast here: well-defined as long as both sides are
 // the same size and trivially copyable, which holds for std::size_t/const void*
 // on every platform this project targets.

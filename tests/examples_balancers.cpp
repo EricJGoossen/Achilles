@@ -26,7 +26,7 @@
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
 #include "domain/archetype.hpp"
-#include "engine/topology/ordering_policy.hpp"
+#include "engine/topology/orderings.hpp"
 #include "interface/actuator.hpp"
 #include "interface/simulation.hpp"
 #include "support/temp_dir.hpp"
