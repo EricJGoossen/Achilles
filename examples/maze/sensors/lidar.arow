@@ -1,0 +1,17 @@
+# A planar scanning lidar on a mast 0.25 m above the chassis's frame (0.35
+# m above the ground, below the walls' 0.8 m tops): 360 beams, a full turn,
+# 10 scans a second, out to 8 m, with 1 cm of range noise reported to the
+# nearest 5 mm. The mount's rotation turns the sensor's axes (x forward, y
+# left, z up) onto the chassis's (+z forward, +x left, +y up), so beam 0
+# looks straight back and the azimuth grows counterclockwise seen from
+# above. maze.cpp's kLidar* constants mirror these settings.
+sensor: lidar
+kind: lidar
+attach: {archetype: robot, joint: chassis}
+config:
+  period: 0.1
+  mount: {translation: [0, 0.25, 0], rotation: [0.5, -0.5, -0.5, -0.5]}
+  horizontal_samples: 360
+  max_range: 8
+  range_noise: 0.01
+  resolution: 0.005
