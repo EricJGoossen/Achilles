@@ -221,6 +221,23 @@ class View {
       );
     }
 
+    // Whether field F holds T as itself, whole, one per element -- a
+    // record (LeafAssembler<R>, or a segment's record), not a scalar,
+    // batch or value assembled from several leaves -- so an element can
+    // be handed out in place (Ref) instead of copied.
+    template <typename T>
+    static constexpr bool kHoldsRecord =
+        Assembler<F>::kNumFields == 1 && !std::is_arithmetic_v<T> &&
+        !xsimd::is_batch<T>::value && std::same_as<Value<F, T>, T>;
+
+    // The record at `index`, in place -- the T in memory itself, to read or
+    // write through without copying it in and out.
+    template <FieldShapeLike T>
+      requires kHoldsRecord<T>
+    T* Ref(size_t index) const {
+      return std::bit_cast<T*>(ElementAt<T>(index));
+    }
+
     template <FieldShapeLike T>
     Value<F, T> Load(size_t index) const {
       return Assembler<F>::template Read<T, FieldLayout<F>>(
