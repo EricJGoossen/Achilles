@@ -24,32 +24,54 @@ Project Otto      <-- MCB UART  (pty <run-dir>/mcb_uart)
 - `tools/generate_scene.py` — generates `field.arow`, `sentry.arow`, `sensors/*.arow`.
 - `otto_bridge/run_otto.py` — runs Otto's own app with the sim's device paths and injected
   camera/detector/video factories.
-- `patches/` — the changes the sim needs in aruw-mcb and project-otto (apply with `git am`).
+- `patches/` — the changes the sim needs in aruw-mcb and project-otto (`setup` applies them).
+- `routes/` — Otto configs that send the sentry around the field.
+- `tools/plot_run.py` — plots a run's `pose_log.csv`.
+- `docker/` — the container `scripts/run-sentry-sim.sh` runs everything in.
 
-## Running (manual for now)
+## Running
+
+`scripts/run-sentry-sim.sh` does it all in one Docker container (built from `docker/` on top of
+`.devcontainer`'s image), with the three checkouts mounted and running as your user. It expects
+aruw-mcb and project-otto next to Achilles; set `MCB_DIR` / `OTTO_DIR` otherwise.
 
 ```bash
-cmake --build build-release --target sentry_sim
-# aruw-mcb, with patches/aruw-mcb-hosted-hardware-bridge.patch applied (needs gcc-11, libgtest-dev):
-(cd ../aruw-mcb/aruw-mcb-project && scons build-sim robot=SENTRY_ACHLYS)
-./build-release/sentry_sim examples/sentry/field.arow examples/sentry/sim_config.yaml --headless --run-dir /tmp/sentry-sim &
-ARUW_SIM_HARDWARE_SOCKET=/tmp/sentry-sim/mcb.sock ../aruw-mcb/aruw-mcb-project/build/sim/scons-release/TARGET_SENTRY_ACHLYS/aruw-mcb.elf &
-../project-otto/.venv/bin/python examples/sentry/otto_bridge/run_otto.py --otto-dir ../project-otto --run-dir /tmp/sentry-sim
+# Once: image + container, submodules, applies patches/ to the two checkouts (unless already
+# applied), builds the sim and the firmware, sets up Otto's virtualenv.
+scripts/run-sentry-sim.sh setup
+
+# The dev loop: rebuilds whatever changed (sim and firmware), then runs the sim, the MCB and Otto.
+# Ctrl-C stops all three (Otto first).
+scripts/run-sentry-sim.sh run --viewer --otto-config examples/sentry/routes/field_tour.yaml
+scripts/run-sentry-sim.sh run --seconds 120              # headless, stops itself
+scripts/run-sentry-sim.sh plot                            # truth vs estimate for the latest run
 ```
 
-`ARUW_SIM_DEBUG=1` on the MCB prints per-second CAN delivery counts.
+- **Where it goes**: Otto's targeting state machine drives to `initial_push_setpoint`, then loops
+  through `center_path_setpoints`, one every `setpoint_interval_duration`. Copy
+  `routes/field_tour.yaml` and edit the points (field metres; obstacles in
+  `tools/generate_scene.py`). `--otto-config` takes any Otto config, layered over the sentry's.
+- **Timing**: IMU calibration is requested at 3 s and takes until ~18 s; autonav comes on at 25 s
+  (`--calibrate-at`, `--autonav-at`; any other option goes to `sentry_sim`).
+- **Runs** land in `build-sentry-sim/runs/<time>/` (`runs/latest`): `sim.log` (the status line
+  printed each second), `mcb.log`, `otto.log` (crashes only; Otto's own logs are in
+  `otto_logs/`), `pose_log.csv`, `plot.png`.
+- **Changes**: edits to the sim, the firmware (aruw-mcb) or Otto take effect on the next `run`;
+  Otto is plain Python. `scripts/run-sentry-sim.sh shell` opens a shell in the container.
+- **Viewer**: `--viewer` opens Achilles's window over X11 (WSLg's works). Closing it ends the run.
+  The camera orbits the world origin, the field's red-side corner (drag to orbit, scroll to zoom;
+  scroll out ~15 m to see the field). The yellow lines are the viewer's joint skeleton: the planar
+  chassis joint hangs off the origin.
+- `ARUW_SIM_DEBUG=1` on the MCB prints per-second CAN delivery counts.
 
-The sim holds its clock at zero until the MCB connects, so the processes can start in any order.
+Notes:
 
-Setup notes:
-
-- aruw-mcb needs its `segger-rtt` submodule; its devcontainer (`.devcontainer/`) builds the sim
-  as is. The sim and Otto must share a machine/container (the sim's ptys are Otto's devices); the
-  MCB only needs the socket, so it can run in its own container with the run dir on a shared mount.
-- Otto: `git submodule update --init --recursive`, `uv sync --frozen`, then
-  `uv pip install "pyrealsense2==2.56.*" PyGObject==3.42.1` (needs `libusb-1.0-0`,
-  `libgirepository1.0-dev`, `libcairo2-dev`, `gir1.2-gstreamer-1.0`): `project_otto.main`
-  imports both even with the camera stubbed out.
+- The sim holds its clock at zero until the MCB connects, so the processes can start in any order.
+- The sim and Otto must share a machine (the sim's ptys are Otto's devices); the MCB needs only
+  the socket.
+- Otto needs `pyrealsense2` and `PyGObject` beyond its locked dependencies (and `libusb-1.0-0`,
+  `libgirepository1.0-dev`, `libcairo2-dev`, `gir1.2-gstreamer-1.0`): `project_otto.main` imports
+  both even with the camera stubbed out. The container has them.
 - On WSL2 the wall clock can step back by seconds. Otto's clock is `CLOCK_REALTIME`, so it drops
   MCB odometry ("not newer than existing latest timestamp") until the clock catches up; the blank
   camera paces on the monotonic clock so the main loop keeps running through it.

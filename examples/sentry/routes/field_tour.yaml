@@ -1,0 +1,15 @@
+# A route around the red half and the centre of the field, for
+#   scripts/run-sentry-sim.sh run --otto-config examples/sentry/routes/field_tour.yaml
+# An Otto config layered over the sentry's: Otto's targeting state machine drives
+# to initial_push_setpoint, then loops through center_path_setpoints, moving on
+# every setpoint_interval_duration. Points are field coordinates in metres (see
+# tools/generate_scene.py for where the obstacles are).
+autonav:
+  motion_strategy:
+    initial_push_setpoint: [3.2, 1.6]
+    center_path_setpoints:
+      - [6.0, 2.6]   # in front of the centre block
+      - [8.8, 1.6]   # blue side, south
+      - [6.0, 4.6]   # field centre
+      - [3.2, 1.6]   # back to the red side
+    setpoint_interval_duration: 10s

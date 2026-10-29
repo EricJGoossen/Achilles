@@ -39,6 +39,13 @@ def _parse_args() -> argparse.Namespace:
         help="Otto config files, highest precedence first, as Otto's loader takes them "
         "(default: sentry_name_config.yaml, base_config.yaml)",
     )
+    parser.add_argument(
+        "--extra-config",
+        action="append",
+        default=[],
+        help="Otto config files layered over the robot's (but under the sim's device paths), e.g. a "
+        "route: examples/sentry/routes/field_tour.yaml",
+    )
     parser.add_argument("--silent", action="store_true", help="suppress logging to the console")
     return parser.parse_args()
 
@@ -78,6 +85,7 @@ def main():
     otto_dir = os.path.abspath(args.otto_dir)
     sys.path.insert(0, otto_dir)
     sys.path.insert(0, HERE)
+    extra_configs = [os.path.abspath(c) for c in args.extra_config]
     os.chdir(otto_dir)  # Otto resolves its assets (detector weights) relative to the checkout
     os.makedirs(os.path.join(args.run_dir, "otto_logs"), exist_ok=True)
 
@@ -100,7 +108,7 @@ def main():
     if len(robot_lidars) != 2:
         raise SystemExit(f"expected two LiDARs in {configs[0]}, found {len(robot_lidars)}")
     # Otto's loader gives the first file precedence.
-    configs = [_write_override(args.run_dir, robot_lidars)] + configs
+    configs = [_write_override(args.run_dir, robot_lidars)] + extra_configs + configs
     config = load_merged_yaml_from_files(configs, ApplicationConfig)
 
     def create_camera(_serial: Optional[str], _stream_config: Any) -> BlankRealsenseImagesetSource:
