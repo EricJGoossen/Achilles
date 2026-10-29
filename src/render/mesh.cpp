@@ -119,6 +119,101 @@ std::vector<GLuint> SphereIndices() {
   return indices;
 }
 
+// The cylinder's side wall is split into kCylinderSlices around -- the same
+// count as the sphere's, so the two read as equally round side by side.
+constexpr GLuint kCylinderSlices = kSphereSlices;
+
+// Appends one quad (4 vertices, 2 triangles) with a single flat normal.
+void AppendQuad(
+    std::vector<GLfloat>& vertices,
+    std::vector<GLuint>& indices,
+    const std::array<std::array<GLfloat, 3>, 4>& corners,
+    const std::array<GLfloat, 3>& normal
+) {
+  auto base = static_cast<GLuint>(vertices.size() / 6);
+  for (const std::array<GLfloat, 3>& corner : corners) {
+    vertices.insert(
+        vertices.end(),
+        {corner[0], corner[1], corner[2], normal[0], normal[1], normal[2]}
+    );
+  }
+  indices.insert(
+      indices.end(), {base, base + 1, base + 2, base, base + 2, base + 3}
+  );
+}
+
+// A unit cylinder about Y: the side wall is one ring of vertices at each
+// end whose normals point straight out (x, 0, z), the seam's column
+// duplicated like the sphere's; each cap is a fan around its own center
+// vertex, with its own flat +-Y normal rather than sharing the wall's.
+std::pair<std::vector<GLfloat>, std::vector<GLuint>> CylinderGeometry() {
+  std::vector<GLfloat> vertices;
+  std::vector<GLuint> indices;
+  for (GLuint slice = 0; slice <= kCylinderSlices; ++slice) {
+    float azimuth = 2.0F * std::numbers::pi_v<float> *
+                    static_cast<float>(slice) /
+                    static_cast<float>(kCylinderSlices);
+    float x = std::cos(azimuth);
+    float z = std::sin(azimuth);
+    vertices.insert(vertices.end(), {x, -1, z, x, 0, z, x, 1, z, x, 0, z});
+  }
+  for (GLuint slice = 0; slice < kCylinderSlices; ++slice) {
+    GLuint bottom = slice * 2;
+    GLuint top = bottom + 1;
+    indices.insert(
+        indices.end(), {bottom, top, bottom + 2, bottom + 2, top, top + 2}
+    );
+  }
+  for (float y : {-1.0F, 1.0F}) {
+    auto center = static_cast<GLuint>(vertices.size() / 6);
+    vertices.insert(vertices.end(), {0, y, 0, 0, y, 0});
+    for (GLuint slice = 0; slice <= kCylinderSlices; ++slice) {
+      float azimuth = 2.0F * std::numbers::pi_v<float> *
+                      static_cast<float>(slice) /
+                      static_cast<float>(kCylinderSlices);
+      vertices.insert(
+          vertices.end(), {std::cos(azimuth), y, std::sin(azimuth), 0, y, 0}
+      );
+    }
+    for (GLuint slice = 0; slice < kCylinderSlices; ++slice) {
+      indices.insert(
+          indices.end(), {center, center + 1 + slice, center + 2 + slice}
+      );
+    }
+  }
+  return {std::move(vertices), std::move(indices)};
+}
+
+// CylinderStripe's quads. kStripeHalfWidth is in the unit cylinder's own
+// radii, and kStripeLift how far outside the surface the marking sits --
+// scaled with the cylinder like everything else, so both stay proportional
+// to the wheel whatever its size.
+std::pair<std::vector<GLfloat>, std::vector<GLuint>> CylinderStripeGeometry() {
+  constexpr float kStripeHalfWidth = 0.15F;
+  constexpr float kStripeLift = 1.02F;
+  constexpr float kW = kStripeHalfWidth;
+  constexpr float kL = kStripeLift;
+  std::vector<GLfloat> vertices;
+  std::vector<GLuint> indices;
+  // Side wall, along the rim at +X.
+  AppendQuad(
+      vertices,
+      indices,
+      {{{kL, -kL, -kW}, {kL, kL, -kW}, {kL, kL, kW}, {kL, -kL, kW}}},
+      {1, 0, 0}
+  );
+  // A spoke on each cap, from the axis out to the side-wall stripe.
+  for (float y : {-kL, kL}) {
+    AppendQuad(
+        vertices,
+        indices,
+        {{{0, y, -kW}, {kL, y, -kW}, {kL, y, kW}, {0, y, kW}}},
+        {0, y > 0 ? 1.0F : -1.0F, 0}
+    );
+  }
+  return {std::move(vertices), std::move(indices)};
+}
+
 // glVertexAttribPointer's last parameter is a byte offset encoded as a
 // pointer -- a historical GL API wart every loader/wrapper has to work
 // around somehow. std::bit_cast (same tool gl.cpp's own Load<Fn> uses for
@@ -138,6 +233,16 @@ SolidMesh SolidMesh::Cube() { return {kCubeVertices, kCubeIndices}; }
 SolidMesh SolidMesh::Sphere() {
   std::vector<GLfloat> vertices = SphereVertices();
   std::vector<GLuint> indices = SphereIndices();
+  return {vertices, indices};
+}
+
+SolidMesh SolidMesh::Cylinder() {
+  auto [vertices, indices] = CylinderGeometry();
+  return {vertices, indices};
+}
+
+SolidMesh SolidMesh::CylinderStripe() {
+  auto [vertices, indices] = CylinderStripeGeometry();
   return {vertices, indices};
 }
 

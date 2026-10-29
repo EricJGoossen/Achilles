@@ -100,7 +100,9 @@ A `.arow` file names an archetype and lists its joints. Each joint has a
 `parent` (`null` for the root) and a `fields` map with its initial state:
 joint subspace and activation mask, fixed joint transform, rigid-body
 inertia, position, velocity, torque, and optional `visual_extents` /
-`visual_color` for the viewer. The demo scene has a comment on every
+`visual_color` / `visual_shape` (0 box, 1 sphere, 2 cylinder) /
+`visual_pose` (the drawn shape's offset from the joint, like
+`collision_pose`) for the viewer. The demo scene has a comment on every
 field. The loader is in
 [include/interface/archetype_loader.hpp](include/interface/archetype_loader.hpp).
 

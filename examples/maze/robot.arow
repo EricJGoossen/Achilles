@@ -9,8 +9,8 @@
 # quarter turn about x, so its +y is the world's +z) and turns it to face
 # the world's +y: in its own axes the robot drives toward +z, +x is its
 # left and +y is up. Each wheel is a revolute joint about its own local X
-# (the axle), collides as a sphere of radius 0.1 and is drawn as a single
-# spoke, so you can see it turn.
+# (the axle), collides as a sphere of radius 0.1 and is drawn as a striped
+# cylinder, centered on the axle by its visual_pose (see box_robot.arow).
 archetype: robot
 attach:
   archetype: maze
@@ -53,7 +53,9 @@ joints:
       rigid_body_inertia: [0.5, 0, 0, 0, 0.002, 0.002, 0.002, 0, 0, 0]
       joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
       joint_velocity: [0, 0, 0, 0, 0, 0]
-      visual_extents: [0.03, 0.05, 0.03]
+      visual_pose: {translation: [-0.025, 0, 0], rotation: [0.70710678, 0, 0, -0.70710678]}
+      visual_extents: [0.1, 0.025, 0.1]
+      visual_shape: [2]
       visual_color: [0.15, 0.15, 0.17]
       collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
       collision_extents: [0, 0, 0]
@@ -70,7 +72,9 @@ joints:
       rigid_body_inertia: [0.5, 0, 0, 0, 0.002, 0.002, 0.002, 0, 0, 0]
       joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
       joint_velocity: [0, 0, 0, 0, 0, 0]
-      visual_extents: [0.03, 0.05, 0.03]
+      visual_pose: {translation: [-0.025, 0, 0], rotation: [0.70710678, 0, 0, -0.70710678]}
+      visual_extents: [0.1, 0.025, 0.1]
+      visual_shape: [2]
       visual_color: [0.15, 0.15, 0.17]
       collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
       collision_extents: [0, 0, 0]
@@ -87,7 +91,9 @@ joints:
       rigid_body_inertia: [0.5, 0, 0, 0, 0.002, 0.002, 0.002, 0, 0, 0]
       joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
       joint_velocity: [0, 0, 0, 0, 0, 0]
-      visual_extents: [0.03, 0.05, 0.03]
+      visual_pose: {translation: [-0.025, 0, 0], rotation: [0.70710678, 0, 0, -0.70710678]}
+      visual_extents: [0.1, 0.025, 0.1]
+      visual_shape: [2]
       visual_color: [0.15, 0.15, 0.17]
       collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
       collision_extents: [0, 0, 0]
@@ -104,7 +110,9 @@ joints:
       rigid_body_inertia: [0.5, 0, 0, 0, 0.002, 0.002, 0.002, 0, 0, 0]
       joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
       joint_velocity: [0, 0, 0, 0, 0, 0]
-      visual_extents: [0.03, 0.05, 0.03]
+      visual_pose: {translation: [-0.025, 0, 0], rotation: [0.70710678, 0, 0, -0.70710678]}
+      visual_extents: [0.1, 0.025, 0.1]
+      visual_shape: [2]
       visual_color: [0.15, 0.15, 0.17]
       collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
       collision_extents: [0, 0, 0]

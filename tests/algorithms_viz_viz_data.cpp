@@ -13,7 +13,9 @@
 #include "algorithms/viz/viz_step.hpp"
 #include "domain/archetype.hpp"
 #include "domain/joint_layout.hpp"
+#include "domain/math/quaternion.hpp"
 #include "domain/math/vector3.hpp"
+#include "domain/spatial/transform.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/orderings.hpp"
 #include "support/aba_reference.hpp"
@@ -33,6 +35,8 @@
 //   3. A joint whose archetype gives no visual_extents reads back exactly
 //      Vector3::Zero() -- the "draw nothing" default the viz_data.hpp
 //      header comment promises.
+//   4. kVisualPose populates the same way, and an absent one reads as the
+//      identity once ToVisualPose fixes up its zero rotation.
 
 using namespace achilles::algorithms;
 using namespace achilles::algorithms::viz;
@@ -183,4 +187,59 @@ TEST(VizData, MissingVisualExtentsDefaultsToZero) {
 
   Vector3 extents = view.Load<VizField::kVisualExtents, B>(group);
   EXPECT_TRUE(BatchTrue(extents.IsZero()));
+}
+
+// kVisualPose is populated by name like kVisualExtents/kVisualColor, its
+// seven scalars read as translation then rotation (w, x, y, z) -- the same
+// encoding broad_phase's own kCollisionPose uses. Loaded by raw row for the
+// same padding-lane reason as the test above.
+TEST(VizData, VisualPosePopulatesFromArchetypeByName) {
+  std::vector<ArchetypeField> fields = {
+      ArchetypeField{
+          "visual_pose", 7, {0.1, 0.2, 0.3, 0.70710678, 0.0, 0.0, 0.70710678}
+      },
+  };
+  SimAllocator<aba::ABAAlgorithm, VizAlgorithm> sim =
+      MakeSharedSim(std::move(fields));
+  VizView view = sim.ViewFor<VizAlgorithm>();
+  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted({0, 0});
+
+  using ScalarTransform =
+      achilles::domain::spatial::Transform<ScalarOperationT>;
+  using ScalarVector3 = achilles::domain::math::Vector3<ScalarOperationT>;
+  using ScalarQuaternion = achilles::domain::math::Quaternion<ScalarOperationT>;
+  ScalarTransform pose =
+      ToVisualPose(view.Load<VizField::kVisualPose, ScalarOperationT>(row));
+
+  EXPECT_TRUE(pose.Translation().IsApprox(ScalarVector3(0.1F, 0.2F, 0.3F)));
+  EXPECT_TRUE(pose.Rotation().IsApprox(
+      ScalarQuaternion(0.70710678F, 0.0F, 0.0F, 0.70710678F)
+  ));
+}
+
+// A joint whose archetype gives no visual_pose reads the zero-fill default,
+// which ToVisualPose turns into exactly the identity -- so every scene
+// written before kVisualPose existed draws its shapes where it always did.
+TEST(VizData, MissingVisualPoseReadsAsIdentity) {
+  SimAllocator<aba::ABAAlgorithm, VizAlgorithm> sim = MakeSharedSim();
+  VizView view = sim.ViewFor<VizAlgorithm>();
+  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted({0, 0});
+
+  using ScalarTransform =
+      achilles::domain::spatial::Transform<ScalarOperationT>;
+  ScalarTransform pose =
+      ToVisualPose(view.Load<VizField::kVisualPose, ScalarOperationT>(row));
+
+  EXPECT_TRUE(pose.Translation().IsZero());
+  EXPECT_TRUE(pose.Rotation().IsIdentity());
+}
+
+// kVisualShape's codes round to their VisualShape, anything else reading as
+// a box.
+TEST(VizData, ShapeOfRoundsCodes) {
+  EXPECT_EQ(ShapeOf(0.0F), VisualShape::kBox);
+  EXPECT_EQ(ShapeOf(1.0F), VisualShape::kSphere);
+  EXPECT_EQ(ShapeOf(2.0F), VisualShape::kCylinder);
+  EXPECT_EQ(ShapeOf(3.0F), VisualShape::kBox);
+  EXPECT_EQ(ShapeOf(-1.0F), VisualShape::kBox);
 }

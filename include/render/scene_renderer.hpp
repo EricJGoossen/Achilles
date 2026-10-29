@@ -16,8 +16,8 @@ namespace achilles::render {
 // JointTopology it was resolved against (see viz_data.hpp/interface::
 // Simulation::TopologyFor) once per tick, get a rendered frame. Owns
 // everything it needs -- one lit shader for solids, one flat shader for
-// lines, one cube and one sphere mesh reused (re-transformed) per visible
-// joint, and two
+// lines, one cube, one sphere and one cylinder mesh (plus the cylinder's
+// stripe) reused (re-transformed) per visible joint, and two
 // dynamic line meshes (a ground grid built once, bones rebuilt every
 // frame) -- so src/render_main.cpp's own loop is just
 // "Simulation::Step(dt); scene_renderer.RenderFrame(sim.ViewFor<...>(),
@@ -32,9 +32,9 @@ class SceneRenderer {
   void PollInput();
 
   // Draws one frame: every row in [0, topology.Size()) whose
-  // kVisualExtents is nonzero is drawn as an oriented box or sphere (its
-  // kVisualShape) at its kWorldTransform, sized by those extents and
-  // colored by kVisualColor
+  // kVisualExtents is nonzero is drawn as an oriented box, sphere or
+  // cylinder (its kVisualShape) at its kWorldTransform composed with its
+  // kVisualPose, sized by those extents and colored by kVisualColor
   // (falling back to a deterministic per-row color when kVisualColor is
   // exactly zero, so an archetype that sets extents but not color still
   // renders as something other than black); a bone line connects each
@@ -55,6 +55,8 @@ class SceneRenderer {
   Shader line_shader_;
   SolidMesh cube_;
   SolidMesh sphere_;
+  SolidMesh cylinder_;
+  SolidMesh cylinder_stripe_;
   LineMesh grid_;
   LineMesh axis_x_;
   LineMesh axis_y_;
