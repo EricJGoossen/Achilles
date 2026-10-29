@@ -24,16 +24,21 @@ namespace achilles::engine {
 // which is the only place it means "parent"; kLink names it under a
 // LinkedTraversal, where it's the row a list entry is linked to; a
 // LinearTraversal hands the target again, and a PairTraversal hands the
-// broadcast source row (engine/pass/traversals.hpp). kStructure is a third slot
-// only some traversals fill: not an index at all, but a fact the traversal
-// derived from its own topology about this one call (a PairTraversal's
-// PairStructure) -- read through kTraversalInputs, never through a field.
+// broadcast source row (engine/pass/traversals.hpp). The third slot is one
+// only some traversals fill. Under a PairTraversal it's kStructure: not an
+// index at all, but a fact the traversal derived from its own topology
+// about this one call (a PairTraversal's PairStructure) -- read through
+// kTraversalInputs, never through a field. Under a scanning RowTraversal
+// (ScanRows) it's kScene: a row of the second layout the Step was given,
+// the one the target is being paired against -- read through fields like
+// any index.
 enum class ArgIndex : uint8_t {
   kTarget = 0,
   kSource = 1,
   kParent = kSource,
   kLink = kSource,
   kStructure = 2,
+  kScene = kStructure,
 };
 
 // One argument to gather (or scatter) for an Op: `field` selects which

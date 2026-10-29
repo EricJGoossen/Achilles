@@ -189,11 +189,65 @@ struct Segment {
   }
 };
 
+// What a RowTraversal does at each row group it visits: call once with
+// (group, source) -- NoScan -- or, ScanRows, pair the group with every real
+// row of the JointLayout a Step was given second (its padding rows, which
+// hold no real entry, skipped), calling once per pair with that row as a
+// third index (ArgIndex::kScene). Scanning is for an Op relating each entry
+// of one list to every row of another -- a lidar against every body's
+// shape, say -- that still reads the entry's own source (its link). Given
+// no second argument, a scan has nothing to pair against and does nothing.
+struct NoScan {
+  template <typename Callable, typename... Rest>
+  static constexpr void Visit(
+      const Callable& callable,
+      size_t group,
+      size_t source,
+      const Rest&... /*rest*/
+  ) {
+    callable(group, source);
+  }
+  template <typename... Rest>
+  static constexpr bool HasWork(const Rest&... /*rest*/) {
+    return true;
+  }
+};
+
+struct ScanRows {
+  template <typename Callable, typename Scene, typename... Rest>
+  static constexpr void Visit(
+      const Callable& callable,
+      size_t group,
+      size_t source,
+      const Scene& scene,
+      const Rest&... /*rest*/
+  ) {
+    const size_t rows = scene.PaddedSize();
+    for (size_t row = 0; row < rows; ++row) {
+      if (!scene.IsPadding(row)) {
+        callable(group, source, row);
+      }
+    }
+  }
+  template <typename Callable>
+  static constexpr void Visit(
+      const Callable& /*callable*/, size_t /*group*/, size_t /*source*/
+  ) {}
+
+  template <typename Scene, typename... Rest>
+  static constexpr bool HasWork(const Scene& scene, const Rest&... /*rest*/) {
+    return scene.PaddedSize() > 0;
+  }
+  static constexpr bool HasWork() { return false; }
+};
+
 // Row groups of one ordering, one call per group with (target = the group,
-// source = Source's index for it) -- forward or backward. The only things
-// that distinguish a tree, linear, linked or segment pass are Source and
-// Range; the loop is the same, and both are resolved at compile time, so
-// each costs exactly what its own hand-written loop did. Rows is whatever
+// source = Source's index for it) -- forward or backward -- or, scanning,
+// one per (group, real row of a second layout) pair (see Scan). The only
+// things that distinguish a tree, linear, linked, segment or scanning pass
+// are Source, Range and Scan; the loop is the same, and all three are
+// resolved at compile time, so each costs exactly what its own
+// hand-written loop did. Rows is whatever
 // the Step call hands first after the view: a JointTopology, or
 // (SelfSource only) a bare row count -- so a linear pass can share a Step
 // call with a tree pass and its topology.
@@ -201,8 +255,12 @@ template <
     Direction Dir,
     size_t Stride,
     typename Source,
-    typename Range = AllRows>
-  requires(Stride == 1 || Source::kBatchable)
+    typename Range = AllRows,
+    typename Scan = NoScan>
+  requires(
+      (Stride == 1 || Source::kBatchable) &&
+      (Stride == 1 || std::is_same_v<Scan, NoScan>)
+  )
 struct RowTraversal {
   static constexpr Direction kDirection = Dir;
   static constexpr size_t kStride = Stride;
@@ -210,31 +268,32 @@ struct RowTraversal {
   template <typename Callable, typename Rows, typename... Rest>
     requires(Dir == Direction::kForward)
   static constexpr void Apply(
-      const Callable& callable, const Rows& rows, const Rest&... /*rest*/
+      const Callable& callable, const Rows& rows, const Rest&... rest
   ) {
     const size_t end = Range::template End<Stride>(rows);
     for (size_t j = Range::template Begin<Stride>(rows); j < end; ++j) {
-      callable(j, Source::template Of<Stride>(rows, j));
+      Scan::Visit(callable, j, Source::template Of<Stride>(rows, j), rest...);
     }
   }
 
   template <typename Callable, typename Rows, typename... Rest>
     requires(Dir == Direction::kBackward)
   static constexpr void Apply(
-      const Callable& callable, const Rows& rows, const Rest&... /*rest*/
+      const Callable& callable, const Rows& rows, const Rest&... rest
   ) {
     const size_t begin = Range::template Begin<Stride>(rows);
     for (size_t j = Range::template End<Stride>(rows); j-- > begin;) {
-      callable(j, Source::template Of<Stride>(rows, j));
+      Scan::Visit(callable, j, Source::template Of<Stride>(rows, j), rest...);
     }
   }
 
   template <typename Callable, typename Rows, typename... Rest>
   static constexpr void InitOp(
-      const Callable& callable, const Rows& rows, const Rest&... /*rest*/
+      const Callable& callable, const Rows& rows, const Rest&... rest
   ) {
     if (Range::template Begin<Stride>(rows) <
-        Range::template End<Stride>(rows)) {
+            Range::template End<Stride>(rows) &&
+        Scan::HasWork(rest...)) {
       callable.Initialize(Source::template InitRow<Stride>(rows));
     }
   }
@@ -260,6 +319,17 @@ using LinkedTraversal = RowTraversal<Direction::kForward, 1, LinkSource>;
 template <size_t K, typename Source = LinkSource>
 using SegmentTraversal =
     RowTraversal<Direction::kForward, 1, Source, Segment<K>>;
+
+// The per-segment traversals SegmentOps (algorithm_step.hpp) builds passes
+// from, by segment index: each row of segment K handed its link or itself,
+// or paired against every real row of a second layout (ScanRows).
+template <size_t K>
+using LinkedSegmentTraversal = SegmentTraversal<K, LinkSource>;
+template <size_t K>
+using SelfSegmentTraversal = SegmentTraversal<K, SelfSource>;
+template <size_t K>
+using LinkedSegmentScanTraversal =
+    RowTraversal<Direction::kForward, 1, LinkSource, Segment<K>, ScanRows>;
 
 using ForwardTreeTraversal = TreeTraversal<Direction::kForward, 1>;
 using BackwardTreeTraversal = TreeTraversal<Direction::kBackward, 1>;
@@ -288,6 +358,10 @@ static_assert(
 static_assert(
     TraversalLike<SegmentTraversal<0>>,
     "SegmentTraversal must satisfy TraversalLike concept"
+);
+static_assert(
+    TraversalLike<LinkedSegmentScanTraversal<0>>,
+    "LinkedSegmentScanTraversal must satisfy TraversalLike concept"
 );
 
 // One call, at index 0 -- for an Op whose work is a single value the whole

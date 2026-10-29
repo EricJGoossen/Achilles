@@ -33,9 +33,12 @@ using SensorKinds = util::ConcatT<
 using SensingOrdering = engine::topology::
     ListOrdering<engine::topology::TopologicalOrdering, SensorKinds>;
 
-// Every sim field any registered kind reads, once each.
-using SensorInputs = util::UniqueT<
-    util::ApplyT<util::ConcatT, util::TransformT<KindInputs, SensorKinds>>>;
+// Every sim field any registered kind reads, once each: at its mount joint
+// (SimInputs) or, for a scanning kind, at every body (SceneInputs) -- which
+// of the two is the reading Op's business, not the field's.
+using SensorInputs = util::UniqueT<util::ConcatT<
+    util::ApplyT<util::ConcatT, util::TransformT<KindInputs, SensorKinds>>,
+    util::ApplyT<util::ConcatT, util::TransformT<KindScene, SensorKinds>>>>;
 
 // Every registered kind's state and output, as the sensing algorithm
 // stores them (one record type per kind's segment).

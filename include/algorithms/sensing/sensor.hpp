@@ -70,6 +70,15 @@ using InputValueT =
 template <typename... Inputs>
 struct SimInputs {};
 
+// The fields a scanning sensor reads at every row of the bodies' ordering,
+// not just its own mount joint -- e.g. every body's collision shape, for a
+// lidar. A kind declares `using Scene = SceneInputs<...>` and an Observe
+// (see Sensor) to scan them.
+template <typename... Inputs>
+struct SceneInputs {
+  using List = util::TypeList<Inputs...>;
+};
+
 // The State of a sensor that keeps none.
 struct NoState {};
 
@@ -93,8 +102,13 @@ struct Reading {
 // of the state being sensed, and how many ticks it has seen.
 struct SensorClock {
   float time = 0.0F;
+  // Whether this tick samples, decided once before a scanning kind's
+  // Observe and Read both go by it (see IsDue). Beside `time`, in the
+  // padding before `tick`, so the clock stays 16 bytes.
+  bool due = false;
   std::uint64_t tick = 0;
 };
+static_assert(sizeof(SensorClock) == 16);
 
 // Everything about "now" a sensor's Read receives. stream and tick key a
 // counter-based random generator (domain::random::CounterRng): a draw
@@ -278,6 +292,17 @@ class SensorConfig {
 //             StateT*, OutputT*) const;
 //   void Initialize(const SensorTick&, StateT*) const;   // optional
 //
+// A scanning kind -- one that looks at every body, not just its own -- also
+// declares
+//
+//   using Scene = SceneInputs<SimInput<...>...>;
+//   void Observe(const SensorTick&, const InputValueT<Inputs>&...,
+//                const InputValueT<SceneInputs>&..., StateT*) const;
+//
+// Observe runs, on a tick it samples, once per body (each body's scene
+// values), accumulating into its state; Read then turns that into the
+// reading.
+//
 // kListName is the list an archetype's attachments name to mount one (see
 // domain::ArchetypeAttachment): every attachment under it is one instance.
 //
@@ -354,6 +379,26 @@ struct SensorSignatures<S, util::TypeList<Inputs...>> {
 template <typename S>
 using SignaturesOf = SensorSignatures<S, typename S::InputList>;
 
+template <typename S, typename InputList, typename SceneList>
+struct SceneSignatures;
+
+template <typename S, typename... Inputs, typename... SceneIns>
+struct SceneSignatures<
+    S,
+    util::TypeList<Inputs...>,
+    util::TypeList<SceneIns...>> {
+  using ObserveFn =
+      void (S::*)(const SensorTick&, const InputValueT<Inputs>&..., const InputValueT<SceneIns>&..., typename S::State*)
+          const;
+
+  static constexpr bool kOnJoints =
+      ((InputSource<SceneIns>::kShared &&
+        std::is_same_v<
+            typename InputSource<SceneIns>::Ordering,
+            engine::topology::TopologicalOrdering>) &&
+       ...);
+};
+
 template <typename T>
 concept Storable =
     std::is_trivially_copyable_v<T> && std::is_default_constructible_v<T>;
@@ -398,6 +443,47 @@ concept SensorHasInit = SensorLike<S> && requires {
   static_cast<typename detail::SignaturesOf<S>::InitializeFn>(&S::Initialize);
 };
 
+// A scanning sensor kind: a SensorLike that declares a Scene of shared,
+// joint-ordered fields and an Observe matching its declarations exactly.
+template <typename S>
+concept SensorHasScene =
+    SensorLike<S> && requires { typename S::Scene::List; } &&
+    detail::SceneSignatures<S, typename S::InputList, typename S::Scene::List>::
+        kOnJoints &&
+    requires {
+      static_cast<typename detail::SceneSignatures<
+          S,
+          typename S::InputList,
+          typename S::Scene::List>::ObserveFn>(&S::Observe);
+    };
+
+// Whether an instance samples this tick: a scanning kind's was decided
+// before its Observe ran (SensorClock::due, set by the gate); any other
+// kind decides here.
+template <SensorLike S>
+bool IsDue(
+    const S& /*sensor*/,
+    const SensorClock& clock,
+    float /*dt*/,
+    const Reading<typename S::Output>& /*last*/
+)
+  requires SensorHasScene<S>
+{
+  return clock.due;
+}
+
+template <SensorLike S>
+bool IsDue(
+    const S& sensor,
+    const SensorClock& clock,
+    float dt,
+    const Reading<typename S::Output>& last
+)
+  requires(!SensorHasScene<S>)
+{
+  return sensor.Due(clock, dt, last);
+}
+
 // Seeds an instance's state at Init: its kind's own Initialize if it
 // declares one; otherwise the state stays value-initialized.
 template <SensorLike S>
@@ -420,5 +506,21 @@ template <typename S>
 using KindOutput = KindRecord<S, Reading<typename S::Output>>;
 template <typename S>
 using KindInputs = typename S::InputList;
+
+// A kind's scene inputs: none unless it scans.
+template <typename S>
+struct KindSceneOf {
+  using Type = util::TypeList<>;
+};
+template <SensorHasScene S>
+struct KindSceneOf<S> {
+  using Type = typename S::Scene::List;
+};
+template <typename S>
+using KindScene = typename KindSceneOf<S>::Type;
+
+// SensorHasScene as a type trait, for engine::pass::SegmentOps' filter.
+template <typename S>
+struct ScansScene : std::bool_constant<SensorHasScene<S>> {};
 
 }  // namespace achilles::algorithms::sensing

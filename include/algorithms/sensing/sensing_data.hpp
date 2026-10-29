@@ -25,6 +25,7 @@ enum class SensingField : std::uint8_t {
   kOutput,      // the reading the Read pass writes
   kPublished,   // the last complete reading, what the user reads
   kFirstInput,  // then one per SensorInputs entry, read at the mount joint
+                // or, by a scanning kind, at every body
 
   kCount = kFirstInput + util::kSizeV<SensorInputs>
 };
