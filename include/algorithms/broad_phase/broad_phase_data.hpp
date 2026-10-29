@@ -140,6 +140,7 @@ struct BroadPhaseFieldTraits<BroadPhaseField::kWorldTransform> {
 template <>
 struct BroadPhaseFieldTraits<BroadPhaseField::kCollisionPose> {
   using Assembler = spatial::TransformAssembler<ScalarOperationT>;
+  using SharedAs = CollisionPoseSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
   static constexpr std::string_view kName = "collision_pose";
