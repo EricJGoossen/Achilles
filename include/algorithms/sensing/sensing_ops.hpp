@@ -25,10 +25,10 @@ struct ReadOpImpl<S, util::TypeList<Inputs...>> {
 
   explicit ReadOpImpl(ScalarOperationT dt) : dt_(dt) {}
 
-  // Input I's own field: SensorInputs' entries follow kFirstInput.
-  template <typename I>
+  // Input's own field: SensorInputs' entries follow kFirstInput.
+  template <typename Input>
   static constexpr SensingField kInputField = static_cast<
-      SensingField>(static_cast<std::size_t>(SensingField::kFirstInput) + util::kIndexOfV<I, SensorInputs>);
+      SensingField>(static_cast<std::size_t>(SensingField::kFirstInput) + util::kIndexOfV<Input, SensorInputs>);
 
   static constexpr std::array<ArgData, sizeof...(Inputs) + 2> kInputs = {
       ArgData{SensingField::kConfig, ArgIndex::kTarget},
@@ -85,11 +85,11 @@ struct ObserveOpImpl<
 
   explicit ObserveOpImpl(ScalarOperationT dt) : dt_(dt) {}
 
-  // Input I's own field: SensorInputs' entries follow kFirstInput (scene
+  // Input's own field: SensorInputs' entries follow kFirstInput (scene
   // inputs included -- the index, not the field, says where it's read).
-  template <typename I>
+  template <typename Input>
   static constexpr SensingField kInputField = static_cast<
-      SensingField>(static_cast<std::size_t>(SensingField::kFirstInput) + util::kIndexOfV<I, SensorInputs>);
+      SensingField>(static_cast<std::size_t>(SensingField::kFirstInput) + util::kIndexOfV<Input, SensorInputs>);
 
   static constexpr std::
       array<ArgData, sizeof...(Inputs) + sizeof...(SceneIns) + 2>
