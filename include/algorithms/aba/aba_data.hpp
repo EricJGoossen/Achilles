@@ -225,7 +225,10 @@ struct ABAFieldTraits<ABAField::kJointAcceleration> {
 };
 template <>
 struct ABAFieldTraits<ABAField::kSpatialAcceleration> {
+  // SharedAs = SpatialAccelerationSlot so the contact solver can update it
+  // to the constrained body acceleration as it solves.
   using Assembler = spatial::SpatialAccelerationAssembler<ScalarOperationT>;
+  using SharedAs = SpatialAccelerationSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
   static constexpr std::string_view kName = "spatial_acceleration";

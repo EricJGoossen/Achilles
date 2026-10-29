@@ -91,6 +91,7 @@ enum class ContactSolverField : uint8_t {
   kDInvTerm,               // D^-1
   kJointVelocity,          // qd
   kJointAcceleration,      // qdd: qacc_smooth in, constrained qacc out
+  kSpatialAcceleration,    // a: ABA's (smooth) in, constrained out
 
   // --- Narrow-phase contacts (shared, read-only here) ---
   kCollisionMargin,  // m
@@ -266,6 +267,9 @@ struct ContactSolverFieldTraits<ContactSolverField::kJointVelocity>
 template <>
 struct ContactSolverFieldTraits<ContactSolverField::kJointAcceleration>
     : SharedRowField<AccelerationAssembler, JointAccelerationSlot> {};
+template <>
+struct ContactSolverFieldTraits<ContactSolverField::kSpatialAcceleration>
+    : SharedRowField<AccelerationAssembler, SpatialAccelerationSlot> {};
 
 // --- Narrow phase (shared) ---
 template <>

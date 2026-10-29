@@ -139,7 +139,8 @@ struct LineSearchStep : SolverStep<LineSearchStep> {
   }
 };
 
-// Steps qacc to alpha, then everything the next direction needs: each
+// Steps qacc (and, with it, every body's acceleration) to alpha, then
+// everything the next direction needs: each
 // contact row's force and the wrench it puts on both bodies, J^T f of
 // those, then each limit row's force added onto it, the gradient,
 // M^-1 of it, and the conjugate direction (steepest descent right after
@@ -149,6 +150,7 @@ struct UpdateStep : SolverStep<UpdateStep> {
   MakeOps(const SimConfig& /*sim_config*/, ScalarOperationT /*dt*/) {
     return engine::pass::Ops<
         Pass<StepJointOp, LinearBatched>,
+        Pass<StepBodyAccelerationOp, LinearBatched>,
         Pass<ContactForceOp, PairBatched>,
         Pass<ConstraintForceOp, BackwardBatched>,
         Pass<LimitForceOp, LinearBatched>,
@@ -159,6 +161,7 @@ struct UpdateStep : SolverStep<UpdateStep> {
         Pass<ConjugateOp, Global>,
         Pass<UpdateSearchOp, LinearBatched>>{
         StepJointOp{},
+        StepBodyAccelerationOp{},
         ContactForceOp{},
         ConstraintForceOp{},
         LimitForceOp{},

@@ -57,6 +57,11 @@ struct ParentToBodyTransformSlot;
 struct SpatialVelocitySlot;
 struct UTermSlot;
 struct DInvTermSlot;
+// ABA's body acceleration (aba/aba_data.hpp) -- shared so the contact solver
+// can carry it along with qacc as it solves (StepBodyAccelerationOp), leaving
+// the *constrained* body acceleration there for whatever reads it after the
+// solve (an accelerometer, say).
+struct SpatialAccelerationSlot;
 // The narrow phase's contacts (narrow_phase/narrow_phase_data.hpp) -- shared
 // so the contact solver reads them as written.
 struct ContactNormalSlot;
