@@ -1,0 +1,5 @@
+# Paired with field.arow -- gravity along -z (base_acceleration is -gravity, see
+# algorithms::SimConfig). Only the widow's pitch feels it: the chassis joint is planar.
+base_acceleration:
+  angular: [0, 0, 0]
+  linear: [0, 0, 9.81]

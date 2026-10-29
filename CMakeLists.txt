@@ -102,6 +102,9 @@ add_executable(ball_balance "${CMAKE_CURRENT_SOURCE_DIR}/examples/ball_balance/b
 target_link_libraries(ball_balance PRIVATE achilles_lib)
 add_executable(maze "${CMAKE_CURRENT_SOURCE_DIR}/examples/maze/maze.cpp")
 target_link_libraries(maze PRIVATE achilles_lib)
+add_executable(sentry_sim "${CMAKE_CURRENT_SOURCE_DIR}/examples/sentry/sentry_sim.cpp")
+target_include_directories(sentry_sim PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/examples/sentry")
+target_link_libraries(sentry_sim PRIVATE achilles_lib)
 
 option(BUILD_TESTS "Build test suite" ON)
 if(BUILD_TESTS)
