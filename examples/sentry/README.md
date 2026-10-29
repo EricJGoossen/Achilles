@@ -39,6 +39,21 @@ ARUW_SIM_HARDWARE_SOCKET=/tmp/sentry-sim/mcb.sock ../aruw-mcb/aruw-mcb-project/b
 
 `ARUW_SIM_DEBUG=1` on the MCB prints per-second CAN delivery counts.
 
+The sim holds its clock at zero until the MCB connects, so the processes can start in any order.
+
+Setup notes:
+
+- aruw-mcb needs its `segger-rtt` submodule; its devcontainer (`.devcontainer/`) builds the sim
+  as is. The sim and Otto must share a machine/container (the sim's ptys are Otto's devices); the
+  MCB only needs the socket, so it can run in its own container with the run dir on a shared mount.
+- Otto: `git submodule update --init --recursive`, `uv sync --frozen`, then
+  `uv pip install "pyrealsense2==2.56.*" PyGObject==3.42.1` (needs `libusb-1.0-0`,
+  `libgirepository1.0-dev`, `libcairo2-dev`, `gir1.2-gstreamer-1.0`): `project_otto.main`
+  imports both even with the camera stubbed out.
+- On WSL2 the wall clock can step back by seconds. Otto's clock is `CLOCK_REALTIME`, so it drops
+  MCB odometry ("not newer than existing latest timestamp") until the clock catches up; the blank
+  camera paces on the monotonic clock so the main loop keeps running through it.
+
 ## Modelling notes
 
 - Chassis is a planar joint; X-drive omni wheels are an explicit traction model (slip damper

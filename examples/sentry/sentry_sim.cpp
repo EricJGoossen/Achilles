@@ -386,6 +386,15 @@ class SentrySim {
     return true;
   }
 
+  // Holds time at zero until the MCB connects, so the firmware boots at t = 0
+  // and the operator script (IMU calibration first) can't run ahead of it.
+  void WaitForMcb() {
+    while (!mcb_.Connected()) {
+      ExchangeWithMcb();
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+  }
+
   float Time() const { return static_cast<float>(time_); }
   bool McbConnected() const { return mcb_.Connected(); }
   const OverheardOdometry& Estimate() const { return overheard_; }
@@ -808,6 +817,7 @@ int Run(const Args& args) {
             << args.run_dir << "/lidar_front and " << args.run_dir
             << "/lidar_rear\n"
             << std::flush;
+  sentry.WaitForMcb();
 
   // Real time: the MCB and the Jetson both run on wall-clock time. If the
   // sim falls behind it says so, and the MCB's clock (stamped every step)

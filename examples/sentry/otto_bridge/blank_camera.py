@@ -52,13 +52,16 @@ class BlankRealsenseImagesetSource(ImagesetSource[JetsonTimestamp]):
         self._thread.start()
 
     def _poll_loop(self):
-        next_capture = time.time()
+        # Paced on the monotonic clock: JetsonTimestamp is CLOCK_REALTIME, which can step (WSL2
+        # resyncs it by seconds), and pacing on it starved wait_for_imageset past its timeout. Like
+        # the real camera, frames keep coming through a step and are stamped from Otto's clock.
+        next_delivery = time.monotonic() + DELIVERY_LATENCY_S
         while True:
-            capture = next_capture
-            next_capture += FRAME_PERIOD_S
-            time.sleep(max(0.0, capture + DELIVERY_LATENCY_S - time.time()))
+            time.sleep(max(0.0, next_delivery - time.monotonic()))
+            next_delivery += FRAME_PERIOD_S
+            capture_us = time.time_ns() // 1000 - int(DELIVERY_LATENCY_S * 1e6)
             imageset = RealsenseImageset(
-                self._color, self._depth, JetsonTimestamp(int(capture * 1e6)), self.intrinsics, self._rs_intrinsics
+                self._color, self._depth, JetsonTimestamp(capture_us), self.intrinsics, self._rs_intrinsics
             )
             if self._queue.full():
                 try:
