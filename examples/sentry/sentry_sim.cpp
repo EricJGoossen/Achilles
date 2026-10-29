@@ -10,10 +10,9 @@
 //                           (Unix socket, run-dir/mcb.sock)
 //   Project Otto           <-- MCB UART bytes      (pty run-dir/mcb_uart)
 //                           <-- LD19 packets        (ptys run-dir/lidar_*)
-//                           <-- RealSense frames (examples/sentry/otto_bridge
-//                                                    renders them from the
-//                                                    camera poses on
-//                                                    run-dir/camera.sock)
+//
+// The RealSense isn't modelled yet: examples/sentry/otto_bridge feeds Otto
+// blank frames at the camera's rate, so its loop runs but sees no tags.
 //
 // Everything between them -- which firmware runs, how the EKF fuses wheel
 // odometry and IMUs, how Otto plans and localizes, the messages each sends
@@ -34,7 +33,7 @@
 //  - The DR16 remote: an operator who calibrates the IMUs, then switches
 //    to autonomous navigation (left switch up, right mid).
 //  - The referee system: robot id, game stage and time, HP, power.
-//  - Two LD19 lidars, the MCB <-> Jetson UART, and the RealSense's pose.
+//  - Two LD19 lidars and the MCB <-> Jetson UART.
 //
 // Physics steps at 500 Hz; the hardware talks at 1 kHz. It runs in real time
 // (the software on both computers lives on wall-clock time), stamps every step
@@ -138,7 +137,6 @@ constexpr float kTurretMcbStatusPeriod = 0.02F;
 constexpr float kIsm330Period = 1.0F / 833.0F;
 constexpr float kEncoderPeriod = 0.002F;
 constexpr float kRemotePeriod = 0.014F;
-constexpr float kCameraPeriod = 1.0F / 60.0F;
 constexpr float kLogPeriod = 0.02F;
 
 // The firmware's LAMPREY_CALIBRATION_MAP (sentry_turret_constants.hpp).
@@ -259,14 +257,12 @@ class SentrySim {
       : sim_(sim),
         args_(args),
         mcb_(args.run_dir + "/mcb.sock"),
-        camera_(args.run_dir + "/camera.sock"),
         vision_uart_(args.run_dir + "/mcb_uart"),
         encoders_(kLampreyMap),
         referee_(sentry::hw::Referee::Config{
             .match_start = args.autonav_at,
         }),
         chassis_row_(sim.RowFor<TopologicalOrdering>({kRobot, "chassis"})),
-        pitch_row_(sim.RowFor<TopologicalOrdering>({kRobot, "widow_pitch"})),
         chassis_x_(
             sim.AttachActuator<LinearActuator>({kRobot, "chassis"}, {1, 0, 0})
         ),
@@ -496,7 +492,6 @@ class SentrySim {
           }
       );
     }
-    camera_.Accept();
   }
 
   // The odometry message (type 1) the MCB sends the Jetson: timestamp, the
@@ -685,9 +680,6 @@ class SentrySim {
     if (physics_stepped) {
       ReportLidars();
     }
-    if (Every(kCameraPeriod, next_camera_)) {
-      SendCameraPose();
-    }
     if (Every(kLogPeriod, next_log_)) {
       Log();
     }
@@ -740,35 +732,6 @@ class SentrySim {
     }
   }
 
-  // The widow pitch link's world pose: what the RealSense rides on. The
-  // camera bridge composes Otto's own turret-to-camera transform onto it.
-  void SendCameraPose() {
-    if (!camera_.Connected()) {
-      return;
-    }
-    const auto world =
-        sim_.ViewFor<ABAAlgorithm>()
-            .Load<ABAField::kWorldTransform, ScalarOperationT>(pitch_row_);
-    const auto unix_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                             std::chrono::system_clock::now().time_since_epoch()
-    )
-                             .count();
-    Bytes message;
-    sentry::hw::Put<double>(message, time_);
-    sentry::hw::Put<std::int64_t>(message, unix_us);
-    for (float v :
-         {world.Translation().X(),
-          world.Translation().Y(),
-          world.Translation().Z()}) {
-      sentry::hw::Put<float>(message, v);
-    }
-    const auto& q = world.Rotation();
-    for (float v : {q.W(), q.X(), q.Y(), q.Z()}) {
-      sentry::hw::Put<float>(message, v);
-    }
-    camera_.Send(message);
-  }
-
   void Log() {
     const auto chassis = TruePose();
     const auto truth = TrueReportedPose();
@@ -797,12 +760,10 @@ class SentrySim {
   Simulation& sim_;
   Args args_;
   McbLink mcb_;
-  sentry::hw::SeqpacketServer camera_;
   sentry::hw::Pty vision_uart_;
   sentry::hw::TurretMajorEncoders encoders_;
   sentry::hw::Referee referee_;
   std::size_t chassis_row_;
-  std::size_t pitch_row_;
   LinearActuator chassis_x_;
   LinearActuator chassis_y_;
   AngularActuator chassis_yaw_;
@@ -828,7 +789,6 @@ class SentrySim {
   double next_turret_mcb_ = 0.0;
   double next_turret_status_ = 0.0;
   double next_remote_ = 0.0;
-  double next_camera_ = 0.0;
   double next_log_ = 0.0;
 };
 
@@ -846,7 +806,7 @@ int Run(const Args& args) {
   std::cout << "sentry sim: MCB socket " << args.run_dir
             << "/mcb.sock, Jetson UART " << args.run_dir << "/mcb_uart, lidars "
             << args.run_dir << "/lidar_front and " << args.run_dir
-            << "/lidar_rear, camera poses " << args.run_dir << "/camera.sock\n"
+            << "/lidar_rear\n"
             << std::flush;
 
   // Real time: the MCB and the Jetson both run on wall-clock time. If the

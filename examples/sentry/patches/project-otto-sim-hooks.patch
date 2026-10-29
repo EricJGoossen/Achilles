@@ -1,0 +1,202 @@
+From 5598bf2128e0f101a5f9c102aef28351541c8373 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 29 Oct 2026 19:52:19 +0000
+Subject: [PATCH] Injectable hardware factories and LD19 device paths, for
+ simulation
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ project_otto/autonav/lidar/_config.py |  3 +-
+ project_otto/autonav/lidar/_lidar.py  | 10 +++++
+ project_otto/main.py                  | 59 ++++++++++++++++++++++-----
+ 3 files changed, 60 insertions(+), 12 deletions(-)
+
+diff --git a/project_otto/autonav/lidar/_config.py b/project_otto/autonav/lidar/_config.py
+index 0ea88b7..a70b1dc 100644
+--- a/project_otto/autonav/lidar/_config.py
++++ b/project_otto/autonav/lidar/_config.py
+@@ -11,7 +11,8 @@ class LiDARConfig:
+     Configuration for a LiDAR.
+ 
+     Args:
+-        port: the USB port that the LiDAR is connected to, e.g. "1-1.2:1.0"
++        port: the USB port that the LiDAR is connected to, e.g. "1-1.2:1.0", or the path of its
++            serial device, e.g. "/dev/serial/by-path/..."
+         valid_start_angle: the start angle which the LiDAR would not hit the robot
+             it is attaching to. Unit: radian
+         valid_end_angle: the end angle which the LiDAR would not hit the robot it
+diff --git a/project_otto/autonav/lidar/_lidar.py b/project_otto/autonav/lidar/_lidar.py
+index 9cdcf0b..567799a 100644
+--- a/project_otto/autonav/lidar/_lidar.py
++++ b/project_otto/autonav/lidar/_lidar.py
+@@ -1,5 +1,6 @@
+ import glob
+ import logging
++import os
+ import subprocess
+ from abc import ABC, abstractmethod
+ from dataclasses import dataclass
+@@ -71,11 +72,20 @@ class LiDAR(ABC):
+ 
+         args:
+             port_name: the name of the port to find, e.g. "1-1.2:1.0"
++        A port name that is already a device path (e.g. "/dev/serial/by-path/...", or a simulator's
++        pseudo-terminal) is used as is.
++
+         returns:
+             the name of the connected USB port, e.g. "/dev/ttyUSB0"
+         throws:
+             ValueError if no connected USB port is found for the given port name
+         """
++        if port_name.startswith("/"):
++            if os.path.exists(port_name):
++                return port_name
++            logging.warning(f"LiDAR device {port_name} does not exist")
++            return None
++
+         for tty in glob.glob("/dev/ttyUSB*"):
+             result = subprocess.run(["udevadm", "info", "-a", "-n", tty], capture_output=True, text=True)
+             for line in result.stdout.splitlines():
+diff --git a/project_otto/main.py b/project_otto/main.py
+index 6bcd8e0..899359a 100644
+--- a/project_otto/main.py
++++ b/project_otto/main.py
+@@ -7,6 +7,7 @@ import asyncio
+ import logging
+ import os
+ import time
++from dataclasses import dataclass
+ from threading import Thread
+ from time import perf_counter
+ from types import TracebackType
+@@ -26,7 +27,7 @@ import torch
+ 
+ from project_otto.application_config import ApplicationConfig
+ from project_otto.autonav import AutonavRunner
+-from project_otto.camera.image import Imageset
++from project_otto.camera.image import Imageset, ImagesetSource
+ from project_otto.camera.imageset_sources import (
+     ArducamImagesetSource,
+     RealsenseConfig,
+@@ -70,6 +71,8 @@ from project_otto.core.data_logging import (
+     HWAccelVideoDumper,
+     LogDirectorySelector,
+     ModuleLoggers,
++    VideoDumper,
++    VideoDumperConfig,
+     configure_logger,
+ )
+ from project_otto.core.frames import CameraFrame, TurretReferencePointFrame, WorldFrame
+@@ -84,7 +87,7 @@ from project_otto.odometry import ChassisOdometryState, TransformUpdateError
+ from project_otto.vision.fire_rate._fire_rate import FireRate
+ from project_otto.vision.graphics import DebugRenderer
+ from project_otto.vision.target import Robot
+-from project_otto.vision.target_detector import IconTargetDetector
++from project_otto.vision.target_detector import IconTargetDetector, TargetDetector
+ from project_otto.vision.turret import (
+     Turret,
+     TurretId,
+@@ -145,6 +148,35 @@ def _selected_robot_estimate(turret: Turret) -> Robot:
+     return turret.selected_scored_robot.robot
+ 
+ 
++@dataclass
++class HardwareFactories:
++    """
++    How the application opens the robot's cameras, video recorder and plate detector.
++
++    The defaults open the real devices: RealSense cameras, the Jetson's hardware video encoder,
++    the GPU detector, and the USB/driver resets and device listings that precede them. A
++    simulator substitutes its own and skips the device housekeeping; everything downstream is
++    unchanged. The MCB link and the LiDARs need no factory: they are serial devices opened by path
++    from the configuration.
++
++    Args:
++        create_camera: Opens a camera from its serial number (None: any) and stream settings.
++        create_video_dumper: Opens a video recorder writing to a directory.
++        create_detector: Loads the plate detector from its weights file.
++        manage_devices: Whether to reset USB/drivers/hardware as configured and list the
++            connected cameras before opening them.
++    """
++
++    create_camera: Callable[[Optional[str], RealsenseConfig], ImagesetSource[JetsonTimestamp]] = (
++        RealsenseImagesetSource
++    )
++    create_video_dumper: Callable[[str, VideoDumperConfig], VideoDumper[Imageset[JetsonTimestamp]]] = (
++        HWAccelVideoDumper
++    )
++    create_detector: Callable[[str], TargetDetector] = IconTargetDetector
++    manage_devices: bool = True
++
++
+ class MainApplication:
+     """
+     The top-level Project Otto application.
+@@ -154,8 +186,10 @@ class MainApplication:
+         self,
+         config: ApplicationConfig,
+         cli_config: CommandlineOptions,
++        hardware: Optional[HardwareFactories] = None,
+     ):
+         self._config = config
++        self._hardware = hardware if hardware is not None else HardwareFactories()
+ 
+         self._chassis_buffer: TimestampedHistoryBuffer[JetsonTimestamp, ChassisOdometryState] = (
+             TimestampedHistoryBuffer.from_config(self._config.odometry_buffer)
+@@ -251,33 +285,36 @@ class MainApplication:
+         _ = torch.set_grad_enabled(False)
+ 
+         # BEGIN: Reset USB, Reload drivers, Reset hardware
+-        if self._config.realsense_reset.reset_usb:
++        if self._hardware.manage_devices and self._config.realsense_reset.reset_usb:
+             reset_usb_connection(
+                 self._config.realsense_reset.vendor_id,
+                 self._config.realsense_reset.product_id,
+             )
+ 
+-        if self._config.realsense_reset.reload_drivers:
++        if self._hardware.manage_devices and self._config.realsense_reset.reload_drivers:
+             for driver in self._config.realsense_reset.drivers:
+                 reload_driver(driver)
+ 
+-        if self._config.realsense_reset.reset_usb or self._config.realsense_reset.reload_drivers:
++        if self._hardware.manage_devices and (
++            self._config.realsense_reset.reset_usb or self._config.realsense_reset.reload_drivers
++        ):
+             time.sleep(self._config.realsense_reset.reset_usb_reload_drivers_timer)
+ 
+-        if self._config.realsense_reset.reset_hardware:
++        if self._hardware.manage_devices and self._config.realsense_reset.reset_hardware:
+             hardware_reset()
+             time.sleep(self._config.realsense_reset.reset_hardware_timer)
+         # END: Reset USB, Reload drivers, Reset hardware
+ 
+         logging.info("Initializing RealSense...")
+-        RealsenseImagesetSource.log_camera_info()
+-        ArducamImagesetSource.log_camera_info()
+-        self._cameras = init_cameras(self._config, RealsenseImagesetSource.__call__)
++        if self._hardware.manage_devices:
++            RealsenseImagesetSource.log_camera_info()
++            ArducamImagesetSource.log_camera_info()
++        self._cameras = init_cameras(self._config, self._hardware.create_camera)
+         self._turrets = init_turrets(
+             self._config,
+             self._cameras,
+             self._log_dir,
+-            HWAccelVideoDumper.__call__,
++            self._hardware.create_video_dumper,
+             self._chassis_buffer,
+         )
+         self._arducams = init_arducam_aruco(self._config, self._log_dir)
+@@ -295,7 +332,7 @@ class MainApplication:
+         )
+ 
+         logging.info("Loading detector model...")
+-        self._detector = IconTargetDetector(self._config.detector.weights_path)
++        self._detector = self._hardware.create_detector(self._config.detector.weights_path)
+ 
+         logging.info("Starting comms thread...")
+         self._uart_thread = Thread(
+-- 
+2.43.0
+

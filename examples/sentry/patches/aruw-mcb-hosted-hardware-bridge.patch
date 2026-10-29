@@ -1,0 +1,1213 @@
+From 62e63a177b52aa051b914612f577cadf74214dc3 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 29 Oct 2026 19:52:19 +0000
+Subject: [PATCH] Hosted hardware backend so the sim build can run against an
+ external simulator
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../sensors/imu/ism330/ism330.cpp             |  92 ++-
+ .../sensors/imu/ism330/ism330.hpp             |   9 +
+ .../communication/sim/sim_hardware_bridge.cpp | 556 ++++++++++++++++++
+ .../communication/sim/sim_hardware_bridge.hpp |  48 ++
+ .../aruwsrc/robot/sentry/sentry_drivers.hpp   |   6 +
+ aruw-mcb-project/src/main.cpp                 |   4 +
+ .../architecture/hosted_hardware_backend.cpp  |  37 ++
+ .../architecture/hosted_hardware_backend.hpp  |  93 +++
+ .../taproot/src/tap/communication/can/can.cpp |   9 +
+ .../sensors/imu/mpu6500/mpu6500.cpp           |  53 +-
+ .../sensors/imu/mpu6500/mpu6500.hpp           |   3 +
+ .../src/tap/communication/serial/uart.cpp     |  37 +-
+ 12 files changed, 888 insertions(+), 59 deletions(-)
+ create mode 100644 aruw-mcb-project/src/aruwsrc/communication/sim/sim_hardware_bridge.cpp
+ create mode 100644 aruw-mcb-project/src/aruwsrc/communication/sim/sim_hardware_bridge.hpp
+ create mode 100644 aruw-mcb-project/taproot/src/tap/architecture/hosted_hardware_backend.cpp
+ create mode 100644 aruw-mcb-project/taproot/src/tap/architecture/hosted_hardware_backend.hpp
+
+diff --git a/aruw-mcb-project/src/aruwsrc/communication/sensors/imu/ism330/ism330.cpp b/aruw-mcb-project/src/aruwsrc/communication/sensors/imu/ism330/ism330.cpp
+index 36b99aabb..87fdce1d0 100644
+--- a/aruw-mcb-project/src/aruwsrc/communication/sensors/imu/ism330/ism330.cpp
++++ b/aruw-mcb-project/src/aruwsrc/communication/sensors/imu/ism330/ism330.cpp
+@@ -21,6 +21,9 @@
+ 
+ #include "tap/algorithms/math_user_utils.hpp"
+ #include "tap/board/board.hpp"
++#ifdef PLATFORM_HOSTED
++#include "tap/architecture/hosted_hardware_backend.hpp"
++#endif
+ 
+ #include "ism330_data.hpp"
+ 
+@@ -31,6 +34,9 @@ namespace aruwsrc::communication::sensors::imu::ism330
+ using namespace tap::communication::sensors::imu;
+ ISM330* ISM330::spiOwner = nullptr;
+ #ifdef PLATFORM_HOSTED
++uint8_t ISM330::hostedInstanceCount = 0;
++#endif
++#ifdef PLATFORM_HOSTED
+ namespace
+ {
+ void noopChipSelectControl() {}
+@@ -48,7 +54,13 @@ ISM330::ISM330()
+ 
+ ISM330::ISM330(ChipSelectControl chipSelectControl)
+     : AbstractIMU(),
+-      chipSelectControl(chipSelectControl){};
++      chipSelectControl(chipSelectControl)
++#ifdef PLATFORM_HOSTED
++      ,
++      hostedInstance(hostedInstanceCount++)
++#endif
++{
++}
+ 
+ void ISM330::initialize(float sampleFrequency, float mahonyKp, float mahonyKi)
+ {
+@@ -67,6 +79,11 @@ void ISM330::initialize(float sampleFrequency, float mahonyKp, float mahonyKi)
+     setGyroRange(DEFAULT_GYRO_RANGE);
+     setAccelRange(DEFAULT_ACCEL_RANGE);
+     counter = spiReadRegister(WHO_AM_I);
++#else
++    // No registers to write, but the read timeout and scales still follow the configuration.
++    setODR(DEFAULT_ODR);
++    setGyroRange(DEFAULT_GYRO_RANGE);
++    setAccelRange(DEFAULT_ACCEL_RANGE);
+ #endif
+ }
+ 
+@@ -87,8 +104,6 @@ AbstractIMU::ImuData addImuMeasurementData(
+ bool ISM330::read()
+ {
+ #ifndef PLATFORM_HOSTED
+-    float gyroX, gyroY, gyroZ, accX, accY, accZ;
+-
+     PT_BEGIN();
+     while (true)
+     {
+@@ -146,30 +161,7 @@ bool ISM330::read()
+         PT_CALL(Board::GenSpiMaster::transfer(txBuff, rxBuff, READ_LENGTH));
+         ismNssHigh();
+ 
+-        curImuData.temperature = tempValueToCelsius(rxBuff);
+-        gyroX = gyroValueToRadPerSec(rxBuff + 2);
+-        gyroY = gyroValueToRadPerSec(rxBuff + 4);
+-        gyroZ = gyroValueToRadPerSec(rxBuff + 6);
+-
+-        accX = accelValueToMeterPerSec(rxBuff + 8);
+-        accY = accelValueToMeterPerSec(rxBuff + 10);
+-        accZ = accelValueToMeterPerSec(rxBuff + 12);
+-
+-        curImuData.gyroRaw = {gyroX, gyroY, gyroZ};
+-        curImuData.accRaw = {accX, accY, accZ};
+-
+-        applyMountingTransformToRaw(curImuData);
+-
+-        curImuData.gyroRadPerSec = curImuData.gyroRaw - curImuData.gyroOffsetRaw;
+-        curImuData.accG = curImuData.accRaw - curImuData.accOffsetRaw;
+-
+-        prevIMUDataReceivedTime = tap::arch::clock::getTimeMicroseconds();
+-        sampleCounter++;
+-        sumImuData = addImuMeasurementData(sumImuData, curImuData);
+-        if (sampleCounter >= MAX_NUM_SAMPLES)
+-        {
+-            updateImuMeasurement();
+-        }
++        processDataRegisterBurst();
+ 
+         if (imuState == ImuState::IMU_NOT_CONNECTED)
+         {
+@@ -179,8 +171,52 @@ bool ISM330::read()
+     }
+     PT_END();
+     return true;
+-#endif
++#else
++    // The simulator, if attached, clocks out the same register burst the SPI read would.
++    auto* backend = tap::arch::hosted::getHardwareBackend();
++    if (backend != nullptr &&
++        backend->imuReadBurst(
++            tap::arch::hosted::HardwareBackend::ImuChip::ISM330,
++            hostedInstance,
++            rxBuff,
++            READ_LENGTH))
++    {
++        processDataRegisterBurst();
++        if (imuState == ImuState::IMU_NOT_CONNECTED)
++        {
++            imuState = prevImuState;
++        }
++    }
+     return false;
++#endif
++}
++
++void ISM330::processDataRegisterBurst()
++{
++    curImuData.temperature = tempValueToCelsius(rxBuff);
++    float gyroX = gyroValueToRadPerSec(rxBuff + 2);
++    float gyroY = gyroValueToRadPerSec(rxBuff + 4);
++    float gyroZ = gyroValueToRadPerSec(rxBuff + 6);
++
++    float accX = accelValueToMeterPerSec(rxBuff + 8);
++    float accY = accelValueToMeterPerSec(rxBuff + 10);
++    float accZ = accelValueToMeterPerSec(rxBuff + 12);
++
++    curImuData.gyroRaw = {gyroX, gyroY, gyroZ};
++    curImuData.accRaw = {accX, accY, accZ};
++
++    applyMountingTransformToRaw(curImuData);
++
++    curImuData.gyroRadPerSec = curImuData.gyroRaw - curImuData.gyroOffsetRaw;
++    curImuData.accG = curImuData.accRaw - curImuData.accOffsetRaw;
++
++    prevIMUDataReceivedTime = tap::arch::clock::getTimeMicroseconds();
++    sampleCounter++;
++    sumImuData = addImuMeasurementData(sumImuData, curImuData);
++    if (sampleCounter >= MAX_NUM_SAMPLES)
++    {
++        updateImuMeasurement();
++    }
+ }
+ 
+ void ISM330::spiWriteRegister(uint8_t reg, uint8_t data)
+diff --git a/aruw-mcb-project/src/aruwsrc/communication/sensors/imu/ism330/ism330.hpp b/aruw-mcb-project/src/aruwsrc/communication/sensors/imu/ism330/ism330.hpp
+index c4e41e3dd..f628db74c 100644
+--- a/aruw-mcb-project/src/aruwsrc/communication/sensors/imu/ism330/ism330.hpp
++++ b/aruw-mcb-project/src/aruwsrc/communication/sensors/imu/ism330/ism330.hpp
+@@ -105,6 +105,15 @@ class ISM330 : public AbstractIMU, public modm::pt::Protothread
+         static void setHigh() { ChipSelectGpio::setOutput(true); }
+     };
+ 
++    /// Converts the temperature/gyro/accel burst in rxBuff into the IMU's measurement.
++    void processDataRegisterBurst();
++
++#ifdef PLATFORM_HOSTED
++    /// Which ISM330 this is, in construction order; tells the simulator's chips apart.
++    uint8_t hostedInstance;
++    static uint8_t hostedInstanceCount;
++#endif
++
+     // Pull CS low to read / write.
+     void ismNssLow();
+ 
+diff --git a/aruw-mcb-project/src/aruwsrc/communication/sim/sim_hardware_bridge.cpp b/aruw-mcb-project/src/aruwsrc/communication/sim/sim_hardware_bridge.cpp
+new file mode 100644
+index 000000000..89c53a412
+--- /dev/null
++++ b/aruw-mcb-project/src/aruwsrc/communication/sim/sim_hardware_bridge.cpp
+@@ -0,0 +1,556 @@
++/*
++ * Copyright (c) 2026 Advanced Robotics at the University of Washington <robomstr@uw.edu>
++ *
++ * This file is part of aruw-mcb.
++ *
++ * aruw-mcb is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * aruw-mcb is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with aruw-mcb.  If not, see <https://www.gnu.org/licenses/>.
++ */
++
++#if defined(PLATFORM_HOSTED) && !defined(ENV_UNIT_TESTS)
++
++#include "sim_hardware_bridge.hpp"
++
++#include <sys/socket.h>
++#include <sys/un.h>
++#include <unistd.h>
++
++#include <array>
++#include <atomic>
++#include <cerrno>
++#include <chrono>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <deque>
++#include <map>
++#include <thread>
++#include <vector>
++
++#include "tap/architecture/hosted_hardware_backend.hpp"
++
++#include "modm/architecture/interface/can_message.hpp"
++#include "modm/architecture/interface/clock.hpp"
++
++/*
++ * Wire format. One SOCK_SEQPACKET datagram per message, little endian, no padding. The first
++ * byte is the message type:
++ *
++ *   HELLO  (mcb -> sim)  [0x00][version u8]
++ *   CAN    (both ways)   [0x01][bus u8: 0 = CAN1, 1 = CAN2][length u8][flags u8: bit0 extended,
++ *                         bit1 remote][identifier u32][data 8 bytes]
++ *   UART   (both ways)   [0x02][port u8: tap Uart::UartPort value][length u16][bytes...]
++ *   IMU    (sim -> mcb)  [0x03][chip u8: HardwareBackend::ImuChip][instance u8][length u8]
++ *                        [data-register burst...]
++ *   TIME   (sim -> mcb)  [0x04][simulated time, microseconds u64][step period, microseconds u32]
++ *
++ * The simulator sends TIME once per physics step, before that step's sensor data.
++ */
++
++namespace aruwsrc::communication::sim
++{
++namespace
++{
++constexpr uint8_t PROTOCOL_VERSION = 1;
++
++enum MessageType : uint8_t
++{
++    HELLO = 0x00,
++    CAN = 0x01,
++    UART = 0x02,
++    IMU = 0x03,
++    TIME = 0x04,
++};
++
++constexpr size_t NUM_CAN_BUSES = 2;
++constexpr size_t NUM_UART_PORTS = 8;
++constexpr size_t NUM_IMU_SLOTS = 8;
++constexpr size_t MAX_IMU_BURST = 32;
++// bxCAN has a 3-deep receive FIFO per bus; the hosted main loop drains one frame per bus per
++// pass, far more often than the hardware's interrupt-fed queue would be, so this only matters
++// if the MCB stalls.
++constexpr size_t CAN_RX_QUEUE_DEPTH = 256;
++// The modm UART receive buffers on the MCB.
++constexpr size_t UART_RX_BUFFER_SIZE = 4096;
++
++/// Simulated time, published by the bridge for the clock overrides below.
++std::atomic<bool> simClockActive{false};
++std::atomic<uint64_t> simTimeUs{0};
++std::atomic<uint32_t> simStepUs{0};
++std::atomic<int64_t> simTimeWallUs{0};
++/// What modm's own hosted clocks read when simulated time took over, less the simulated time
++/// then: the clocks carry on from where they were, so timers armed before the simulator
++/// attached (static ones, for instance) still expire on schedule.
++std::atomic<int64_t> milliClockOffsetMs{0};
++std::atomic<int64_t> microClockOffsetUs{0};
++
++int64_t modmMilliNow()
++{
++    return std::chrono::duration_cast<std::chrono::milliseconds>(
++               std::chrono::steady_clock::now().time_since_epoch())
++        .count();
++}
++
++int64_t modmMicroNow()
++{
++    return std::chrono::duration_cast<std::chrono::microseconds>(
++               std::chrono::high_resolution_clock::now().time_since_epoch())
++        .count();
++}
++
++int64_t wallMicros()
++{
++    return std::chrono::duration_cast<std::chrono::microseconds>(
++               std::chrono::steady_clock::now().time_since_epoch())
++        .count();
++}
++
++/**
++ * The current simulated time: the last stamped step plus however much wall time has passed
++ * since, but never beyond the next step, so time is smooth between steps yet cannot run ahead
++ * of a simulation that has fallen behind real time.
++ */
++uint64_t currentSimMicros()
++{
++    const uint64_t base = simTimeUs.load(std::memory_order_acquire);
++    const int64_t sinceStep = wallMicros() - simTimeWallUs.load(std::memory_order_acquire);
++    const int64_t step = simStepUs.load(std::memory_order_relaxed);
++    const int64_t ahead = sinceStep < 0 ? 0 : (sinceStep >= step ? step - 1 : sinceStep);
++    return base + static_cast<uint64_t>(ahead < 0 ? 0 : ahead);
++}
++
++class SimHardwareBridge final : public tap::arch::hosted::HardwareBackend
++{
++public:
++    explicit SimHardwareBridge(int socketFd) : fd(socketFd)
++    {
++        const char *debugText = std::getenv("ARUW_SIM_DEBUG");
++        debug = debugText != nullptr && debugText[0] != '\0' && debugText[0] != '0';
++    }
++
++    bool canSend(tap::can::CanBus bus, const modm::can::Message &message) override
++    {
++        std::array<uint8_t, 16> packet{};
++        packet[0] = CAN;
++        packet[1] = static_cast<uint8_t>(bus);
++        packet[2] = message.getLength();
++        packet[3] = (message.isExtended() ? 1 : 0) | (message.isRemoteTransmitRequest() ? 2 : 0);
++        const uint32_t id = message.getIdentifier();
++        std::memcpy(&packet[4], &id, sizeof(id));
++        std::memcpy(&packet[8], message.data, 8);
++        return sendPacket(packet.data(), packet.size());
++    }
++
++    bool canReceive(tap::can::CanBus bus, modm::can::Message *message) override
++    {
++        pump();
++        auto &queue = canRx[busIndex(bus)];
++        if (queue.empty())
++        {
++            return false;
++        }
++        *message = queue.front();
++        queue.pop_front();
++        if (debug)
++        {
++            countDelivered(busIndex(bus), message->getIdentifier());
++        }
++        return true;
++    }
++
++    size_t uartRead(uint8_t port, uint8_t *data, size_t length) override
++    {
++        pump();
++        if (port >= NUM_UART_PORTS)
++        {
++            return 0;
++        }
++        auto &buffer = uartRx[port];
++        size_t count = 0;
++        while (count < length && !buffer.empty())
++        {
++            data[count++] = buffer.front();
++            buffer.pop_front();
++        }
++        return count;
++    }
++
++    size_t uartWrite(uint8_t port, const uint8_t *data, size_t length) override
++    {
++        constexpr size_t MAX_CHUNK = 1024;
++        size_t written = 0;
++        while (written < length)
++        {
++            const size_t chunk = std::min(MAX_CHUNK, length - written);
++            std::vector<uint8_t> packet(4 + chunk);
++            packet[0] = UART;
++            packet[1] = port;
++            const uint16_t chunkLength = static_cast<uint16_t>(chunk);
++            std::memcpy(&packet[2], &chunkLength, sizeof(chunkLength));
++            std::memcpy(&packet[4], data + written, chunk);
++            if (!sendPacket(packet.data(), packet.size()))
++            {
++                break;
++            }
++            written += chunk;
++        }
++        return written;
++    }
++
++    size_t uartDiscardReceiveBuffer(uint8_t port) override
++    {
++        pump();
++        if (port >= NUM_UART_PORTS)
++        {
++            return 0;
++        }
++        const size_t dropped = uartRx[port].size();
++        uartRx[port].clear();
++        return dropped;
++    }
++
++    bool imuReadBurst(ImuChip chip, uint8_t instance, uint8_t *data, size_t length) override
++    {
++        pump();
++        ImuSlot *slot = findImuSlot(static_cast<uint8_t>(chip), instance, false);
++        if (slot == nullptr || !slot->fresh || length > slot->length)
++        {
++            return false;
++        }
++        std::memcpy(data, slot->burst.data(), length);
++        slot->fresh = false;
++        return true;
++    }
++
++    bool sendHello()
++    {
++        const uint8_t packet[2] = {HELLO, PROTOCOL_VERSION};
++        return sendPacket(packet, sizeof(packet));
++    }
++
++    /// Reads every datagram waiting on the socket.
++    void pump()
++    {
++        std::array<uint8_t, 65536> packet;
++        while (true)
++        {
++            const ssize_t size = recv(fd, packet.data(), packet.size(), MSG_DONTWAIT);
++            if (size < 0)
++            {
++                if (errno == EAGAIN || errno == EINTR)
++                {
++                    return;
++                }
++                disconnected("recv failed");
++            }
++            if (size == 0)
++            {
++                disconnected("simulator closed the connection");
++            }
++            handlePacket(packet.data(), static_cast<size_t>(size));
++        }
++    }
++
++private:
++    /// With ARUW_SIM_DEBUG set: once a second, how many frames of each id reached the firmware.
++    void countDelivered(size_t bus, uint32_t id)
++    {
++        deliveredCounts[{bus, id}]++;
++        const int64_t now = wallMicros();
++        if (now - lastDebugPrintUs < 1'000'000)
++        {
++            return;
++        }
++        lastDebugPrintUs = now;
++        std::fprintf(stderr, "sim hardware bridge: CAN frames delivered in the last second:");
++        for (const auto &[key, count] : deliveredCounts)
++        {
++            std::fprintf(stderr, " %zu:0x%03x=%u", key.first + 1, key.second, count);
++        }
++        std::fprintf(stderr, " (queued %zu/%zu)\n", canRx[0].size(), canRx[1].size());
++        deliveredCounts.clear();
++    }
++
++    struct ImuSlot
++    {
++        bool used = false;
++        bool fresh = false;
++        uint8_t chip = 0;
++        uint8_t instance = 0;
++        uint8_t length = 0;
++        std::array<uint8_t, MAX_IMU_BURST> burst{};
++    };
++
++    static size_t busIndex(tap::can::CanBus bus)
++    {
++        return bus == tap::can::CanBus::CAN_BUS1 ? 0 : 1;
++    }
++
++    [[noreturn]] static void disconnected(const char *why)
++    {
++        std::fprintf(stderr, "sim hardware bridge: %s; shutting down\n", why);
++        std::exit(0);
++    }
++
++    bool sendPacket(const uint8_t *packet, size_t size)
++    {
++        while (true)
++        {
++            const ssize_t sent = send(fd, packet, size, MSG_DONTWAIT | MSG_NOSIGNAL);
++            if (sent == static_cast<ssize_t>(size))
++            {
++                return true;
++            }
++            if (sent < 0 && errno == EINTR)
++            {
++                continue;
++            }
++            if (sent < 0 && errno == EAGAIN)
++            {
++                // The simulator isn't keeping up; like a saturated bus, the frame is lost.
++                return false;
++            }
++            if (sent < 0 && (errno == EPIPE || errno == ECONNRESET))
++            {
++                disconnected("simulator closed the connection");
++            }
++            return false;
++        }
++    }
++
++    ImuSlot *findImuSlot(uint8_t chip, uint8_t instance, bool create)
++    {
++        for (auto &slot : imuSlots)
++        {
++            if (slot.used && slot.chip == chip && slot.instance == instance)
++            {
++                return &slot;
++            }
++        }
++        if (!create)
++        {
++            return nullptr;
++        }
++        for (auto &slot : imuSlots)
++        {
++            if (!slot.used)
++            {
++                slot.used = true;
++                slot.chip = chip;
++                slot.instance = instance;
++                return &slot;
++            }
++        }
++        return nullptr;
++    }
++
++    void handlePacket(const uint8_t *packet, size_t size)
++    {
++        switch (packet[0])
++        {
++            case CAN:
++            {
++                if (size < 16 || packet[1] >= NUM_CAN_BUSES)
++                {
++                    return;
++                }
++                uint32_t id;
++                std::memcpy(&id, &packet[4], sizeof(id));
++                modm::can::Message message(id, std::min<uint8_t>(packet[2], 8));
++                message.setExtended(packet[3] & 1);
++                message.setRemoteTransmitRequest(packet[3] & 2);
++                std::memcpy(message.data, &packet[8], 8);
++                auto &queue = canRx[packet[1]];
++                if (queue.size() >= CAN_RX_QUEUE_DEPTH)
++                {
++                    queue.pop_front();  // FIFO overrun: the oldest frame is lost
++                }
++                queue.push_back(message);
++                break;
++            }
++            case UART:
++            {
++                if (size < 4 || packet[1] >= NUM_UART_PORTS)
++                {
++                    return;
++                }
++                uint16_t length;
++                std::memcpy(&length, &packet[2], sizeof(length));
++                length = std::min<uint16_t>(length, static_cast<uint16_t>(size - 4));
++                auto &buffer = uartRx[packet[1]];
++                for (uint16_t i = 0; i < length; i++)
++                {
++                    if (buffer.size() >= UART_RX_BUFFER_SIZE)
++                    {
++                        break;  // receive buffer overrun: later bytes are lost
++                    }
++                    buffer.push_back(packet[4 + i]);
++                }
++                break;
++            }
++            case IMU:
++            {
++                if (size < 4 || packet[3] > MAX_IMU_BURST || size < 4u + packet[3])
++                {
++                    return;
++                }
++                ImuSlot *slot = findImuSlot(packet[1], packet[2], true);
++                if (slot == nullptr)
++                {
++                    return;
++                }
++                slot->length = packet[3];
++                std::memcpy(slot->burst.data(), &packet[4], packet[3]);
++                slot->fresh = true;
++                break;
++            }
++            case TIME:
++            {
++                if (size < 13)
++                {
++                    return;
++                }
++                uint64_t time;
++                uint32_t step;
++                std::memcpy(&time, &packet[1], sizeof(time));
++                std::memcpy(&step, &packet[9], sizeof(step));
++                if (!simClockActive.load())
++                {
++                    milliClockOffsetMs.store(modmMilliNow() - static_cast<int64_t>(time / 1000));
++                    microClockOffsetUs.store(modmMicroNow() - static_cast<int64_t>(time));
++                }
++                // Never step the clock backwards, even across a late stamp.
++                if (time >= currentSimMicros() || !simClockActive.load())
++                {
++                    simStepUs.store(step == 0 ? 1 : step, std::memory_order_relaxed);
++                    simTimeWallUs.store(wallMicros(), std::memory_order_release);
++                    simTimeUs.store(time, std::memory_order_release);
++                }
++                simClockActive.store(true, std::memory_order_release);
++                break;
++            }
++            default:
++                break;
++        }
++    }
++
++    int fd;
++    bool debug = false;
++    std::map<std::pair<size_t, uint32_t>, unsigned> deliveredCounts;
++    int64_t lastDebugPrintUs = 0;
++    std::array<std::deque<modm::can::Message>, NUM_CAN_BUSES> canRx;
++    std::array<std::deque<uint8_t>, NUM_UART_PORTS> uartRx;
++    std::array<ImuSlot, NUM_IMU_SLOTS> imuSlots;
++};
++
++int connectWithRetry(const char *path, double timeoutSeconds)
++{
++    sockaddr_un address{};
++    address.sun_family = AF_UNIX;
++    if (std::strlen(path) >= sizeof(address.sun_path))
++    {
++        std::fprintf(stderr, "sim hardware bridge: socket path too long: %s\n", path);
++        std::exit(1);
++    }
++    std::strncpy(address.sun_path, path, sizeof(address.sun_path) - 1);
++
++    const auto deadline =
++        std::chrono::steady_clock::now() + std::chrono::duration<double>(timeoutSeconds);
++    while (true)
++    {
++        const int fd = socket(AF_UNIX, SOCK_SEQPACKET, 0);
++        if (fd < 0)
++        {
++            std::perror("sim hardware bridge: socket");
++            std::exit(1);
++        }
++        if (connect(fd, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == 0)
++        {
++            return fd;
++        }
++        close(fd);
++        if (std::chrono::steady_clock::now() > deadline)
++        {
++            std::fprintf(stderr, "sim hardware bridge: could not connect to %s\n", path);
++            std::exit(1);
++        }
++        std::this_thread::sleep_for(std::chrono::milliseconds(50));
++    }
++}
++
++}  // namespace
++
++void connectSimHardwareBridgeFromEnvironment()
++{
++    const char *path = std::getenv("ARUW_SIM_HARDWARE_SOCKET");
++    if (path == nullptr || path[0] == '\0')
++    {
++        return;
++    }
++    const char *timeoutText = std::getenv("ARUW_SIM_CONNECT_TIMEOUT_S");
++    const double timeout = timeoutText != nullptr ? std::atof(timeoutText) : 30.0;
++
++    const int fd = connectWithRetry(path, timeout);
++    static SimHardwareBridge bridge(fd);
++    if (!bridge.sendHello())
++    {
++        std::fprintf(stderr, "sim hardware bridge: handshake failed\n");
++        std::exit(1);
++    }
++
++    // Wait for the simulator's first time stamp so the clock starts on simulated time.
++    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
++    while (!simClockActive.load() && std::chrono::steady_clock::now() < deadline)
++    {
++        bridge.pump();
++        std::this_thread::sleep_for(std::chrono::microseconds(200));
++    }
++
++    tap::arch::hosted::setHardwareBackend(&bridge);
++    std::printf("sim hardware bridge: connected to %s\n", path);
++    std::fflush(stdout);
++}
++
++}  // namespace aruwsrc::communication::sim
++
++// Strong definitions of modm's (weak) hosted clocks: while a simulator is attached, the MCB runs
++// on simulated time.
++modm::chrono::milli_clock::time_point modm::chrono::milli_clock::now() noexcept
++{
++    using aruwsrc::communication::sim::currentSimMicros;
++    using aruwsrc::communication::sim::simClockActive;
++    using aruwsrc::communication::sim::milliClockOffsetMs;
++    if (simClockActive.load(std::memory_order_acquire))
++    {
++        return time_point{duration{static_cast<uint32_t>(
++            static_cast<int64_t>(currentSimMicros() / 1000) + milliClockOffsetMs.load())}};
++    }
++    const auto time = std::chrono::steady_clock::now().time_since_epoch();
++    return time_point{std::chrono::duration_cast<duration>(time)};
++}
++
++modm::chrono::micro_clock::time_point modm::chrono::micro_clock::now() noexcept
++{
++    using aruwsrc::communication::sim::currentSimMicros;
++    using aruwsrc::communication::sim::simClockActive;
++    using aruwsrc::communication::sim::microClockOffsetUs;
++    if (simClockActive.load(std::memory_order_acquire))
++    {
++        return time_point{duration{static_cast<uint32_t>(
++            static_cast<int64_t>(currentSimMicros()) + microClockOffsetUs.load())}};
++    }
++    const auto time = std::chrono::high_resolution_clock::now().time_since_epoch();
++    return time_point{std::chrono::duration_cast<duration>(time)};
++}
++
++#endif
+diff --git a/aruw-mcb-project/src/aruwsrc/communication/sim/sim_hardware_bridge.hpp b/aruw-mcb-project/src/aruwsrc/communication/sim/sim_hardware_bridge.hpp
+new file mode 100644
+index 000000000..e31cfac79
+--- /dev/null
++++ b/aruw-mcb-project/src/aruwsrc/communication/sim/sim_hardware_bridge.hpp
+@@ -0,0 +1,48 @@
++/*
++ * Copyright (c) 2026 Advanced Robotics at the University of Washington <robomstr@uw.edu>
++ *
++ * This file is part of aruw-mcb.
++ *
++ * aruw-mcb is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * aruw-mcb is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with aruw-mcb.  If not, see <https://www.gnu.org/licenses/>.
++ */
++
++#ifndef SIM_HARDWARE_BRIDGE_HPP_
++#define SIM_HARDWARE_BRIDGE_HPP_
++
++#if defined(PLATFORM_HOSTED) && !defined(ENV_UNIT_TESTS)
++
++namespace aruwsrc::communication::sim
++{
++/**
++ * Connects the hosted build to an external simulator's hardware emulation, if one is named.
++ *
++ * When the environment variable `ARUW_SIM_HARDWARE_SOCKET` holds the path of a Unix
++ * SOCK_SEQPACKET socket, connects to it (waiting up to `ARUW_SIM_CONNECT_TIMEOUT_S` seconds,
++ * default 30, for the simulator to start listening) and installs a
++ * `tap::arch::hosted::HardwareBackend` that carries the robot's CAN frames, UART bytes and SPI
++ * IMU register bursts over it. From then on the MCB's clock also follows the simulator's: the
++ * simulator stamps every physics step, so the control code sees simulated time even if the
++ * simulation runs slower than real time. With the variable unset, does nothing.
++ *
++ * The wire format is documented in sim_hardware_bridge.cpp. Call before any peripheral is
++ * initialized. Exits the process if the simulator goes away, as a robot does when it loses
++ * power.
++ */
++void connectSimHardwareBridgeFromEnvironment();
++
++}  // namespace aruwsrc::communication::sim
++
++#endif
++
++#endif  // SIM_HARDWARE_BRIDGE_HPP_
+diff --git a/aruw-mcb-project/src/aruwsrc/robot/sentry/sentry_drivers.hpp b/aruw-mcb-project/src/aruwsrc/robot/sentry/sentry_drivers.hpp
+index 4b89e5e64..8a0f1872a 100644
+--- a/aruw-mcb-project/src/aruwsrc/robot/sentry/sentry_drivers.hpp
++++ b/aruw-mcb-project/src/aruwsrc/robot/sentry/sentry_drivers.hpp
+@@ -90,12 +90,18 @@ class Drivers : public tap::Drivers
+               tap::can::CanBus::CAN_BUS2,
+               aruwsrc::control::chassis::CAP_BANK_CAPACITANCE,
+               aruwsrc::control::chassis::CAP_BANK_MAX_AVAILABLE_POWER),
++#ifdef PLATFORM_HOSTED
++          // No SPI chip-select GPIOs in the hosted build; the sim supplies the readings.
++          turretMajorPrimaryImu(),
++          turretMajorImuSecondary(),
++#else
+           turretMajorPrimaryImu(
+               aruwsrc::communication::sensors::imu::ism330::ISM330::chipSelectFromGpio<
+                   Board::SpiNss>()),
+           turretMajorImuSecondary(
+               aruwsrc::communication::sensors::imu::ism330::ISM330::chipSelectFromGpio<
+                   modm::platform::GpioD12>()),
++#endif
+           turretMajorImu(
+               {&turretMajorPrimaryImu, &turretMajorImuSecondary, &mpu6500},
+               turretMajorImuTransforms,
+diff --git a/aruw-mcb-project/src/main.cpp b/aruw-mcb-project/src/main.cpp
+index 4052df574..d443f68a4 100644
+--- a/aruw-mcb-project/src/main.cpp
++++ b/aruw-mcb-project/src/main.cpp
+@@ -20,6 +20,8 @@
+ #ifdef PLATFORM_HOSTED
+ /* hosted environment (simulator) includes --------------------------------- */
+ #include <iostream>
++
++#include "aruwsrc/communication/sim/sim_hardware_bridge.hpp"
+ #endif
+ 
+ #include "tap/board/board.hpp"
+@@ -92,6 +94,8 @@ int main()
+ {
+ #ifdef PLATFORM_HOSTED
+     std::cout << "Simulation starting..." << std::endl;
++    // Attach to an external simulator's hardware emulation, if ARUW_SIM_HARDWARE_SOCKET names one.
++    aruwsrc::communication::sim::connectSimHardwareBridgeFromEnvironment();
+ #endif
+ 
+     /*
+diff --git a/aruw-mcb-project/taproot/src/tap/architecture/hosted_hardware_backend.cpp b/aruw-mcb-project/taproot/src/tap/architecture/hosted_hardware_backend.cpp
+new file mode 100644
+index 000000000..cfc245d81
+--- /dev/null
++++ b/aruw-mcb-project/taproot/src/tap/architecture/hosted_hardware_backend.cpp
+@@ -0,0 +1,37 @@
++/*
++ * Copyright (c) 2026 Advanced Robotics at the University of Washington <robomstr@uw.edu>
++ *
++ * This file is part of Taproot.
++ *
++ * Taproot is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * Taproot is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with Taproot.  If not, see <https://www.gnu.org/licenses/>.
++ */
++
++#ifdef PLATFORM_HOSTED
++
++#include "hosted_hardware_backend.hpp"
++
++namespace tap::arch::hosted
++{
++namespace
++{
++HardwareBackend *installedBackend = nullptr;
++}
++
++void setHardwareBackend(HardwareBackend *backend) { installedBackend = backend; }
++
++HardwareBackend *getHardwareBackend() { return installedBackend; }
++
++}  // namespace tap::arch::hosted
++
++#endif  // PLATFORM_HOSTED
+diff --git a/aruw-mcb-project/taproot/src/tap/architecture/hosted_hardware_backend.hpp b/aruw-mcb-project/taproot/src/tap/architecture/hosted_hardware_backend.hpp
+new file mode 100644
+index 000000000..3b51ece23
+--- /dev/null
++++ b/aruw-mcb-project/taproot/src/tap/architecture/hosted_hardware_backend.hpp
+@@ -0,0 +1,93 @@
++/*
++ * Copyright (c) 2026 Advanced Robotics at the University of Washington <robomstr@uw.edu>
++ *
++ * This file is part of Taproot.
++ *
++ * Taproot is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * Taproot is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with Taproot.  If not, see <https://www.gnu.org/licenses/>.
++ */
++
++#ifndef TAPROOT_HOSTED_HARDWARE_BACKEND_HPP_
++#define TAPROOT_HOSTED_HARDWARE_BACKEND_HPP_
++
++#ifdef PLATFORM_HOSTED
++
++#include <cstddef>
++#include <cstdint>
++
++#include "tap/communication/can/can_bus.hpp"
++
++namespace modm::can
++{
++class Message;
++}
++
++namespace tap::arch::hosted
++{
++/**
++ * Peripheral access for the hosted (simulator) build.
++ *
++ * On hardware, CAN, UART and the SPI IMUs are driven through modm's peripheral drivers. In the
++ * hosted build those calls have nothing to talk to; when a backend is installed with
++ * `setHardwareBackend`, they are forwarded to it instead, so an external simulator can stand in
++ * for the robot's hardware at the same interfaces the real peripherals present: raw CAN frames,
++ * UART bytes and IMU data-register bursts. With no backend installed, the hosted build behaves
++ * as it always has (CAN goes to the built-in DJI motor sims, UARTs are silent).
++ */
++class HardwareBackend
++{
++public:
++    /// SPI IMU chips whose data registers a backend can supply.
++    enum class ImuChip : uint8_t
++    {
++        MPU6500 = 0,
++        ISM330 = 1,
++    };
++
++    virtual ~HardwareBackend() = default;
++
++    /// Queues a frame for transmission on the given bus. Returns false if it could not be sent.
++    virtual bool canSend(tap::can::CanBus bus, const modm::can::Message &message) = 0;
++
++    /// Pops the next frame received on the given bus. Returns false if none is waiting.
++    virtual bool canReceive(tap::can::CanBus bus, modm::can::Message *message) = 0;
++
++    /// Reads up to `length` received bytes from a UART port; returns the number read.
++    virtual std::size_t uartRead(uint8_t port, uint8_t *data, std::size_t length) = 0;
++
++    /// Writes bytes out of a UART port; returns the number written.
++    virtual std::size_t uartWrite(uint8_t port, const uint8_t *data, std::size_t length) = 0;
++
++    /// Drops every byte received on a UART port that has not been read yet.
++    virtual std::size_t uartDiscardReceiveBuffer(uint8_t port) = 0;
++
++    /**
++     * Fills `data` with the chip's next data-register burst, in the chip's own register layout
++     * (the bytes the hardware driver would clock out of SPI). `instance` tells apart chips of
++     * the same kind, in construction order. Returns false if no new sample has arrived since
++     * the last call.
++     */
++    virtual bool imuReadBurst(ImuChip chip, uint8_t instance, uint8_t *data, std::size_t length) = 0;
++};
++
++/// Installs (or, with nullptr, removes) the backend. Not owned.
++void setHardwareBackend(HardwareBackend *backend);
++
++/// The installed backend, or nullptr.
++HardwareBackend *getHardwareBackend();
++
++}  // namespace tap::arch::hosted
++
++#endif  // PLATFORM_HOSTED
++
++#endif  // TAPROOT_HOSTED_HARDWARE_BACKEND_HPP_
+diff --git a/aruw-mcb-project/taproot/src/tap/communication/can/can.cpp b/aruw-mcb-project/taproot/src/tap/communication/can/can.cpp
+index 37a6fcaa8..95c1a98f3 100644
+--- a/aruw-mcb-project/taproot/src/tap/communication/can/can.cpp
++++ b/aruw-mcb-project/taproot/src/tap/communication/can/can.cpp
+@@ -27,6 +27,7 @@
+ #include "modm/platform.hpp"
+ 
+ #ifdef PLATFORM_HOSTED
++#include "tap/architecture/hosted_hardware_backend.hpp"
+ #include "tap/motor/motorsim/dji_motor_sim_handler.hpp"
+ #endif
+ 
+@@ -83,6 +84,10 @@ bool tap::can::Can::isMessageAvailable(tap::can::CanBus bus) const
+ bool tap::can::Can::getMessage(tap::can::CanBus bus, modm::can::Message* message)
+ {
+ #ifdef PLATFORM_HOSTED
++    if (auto *backend = tap::arch::hosted::getHardwareBackend())
++    {
++        return backend->canReceive(bus, message);
++    }
+     return motor::motorsim::DjiMotorSimHandler::getInstance()->encodeMessage(bus, message);
+ #else
+     switch (bus)
+@@ -118,6 +123,10 @@ bool tap::can::Can::isReadyToSend(CanBus bus) const
+ bool tap::can::Can::sendMessage(CanBus bus, const modm::can::Message& message)
+ {
+ #ifdef PLATFORM_HOSTED
++    if (auto *backend = tap::arch::hosted::getHardwareBackend())
++    {
++        return backend->canSend(bus, message);
++    }
+     return motor::motorsim::DjiMotorSimHandler::getInstance()->parseMotorMessage(bus, message);
+ #else
+     switch (bus)
+diff --git a/aruw-mcb-project/taproot/src/tap/communication/sensors/imu/mpu6500/mpu6500.cpp b/aruw-mcb-project/taproot/src/tap/communication/sensors/imu/mpu6500/mpu6500.cpp
+index 156811443..9f19a236b 100644
+--- a/aruw-mcb-project/taproot/src/tap/communication/sensors/imu/mpu6500/mpu6500.cpp
++++ b/aruw-mcb-project/taproot/src/tap/communication/sensors/imu/mpu6500/mpu6500.cpp
+@@ -26,6 +26,7 @@
+ #include <cassert>
+ 
+ #include "tap/algorithms/math_user_utils.hpp"
++#include "tap/architecture/hosted_hardware_backend.hpp"
+ #include "tap/architecture/endianness_wrappers.hpp"
+ #include "tap/board/board.hpp"
+ #include "tap/drivers.hpp"
+@@ -127,31 +128,45 @@ bool Mpu6500::read()
+         PT_CALL(Board::ImuSpiMaster::transfer(txBuff, rxBuff, ACC_GYRO_TEMPERATURE_BUFF_RX_SIZE));
+         mpuNssHigh();
+ 
+-        float accRawX = LITTLE_ENDIAN_INT16_TO_FLOAT(rxBuff);
+-        float accRawY = LITTLE_ENDIAN_INT16_TO_FLOAT(rxBuff + 2);
+-        float accRawZ = LITTLE_ENDIAN_INT16_TO_FLOAT(rxBuff + 4);
+-        imuData.accRaw = tap::algorithms::transforms::Vector(accRawX, accRawY, accRawZ);
++        processDataRegisterBurst();
++    }
++    PT_END();
++#else
++    // The simulator, if attached, clocks out the same register burst the SPI read would.
++    auto *backend = tap::arch::hosted::getHardwareBackend();
++    if (backend != nullptr && backend->imuReadBurst(
++                                  tap::arch::hosted::HardwareBackend::ImuChip::MPU6500,
++                                  0,
++                                  rxBuff,
++                                  ACC_GYRO_TEMPERATURE_BUFF_RX_SIZE))
++    {
++        processDataRegisterBurst();
++    }
++    return false;
++#endif
++}
+ 
+-        float gyroRawX = LITTLE_ENDIAN_INT16_TO_FLOAT(rxBuff + 8);
+-        float gyroRawY = LITTLE_ENDIAN_INT16_TO_FLOAT(rxBuff + 10);
+-        float gyroRawZ = LITTLE_ENDIAN_INT16_TO_FLOAT(rxBuff + 12);
+-        imuData.gyroRaw = tap::algorithms::transforms::Vector(gyroRawX, gyroRawY, gyroRawZ);
++void Mpu6500::processDataRegisterBurst()
++{
++    float accRawX = LITTLE_ENDIAN_INT16_TO_FLOAT(rxBuff);
++    float accRawY = LITTLE_ENDIAN_INT16_TO_FLOAT(rxBuff + 2);
++    float accRawZ = LITTLE_ENDIAN_INT16_TO_FLOAT(rxBuff + 4);
++    imuData.accRaw = tap::algorithms::transforms::Vector(accRawX, accRawY, accRawZ);
+ 
+-        applyMountingTransformToRaw(imuData);
++    float gyroRawX = LITTLE_ENDIAN_INT16_TO_FLOAT(rxBuff + 8);
++    float gyroRawY = LITTLE_ENDIAN_INT16_TO_FLOAT(rxBuff + 10);
++    float gyroRawZ = LITTLE_ENDIAN_INT16_TO_FLOAT(rxBuff + 12);
++    imuData.gyroRaw = tap::algorithms::transforms::Vector(gyroRawX, gyroRawY, gyroRawZ);
+ 
+-        imuData.accG =
+-            (imuData.accRaw - imuData.accOffsetRaw) * GRAVITY_MPS2 / ACCELERATION_SENSITIVITY;
++    applyMountingTransformToRaw(imuData);
+ 
+-        imuData.gyroRadPerSec = (imuData.gyroRaw - imuData.gyroOffsetRaw) / LSB_PER_RAD_PER_S;
++    imuData.accG = (imuData.accRaw - imuData.accOffsetRaw) * GRAVITY_MPS2 / ACCELERATION_SENSITIVITY;
+ 
+-        imuData.temperature = parseTemp(static_cast<float>(rxBuff[6] << 8 | rxBuff[7]));
++    imuData.gyroRadPerSec = (imuData.gyroRaw - imuData.gyroOffsetRaw) / LSB_PER_RAD_PER_S;
+ 
+-        prevIMUDataReceivedTime = tap::arch::clock::getTimeMicroseconds();
+-    }
+-    PT_END();
+-#else
+-    return false;
+-#endif
++    imuData.temperature = parseTemp(static_cast<float>(rxBuff[6] << 8 | rxBuff[7]));
++
++    prevIMUDataReceivedTime = tap::arch::clock::getTimeMicroseconds();
+ }
+ 
+ // Hardware interface functions (blocking functions, for initialization only)
+diff --git a/aruw-mcb-project/taproot/src/tap/communication/sensors/imu/mpu6500/mpu6500.hpp b/aruw-mcb-project/taproot/src/tap/communication/sensors/imu/mpu6500/mpu6500.hpp
+index 8ff479e13..34c800b94 100644
+--- a/aruw-mcb-project/taproot/src/tap/communication/sensors/imu/mpu6500/mpu6500.hpp
++++ b/aruw-mcb-project/taproot/src/tap/communication/sensors/imu/mpu6500/mpu6500.hpp
+@@ -150,6 +150,9 @@ class Mpu6500 final_mockable : public ::modm::pt::Protothread, public AbstractIM
+      */
+     void mpuNssLow();
+ 
++    /// Converts the accel/temperature/gyro burst in rxBuff into imuData.
++    void processDataRegisterBurst();
++
+     /**
+      * Pull the NSS pin high to end contact with the imu.
+      */
+diff --git a/aruw-mcb-project/taproot/src/tap/communication/serial/uart.cpp b/aruw-mcb-project/taproot/src/tap/communication/serial/uart.cpp
+index 2718af466..1a6861777 100644
+--- a/aruw-mcb-project/taproot/src/tap/communication/serial/uart.cpp
++++ b/aruw-mcb-project/taproot/src/tap/communication/serial/uart.cpp
+@@ -24,6 +24,9 @@
+ #include "uart.hpp"
+ 
+ #include "tap/board/board.hpp"
++#ifdef PLATFORM_HOSTED
++#include "tap/architecture/hosted_hardware_backend.hpp"
++#endif
+ #include "tap/util_macros.hpp"
+ 
+ using namespace Board;
+@@ -33,8 +36,10 @@ namespace tap::communication::serial
+ bool Uart::read(UartPort port, uint8_t *data)
+ {
+ #ifdef PLATFORM_HOSTED
+-    UNUSED(port);
+-    UNUSED(data);
++    if (auto *backend = tap::arch::hosted::getHardwareBackend())
++    {
++        return backend->uartRead(static_cast<uint8_t>(port), data, 1) == 1;
++    }
+     return false;
+ #else
+     switch (port)
+@@ -60,9 +65,10 @@ bool Uart::read(UartPort port, uint8_t *data)
+ std::size_t Uart::read(UartPort port, uint8_t *data, std::size_t length)
+ {
+ #ifdef PLATFORM_HOSTED
+-    UNUSED(port);
+-    UNUSED(data);
+-    UNUSED(length);
++    if (auto *backend = tap::arch::hosted::getHardwareBackend())
++    {
++        return backend->uartRead(static_cast<uint8_t>(port), data, length);
++    }
+     return 0;
+ #else
+     switch (port)
+@@ -88,7 +94,10 @@ std::size_t Uart::read(UartPort port, uint8_t *data, std::size_t length)
+ std::size_t Uart::discardReceiveBuffer(UartPort port)
+ {
+ #ifdef PLATFORM_HOSTED
+-    UNUSED(port);
++    if (auto *backend = tap::arch::hosted::getHardwareBackend())
++    {
++        return backend->uartDiscardReceiveBuffer(static_cast<uint8_t>(port));
++    }
+     return 0;
+ #else
+     switch (port)
+@@ -114,8 +123,10 @@ std::size_t Uart::discardReceiveBuffer(UartPort port)
+ bool Uart::write(UartPort port, uint8_t data)
+ {
+ #ifdef PLATFORM_HOSTED
+-    UNUSED(port);
+-    UNUSED(data);
++    if (auto *backend = tap::arch::hosted::getHardwareBackend())
++    {
++        return backend->uartWrite(static_cast<uint8_t>(port), &data, 1) == 1;
++    }
+     return false;
+ #else
+     switch (port)
+@@ -141,9 +152,10 @@ bool Uart::write(UartPort port, uint8_t data)
+ std::size_t Uart::write(UartPort port, const uint8_t *data, std::size_t length)
+ {
+ #ifdef PLATFORM_HOSTED
+-    UNUSED(port);
+-    UNUSED(data);
+-    UNUSED(length);
++    if (auto *backend = tap::arch::hosted::getHardwareBackend())
++    {
++        return backend->uartWrite(static_cast<uint8_t>(port), data, length);
++    }
+     return 0;
+ #else
+     switch (port)
+@@ -170,7 +182,8 @@ bool Uart::isWriteFinished(UartPort port) const
+ {
+ #ifdef PLATFORM_HOSTED
+     UNUSED(port);
+-    return false;
++    // A backend takes every write immediately, so there is never a write in progress.
++    return tap::arch::hosted::getHardwareBackend() != nullptr;
+ #else
+     switch (port)
+     {
+-- 
+2.43.0
+
