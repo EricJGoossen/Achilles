@@ -118,11 +118,20 @@ constexpr float kChassisGearRatio = 17.0F / 268.0F;  // CHASSIS_GEARBOX_RATIO
 constexpr float kTurretMajorGearRatio = (187.0F / 3591.0F) * (30.0F / 95.0F);
 constexpr float kRobotMass = 23.0F;  // kg, everything the wheels carry
 
-// The omni wheels' rollers: traction along each wheel's rolling direction is
-// a stiff damper on slip, capped by friction; across it, the rollers turn
-// almost freely. 300 N per m/s of slip keeps the explicit coupling stable at
-// kPhysicsDt against the wheel's ~4e-3 kg m^2 (rotor included).
-constexpr float kTractionPerSlip = 300.0F;  // N per m/s
+// The omni wheels' rollers: traction along each wheel's rolling direction
+// sticks, up to friction; across it, the rollers turn almost freely.
+// Traction is solved per step as the force that ends the step without slip
+// (static friction), since an explicit damper soft enough to be stable left the
+// wheel all but free above ~70 Hz and the firmware's wheel PID, tuned for a
+// loaded wheel, chattered it against the friction cap.
+// The wheel's axle inertia with the M3508 rotor's reflected, as
+// generate_scene.py has it.
+constexpr float kWheelInertia =
+    1.0e-3F + 1.2e-5F / (kChassisGearRatio * kChassisGearRatio);
+// The robot's mass as one wheel sees it: a quarter of it, which overstates how
+// easily the chassis yields (the other wheels hold it too), so the solve
+// undershoots rather than overshoots.
+constexpr float kWheelEffectiveMass = kRobotMass / 4.0F;
 constexpr float kFrictionCoefficient = 0.8F;
 constexpr float kRollerDragPerSpeed = 4.0F;  // N per m/s across the wheel
 constexpr float kRollerCoulombDrag = 1.0F;   // N
@@ -550,10 +559,15 @@ class SentrySim {
       const float across = -px * wheel.roll_y + py * wheel.roll_x;
       // ...and its rim with the wheel. The difference is slip.
       const float slip = omega * kWheelRadius - along;
+      const float motor_torque = wheel.motor.JointTorque(omega, now);
+      // The force that ends this step without slip: it slows the rim by
+      // F r^2 / I per second and speeds the contact point by F / m.
+      const float stick =
+          (slip + kPhysicsDt * kWheelRadius * motor_torque / kWheelInertia) /
+          (kPhysicsDt * (kWheelRadius * kWheelRadius / kWheelInertia +
+                         1.0F / kWheelEffectiveMass));
       const float traction = std::clamp(
-          kTractionPerSlip * slip,
-          -kFrictionCoefficient * normal,
-          kFrictionCoefficient * normal
+          stick, -kFrictionCoefficient * normal, kFrictionCoefficient * normal
       );
       const float drag = -kRollerDragPerSpeed * across -
                          kRollerCoulombDrag * std::tanh(across / 0.01F);
@@ -562,9 +576,7 @@ class SentrySim {
       force_x += fx;
       force_y += fy;
       torque_z += wheel.x * fy - wheel.y * fx;
-      wheel.actuator.Apply(
-          wheel.motor.JointTorque(omega, now) - traction * kWheelRadius
-      );
+      wheel.actuator.Apply(motor_torque - traction * kWheelRadius);
     }
     chassis_x_.Apply(force_x);
     chassis_y_.Apply(force_y);

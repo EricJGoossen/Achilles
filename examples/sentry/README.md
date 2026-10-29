@@ -56,8 +56,12 @@ Setup notes:
 
 ## Modelling notes
 
-- Chassis is a planar joint; X-drive omni wheels are an explicit traction model (slip damper
-  capped by friction, near-free rollers). Masses/heights not in the firmware are estimates.
+- Chassis is a planar joint; X-drive omni wheels are an explicit traction model (static friction
+  solved per step, capped at μN; near-free rollers). Masses/heights not in the firmware are
+  estimates.
+- Starting off, the wheels break traction: `ChassisAutoNavController` ramps translation by
+  `MAX_TRANSLATION_ACCELERATION` (1.0) per call, not per second, so it commands a speed step. The
+  wheel odometry overcounts each start by ~0.25 m (μ = 0.8 here).
 - Lidars ride on turret major: the sentry MCB reports turret major's pose as "chassis" to Otto
   (`SentryTransformAdapter::getVisionWorldToChassis`).
 - Not emulated: cap bank / power sensor (offline → firmware doesn't throttle), flywheels,
