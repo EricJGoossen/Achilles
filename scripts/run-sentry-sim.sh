@@ -80,8 +80,8 @@ inside_run() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --viewer) viewer=1 ;;
-      --seconds) seconds="$2"; shift ;;
-      --otto-config) otto_config="$2"; shift ;;
+      --seconds) seconds="${2:?--seconds needs a number}"; shift ;;
+      --otto-config) otto_config="${2:?--otto-config needs a file}"; shift ;;
       --no-build) build=0 ;;
       *) sim_args+=("$1") ;;
     esac
@@ -279,6 +279,7 @@ case "$cmd" in
     args=()
     while [[ $# -gt 0 ]]; do
       if [[ $1 == --otto-config ]]; then
+        [[ $# -ge 2 ]] || die "--otto-config needs a file, e.g. examples/sentry/routes/field_tour.yaml"
         args+=("$1" "$(container_path "$2")")
         shift
       else
