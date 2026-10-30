@@ -142,6 +142,15 @@ inside_run() {
   mcb_pid=$!
   disown "$mcb_pid"
 
+  # The Jetson comes up well after the MCB on the robot; Otto started before the MCB has sent it
+  # a real robot id (every 2 s, the first at boot, before any referee data) crashes on its first
+  # health message. So Otto starts once the MCB has run 3 s of sim time.
+  for _ in $(seq 600); do
+    awk '/^t=/ { t = $2 + 0 } END { exit !(t >= 3) }' "$run_dir/sim.log" && break
+    kill -0 "$sim_pid" 2>/dev/null || die "the sim stopped before the MCB booted (see $run_dir/sim.log)"
+    sleep 0.1
+  done
+
   local otto_args=(--otto-dir "$OTTO" --run-dir "$run_dir" --silent)
   [[ -n $otto_config ]] && otto_args+=(--extra-config "$run_dir/otto_config.yaml")
   setsid "$OTTO/.venv/bin/python" -X faulthandler "$ACH/examples/sentry/otto_bridge/run_otto.py" \
@@ -195,7 +204,16 @@ fi
 
 MCB_DIR=$(realpath -m "${MCB_DIR:-$ROOT_DIR/../aruw-mcb}")
 OTTO_DIR=$(realpath -m "${OTTO_DIR:-$ROOT_DIR/../project-otto}")
-MOUNTS="$ROOT_DIR:$MCB_DIR:$OTTO_DIR"
+# WSL's GPU, when there is one: Mesa's d3d12 driver draws the viewer on it. Without it the
+# viewer falls back to llvmpipe, whose ~7 ms frames, drawn on the sim's own thread, kept the
+# sim from keeping up with real time.
+GPU_ARGS=()
+if [[ -e /dev/dxg && -d /usr/lib/wsl/lib ]]; then
+  GPU_ARGS=(--device /dev/dxg -v /usr/lib/wsl:/usr/lib/wsl:ro
+    -e LD_LIBRARY_PATH=/usr/lib/wsl/lib -e GALLIUM_DRIVER=d3d12)
+fi
+# What the container was made with; a change recreates it.
+MOUNTS="$ROOT_DIR:$MCB_DIR:$OTTO_DIR:gpu=${#GPU_ARGS[@]}"
 
 ensure_image() {
   if [[ ${REBUILD_IMAGE:-0} == 1 ]] || ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
@@ -221,7 +239,7 @@ ensure_container() {
     docker run -d --init --name "$CONTAINER" --label "sentry-sim.mounts=$MOUNTS" \
       --user "$(id -u):$(id -g)" --network host \
       -v "$ROOT_DIR:$ACH" -v "$MCB_DIR:$MCB" -v "$OTTO_DIR:$OTTO" \
-      -v /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY="${DISPLAY:-:0}" \
+      -v /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY="${DISPLAY:-:0}" "${GPU_ARGS[@]}" \
       -w "$ACH" "$IMAGE" sleep infinity >/dev/null
   elif [[ $state == false* ]]; then
     docker start "$CONTAINER" >/dev/null

@@ -838,6 +838,11 @@ int Run(const Args& args) {
             << args.run_dir << "/lidar_front and " << args.run_dir
             << "/lidar_rear\n"
             << std::flush;
+  // Open the viewer before the clock starts: its first frame sets up the GL
+  // context, which can take seconds.
+  if (!args.headless && !sim.Render()) {
+    return 0;
+  }
   sentry.WaitForMcb();
 
   // Real time: the MCB and the Jetson both run on wall-clock time. If the
@@ -854,7 +859,8 @@ int Run(const Args& args) {
     }
     const auto due = start + std::chrono::duration<double>(sentry.Time());
     const auto now = Clock::now();
-    if (due > now) {
+    const bool ahead = due > now;
+    if (ahead) {
       std::this_thread::sleep_until(due);
     } else {
       max_lag =
@@ -869,8 +875,14 @@ int Run(const Args& args) {
       max_lag = 0.0F;
       next_status += 1.0F;
     }
+    // A frame costs ~7 ms on this thread (most of it presenting through
+    // WSLg's X server), so it's drawn only when the sim has time to spare:
+    // frames drop rather than real time slipping. At least 4 a second, to
+    // keep the window responsive.
+    const auto since_render = Clock::now() - last_render;
     if (!args.headless &&
-        Clock::now() - last_render > std::chrono::milliseconds(16)) {
+        ((ahead && since_render > std::chrono::milliseconds(16)) ||
+         since_render > std::chrono::milliseconds(250))) {
       last_render = Clock::now();
       if (!sim.Render()) {
         break;

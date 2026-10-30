@@ -62,6 +62,9 @@ scripts/run-sentry-sim.sh plot                            # truth vs estimate fo
 - **Changes**: edits to the sim, the firmware (aruw-mcb) or Otto take effect on the next `run`;
   Otto is plain Python. `scripts/run-sentry-sim.sh shell` opens a shell in the container.
 - **Viewer**: `--viewer` opens Achilles's window over X11 (WSLg's works). Closing it ends the run.
+  On WSL the container gets the GPU (`/dev/dxg`, Mesa's d3d12 driver). Each frame still costs
+  ~7 ms on the sim's thread, nearly all of it presenting through WSLg's X server, so the sim
+  draws a frame only when it is ahead of real time: the frame rate drops instead of the sim.
   The camera orbits the field's centre (drag to orbit, scroll to zoom; scroll out to see the
   whole field). The field frame's origin -- the red-side corner, as Otto and the MCB have it --
   sits at (-6, -4) in the viewer; logs and status lines are in the field frame. The yellow lines
@@ -103,6 +106,11 @@ Notes:
 - The URDF puts the wheels 0.222 m from the chassis centre; the firmware's `WHEELBASE_RADIUS` is
   0.239 m (and its `WHEEL_RADIUS` 0.0762 m against the URDF's 0.0759 m). The sim models the
   robot; the firmware keeps its constants.
+- Otto crashes (`KeyError: Robot RED UNKNOWN` in `TargetingStateMachine._go_heal_check`) if it
+  is running before the MCB has sent it a real robot id: the MCB sends one every 2 s
+  (`TIME_BTWN_SENDING_ROBOT_ID_MSG`), the first at boot, before any referee data, so it reads 0,
+  while health messages carry real HP within a fraction of a second. On the robot the Jetson
+  boots well after the MCB; the launcher starts Otto 3 s (sim time) after the MCB to match.
 - Otto's fixed map (`ARC2026Field`) differs from the manual's field: it has an "entrance block"
   (2.5-3.59 x 3.5-4.0) the manual doesn't show, and it doesn't distinguish the High Ground's
   ramps, deck and step. Otto localizes against its map, so its lidar matching sees the real field.
