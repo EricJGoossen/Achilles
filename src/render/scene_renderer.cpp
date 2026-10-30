@@ -290,6 +290,9 @@ void SceneRenderer::RenderFrame(
     );
   }
 
+  if (!draw_bones_) {
+    return;
+  }
   bones_.Update(bone_verts);
   line_shader_.Use();
   line_shader_.SetMat4("u_view", view_matrix);

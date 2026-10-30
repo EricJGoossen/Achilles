@@ -828,6 +828,9 @@ int Run(const Args& args) {
   }
   // Semi-implicit Euler: the integrator with collision.
   sim.SetIntegrator(Simulation::Integrator::kSemiImplicitEuler);
+  // Every field piece hangs off one root; their bone lines would all fan out
+  // from its corner.
+  sim.SetDrawBones(false);
 
   SentrySim sentry(sim, args);
   std::cout << "sentry sim: MCB socket " << args.run_dir

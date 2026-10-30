@@ -48,6 +48,11 @@ class SceneRenderer {
 
   void SwapBuffers();
 
+  // Whether RenderFrame draws the bone lines (on by default). A scene of
+  // many pieces welded to one root -- a field -- fans them all out from
+  // that root, which hides more than it shows.
+  void SetDrawBones(bool draw) { draw_bones_ = draw; }
+
  private:
   Window window_;
   Camera camera_;
@@ -62,6 +67,7 @@ class SceneRenderer {
   LineMesh axis_y_;
   LineMesh axis_z_;
   LineMesh bones_;
+  bool draw_bones_ = true;
 };
 
 }  // namespace achilles::render

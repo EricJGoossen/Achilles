@@ -135,6 +135,7 @@ class Simulation {
     }
     if (!renderer_.has_value()) {
       renderer_.emplace("Achilles Viewer");
+      renderer_->SetDrawBones(draw_bones_);
     }
     renderer_->PollInput();
     if (renderer_->ShouldClose()) {
@@ -147,6 +148,15 @@ class Simulation {
     );
     renderer_->SwapBuffers();
     return true;
+  }
+
+  // Whether Render() draws the viewer's bone lines, joint to parent (on by
+  // default; see render::SceneRenderer::SetDrawBones).
+  void SetDrawBones(bool draw) {
+    draw_bones_ = draw;
+    if (renderer_.has_value()) {
+      renderer_->SetDrawBones(draw);
+    }
   }
 
   // Attaches an actuator to `joint`, driving it along `axis` -- any
@@ -312,6 +322,7 @@ class Simulation {
   std::vector<domain::Archetype> archetypes_;
   std::uint64_t seed_ = 0;
   std::optional<render::SceneRenderer> renderer_;
+  bool draw_bones_ = true;
   algorithms::IntegratorStepFn integrator_step_ =
       algorithms::StepFnFor(Integrator::kSemiImplicitEuler);
 };
