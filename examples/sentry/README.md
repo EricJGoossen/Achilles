@@ -62,9 +62,10 @@ scripts/run-sentry-sim.sh plot                            # truth vs estimate fo
 - **Changes**: edits to the sim, the firmware (aruw-mcb) or Otto take effect on the next `run`;
   Otto is plain Python. `scripts/run-sentry-sim.sh shell` opens a shell in the container.
 - **Viewer**: `--viewer` opens Achilles's window over X11 (WSLg's works). Closing it ends the run.
-  On WSL the container gets the GPU (`/dev/dxg`, Mesa's d3d12 driver). Each frame still costs
-  ~7 ms on the sim's thread, nearly all of it presenting through WSLg's X server, so the sim
-  draws a frame only when it is ahead of real time: the frame rate drops instead of the sim.
+  Each frame costs ~7 ms on the sim's thread, nearly all of it presenting through WSLg's X
+  server, so the sim draws a frame only when it is ahead of real time: the frame rate drops
+  instead of the sim. (Mesa's d3d12 driver, WSL's GPU, draws a black window here; the viewer uses
+  llvmpipe.)
   The camera orbits the field's centre (drag to orbit, scroll to zoom; scroll out to see the
   whole field). The field frame's origin -- the red-side corner, as Otto and the MCB have it --
   sits at (-6, -4) in the viewer; logs and status lines are in the field frame. The yellow lines

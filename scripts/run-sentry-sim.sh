@@ -204,16 +204,8 @@ fi
 
 MCB_DIR=$(realpath -m "${MCB_DIR:-$ROOT_DIR/../aruw-mcb}")
 OTTO_DIR=$(realpath -m "${OTTO_DIR:-$ROOT_DIR/../project-otto}")
-# WSL's GPU, when there is one: Mesa's d3d12 driver draws the viewer on it. Without it the
-# viewer falls back to llvmpipe, whose ~7 ms frames, drawn on the sim's own thread, kept the
-# sim from keeping up with real time.
-GPU_ARGS=()
-if [[ -e /dev/dxg && -d /usr/lib/wsl/lib ]]; then
-  GPU_ARGS=(--device /dev/dxg -v /usr/lib/wsl:/usr/lib/wsl:ro
-    -e LD_LIBRARY_PATH=/usr/lib/wsl/lib -e GALLIUM_DRIVER=d3d12)
-fi
 # What the container was made with; a change recreates it.
-MOUNTS="$ROOT_DIR:$MCB_DIR:$OTTO_DIR:gpu=${#GPU_ARGS[@]}"
+MOUNTS="$ROOT_DIR:$MCB_DIR:$OTTO_DIR"
 
 ensure_image() {
   if [[ ${REBUILD_IMAGE:-0} == 1 ]] || ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
@@ -239,7 +231,7 @@ ensure_container() {
     docker run -d --init --name "$CONTAINER" --label "sentry-sim.mounts=$MOUNTS" \
       --user "$(id -u):$(id -g)" --network host \
       -v "$ROOT_DIR:$ACH" -v "$MCB_DIR:$MCB" -v "$OTTO_DIR:$OTTO" \
-      -v /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY="${DISPLAY:-:0}" "${GPU_ARGS[@]}" \
+      -v /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY="${DISPLAY:-:0}" \
       -w "$ACH" "$IMAGE" sleep infinity >/dev/null
   elif [[ $state == false* ]]; then
     docker start "$CONTAINER" >/dev/null
