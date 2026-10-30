@@ -1,0 +1,225 @@
+# Sentry Mk2 Robot - Analytical Collision Primitives Specification
+# Source of truth: PartBreakdown.txt, BlockCAD_Parts/*.STEP, ROS REP-103 standards
+# Milestone: M2 Coarse Geometry
+# Target consumers: M3 URDF Package (sentry_primitives.urdf, sentry_coarse.urdf)
+
+metadata:
+  robot_name: "sentry_coarse"
+  units:
+    length: "meters"
+    angle: "radians"
+  total_links: 9
+  actuated_joints: 7
+
+links:
+  base_link:
+    description: "Robot chassis base link (root link at chassis base reference)"
+    cad_reference:
+      source_part: "Sentry, Mk2, Chassis.SLDPRT"
+      cad_bounding_box_mm:
+        x: [-292.50, 292.50]
+        y: [-98.39, 131.32]
+        z: [-292.50, 292.50]
+      cad_dimensions_mm: [585.00, 229.71, 585.00]
+    primitives:
+      - name: "chassis_main_structure"
+        type: "box"
+        dimensions:
+          size: [0.585, 0.585, 0.160]
+        origin:
+          xyz: [0.0, 0.0, 0.046]
+          rpy: [0.0, 0.0, 0.0]
+        xml_snippet: '<collision name="chassis_main_structure"><origin xyz="0.0 0.0 0.046" rpy="0 0 0"/><geometry><box size="0.585 0.585 0.160"/></geometry></collision>'
+      - name: "chassis_top_electronics_cover"
+        type: "box"
+        dimensions:
+          size: [0.450, 0.450, 0.070]
+        origin:
+          xyz: [0.0, 0.0, 0.161]
+          rpy: [0.0, 0.0, 0.0]
+        xml_snippet: '<collision name="chassis_top_electronics_cover"><origin xyz="0.0 0.0 0.161" rpy="0 0 0"/><geometry><box size="0.450 0.450 0.070"/></geometry></collision>'
+      - name: "chassis_major_bearing_ring"
+        type: "cylinder"
+        dimensions:
+          radius: 0.080
+          length: 0.080
+        origin:
+          xyz: [0.0, 0.0, 0.0776]
+          rpy: [0.0, 0.0, 0.0]
+        xml_snippet: '<collision name="chassis_major_bearing_ring"><origin xyz="0.0 0.0 0.0776" rpy="0 0 0"/><geometry><cylinder radius="0.080" length="0.080"/></geometry></collision>'
+
+  fl_wheel:
+    description: "Front-left omni wheel (mounting angle +45 deg)"
+    cad_reference:
+      source_part: "2027, Omni Wheel.SLDPRT"
+      cad_dimensions_mm: [151.72, 151.72, 64.86]
+      outer_diameter_mm: 151.72
+      width_mm: 64.86
+    primitives:
+      - name: "wheel_rim"
+        type: "cylinder"
+        dimensions:
+          radius: 0.07586
+          length: 0.06486
+        canonical_frame_origin:
+          xyz: [0.0, 0.0, 0.0]
+          rpy: [0.0, 0.0, 0.0]
+        robot_aligned_origin:
+          xyz: [0.0, 0.0, 0.0]
+          rpy: [0.0, 1.57079632679, 0.78539816339]
+        xml_snippet: '<collision name="fl_wheel_collision"><origin xyz="0 0 0" rpy="0.0 1.570796 0.785398"/><geometry><cylinder radius="0.07586" length="0.06486"/></geometry></collision>'
+
+  fr_wheel:
+    description: "Front-right omni wheel (mounting angle -45 deg)"
+    cad_reference:
+      source_part: "2027, Omni Wheel.SLDPRT"
+      cad_dimensions_mm: [151.72, 151.72, 64.86]
+      outer_diameter_mm: 151.72
+      width_mm: 64.86
+    primitives:
+      - name: "wheel_rim"
+        type: "cylinder"
+        dimensions:
+          radius: 0.07586
+          length: 0.06486
+        canonical_frame_origin:
+          xyz: [0.0, 0.0, 0.0]
+          rpy: [0.0, 0.0, 0.0]
+        robot_aligned_origin:
+          xyz: [0.0, 0.0, 0.0]
+          rpy: [0.0, 1.57079632679, -0.78539816339]
+        xml_snippet: '<collision name="fr_wheel_collision"><origin xyz="0 0 0" rpy="0.0 1.570796 -0.785398"/><geometry><cylinder radius="0.07586" length="0.06486"/></geometry></collision>'
+
+  bl_wheel:
+    description: "Back-left omni wheel (mounting angle +135 deg)"
+    cad_reference:
+      source_part: "2027, Omni Wheel.SLDPRT"
+      cad_dimensions_mm: [151.72, 151.72, 64.86]
+      outer_diameter_mm: 151.72
+      width_mm: 64.86
+    primitives:
+      - name: "wheel_rim"
+        type: "cylinder"
+        dimensions:
+          radius: 0.07586
+          length: 0.06486
+        canonical_frame_origin:
+          xyz: [0.0, 0.0, 0.0]
+          rpy: [0.0, 0.0, 0.0]
+        robot_aligned_origin:
+          xyz: [0.0, 0.0, 0.0]
+          rpy: [0.0, 1.57079632679, 2.35619449019]
+        xml_snippet: '<collision name="bl_wheel_collision"><origin xyz="0 0 0" rpy="0.0 1.570796 2.356194"/><geometry><cylinder radius="0.07586" length="0.06486"/></geometry></collision>'
+
+  br_wheel:
+    description: "Back-right omni wheel (mounting angle -135 deg)"
+    cad_reference:
+      source_part: "2027, Omni Wheel.SLDPRT"
+      cad_dimensions_mm: [151.72, 151.72, 64.86]
+      outer_diameter_mm: 151.72
+      width_mm: 64.86
+    primitives:
+      - name: "wheel_rim"
+        type: "cylinder"
+        dimensions:
+          radius: 0.07586
+          length: 0.06486
+        canonical_frame_origin:
+          xyz: [0.0, 0.0, 0.0]
+          rpy: [0.0, 0.0, 0.0]
+        robot_aligned_origin:
+          xyz: [0.0, 0.0, 0.0]
+          rpy: [0.0, 1.57079632679, -2.35619449019]
+        xml_snippet: '<collision name="br_wheel_collision"><origin xyz="0 0 0" rpy="0.0 1.570796 -2.356194"/><geometry><cylinder radius="0.07586" length="0.06486"/></geometry></collision>'
+
+  turret_major:
+    description: "Turret Major assembly (child of joint_major)"
+    cad_reference:
+      source_part: "Sentry, Mk2, TurretMajor.SLDPRT"
+      cad_bounding_box_mm:
+        x: [-159.14, 159.14]
+        y: [-138.81, 65.00]
+        z: [-160.80, 159.09]
+      cad_dimensions_mm: [318.27, 203.81, 319.89]
+    primitives:
+      - name: "major_turntable_cylinder"
+        type: "cylinder"
+        dimensions:
+          radius: 0.160
+          length: 0.204
+        origin:
+          xyz: [0.0, 0.0, 0.102]
+          rpy: [0.0, 0.0, 0.0]
+        xml_snippet: '<collision name="major_turntable_cylinder"><origin xyz="0.0 0.0 0.102" rpy="0 0 0"/><geometry><cylinder radius="0.160" length="0.204"/></geometry></collision>'
+      - name: "major_hopper_electronics_box"
+        type: "box"
+        dimensions:
+          size: [0.280, 0.280, 0.160]
+        origin:
+          xyz: [0.0, 0.0, 0.100]
+          rpy: [0.0, 0.0, 0.0]
+        xml_snippet: '<collision name="major_hopper_electronics_box"><origin xyz="0.0 0.0 0.100" rpy="0 0 0"/><geometry><box size="0.280 0.280 0.160"/></geometry></collision>'
+
+  turret_minor_frame:
+    description: "Turret Minor Frame (child of joint_minor_yaw)"
+    cad_reference:
+      source_part: "Sentry, Mk2, TurretMinor, Frame.SLDPRT"
+      cad_bounding_box_mm:
+        x: [-83.15, 81.62]
+        y: [-1.50, 231.57]
+        z: [-51.26, 42.41]
+      cad_dimensions_mm: [164.77, 233.07, 93.68]
+    primitives:
+      - name: "minor_yaw_base_motor"
+        type: "cylinder"
+        dimensions:
+          radius: 0.03335
+          length: 0.045
+        origin:
+          xyz: [0.0, 0.0, 0.0225]
+          rpy: [0.0, 0.0, 0.0]
+        xml_snippet: '<collision name="minor_yaw_base_motor"><origin xyz="0.0 0.0 0.0225" rpy="0 0 0"/><geometry><cylinder radius="0.03335" length="0.045"/></geometry></collision>'
+      - name: "minor_yaw_neck_upright_box"
+        type: "box"
+        dimensions:
+          size: [0.165, 0.094, 0.233]
+        origin:
+          xyz: [0.0, 0.0, 0.1165]
+          rpy: [0.0, 0.0, 0.0]
+        xml_snippet: '<collision name="minor_yaw_neck_upright_box"><origin xyz="0.0 0.0 0.1165" rpy="0 0 0"/><geometry><box size="0.165 0.094 0.233"/></geometry></collision>'
+
+  turret_minor_firing_system:
+    description: "Turret Minor Firing System (child of joint_minor_pitch)"
+    cad_reference:
+      source_part: "Sentry, Mk2, TurretMinor, FiringSystem.SLDPRT"
+      cad_bounding_box_mm:
+        x: [-73.85, 73.85]
+        y: [-7.00, 117.70]
+        z: [-102.01, 169.83]
+      cad_dimensions_mm: [147.70, 124.70, 271.83]
+    primitives:
+      - name: "firing_dual_flywheel_feed_box"
+        type: "box"
+        dimensions:
+          size: [0.148, 0.148, 0.125]
+        origin:
+          xyz: [-0.020, 0.0, 0.035]
+          rpy: [0.0, 0.0, 0.0]
+        xml_snippet: '<collision name="firing_dual_flywheel_feed_box"><origin xyz="-0.020 0.0 0.035" rpy="0 0 0"/><geometry><box size="0.148 0.148 0.125"/></geometry></collision>'
+      - name: "firing_barrel_cylinder"
+        type: "cylinder"
+        dimensions:
+          radius: 0.015
+          length: 0.170
+        origin:
+          xyz: [0.105, 0.0, 0.0]
+          rpy: [0.0, 1.57079632679, 0.0]
+        xml_snippet: '<collision name="firing_barrel_cylinder"><origin xyz="0.105 0.0 0.0" rpy="0 1.570796 0"/><geometry><cylinder radius="0.015" length="0.170"/></geometry></collision>'
+      - name: "firing_overall_bounding_box"
+        type: "box"
+        dimensions:
+          size: [0.272, 0.148, 0.125]
+        origin:
+          xyz: [0.054, 0.0, 0.030]
+          rpy: [0.0, 0.0, 0.0]
+        xml_snippet: '<collision name="firing_overall_bounding_box"><origin xyz="0.054 0.0 0.030" rpy="0 0 0"/><geometry><box size="0.272 0.148 0.125"/></geometry></collision>'

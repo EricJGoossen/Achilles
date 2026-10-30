@@ -1,0 +1,275 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- =================================================================================== -->
+<!-- |    Sentry Mk2 Coarse Robot Model (Production URDF)                                | -->
+<!-- |    Source of Truth: PartBreakdown.txt, SolidWorks Link Meshes, ROS REP-103/120   | -->
+<!-- |    Total Physical Robot Mass: 19.631283 kg (8 rigid bodies + 1 ground footprint) | -->
+<!-- =================================================================================== -->
+<robot name="sentry_coarse">
+
+  <!-- ==================== Materials ==================== -->
+  <material name="chassis_dark">
+    <color rgba="0.15 0.15 0.15 1.0"/>
+  </material>
+  <material name="wheel_rubber">
+    <color rgba="0.2 0.2 0.2 1.0"/>
+  </material>
+  <material name="turret_grey">
+    <color rgba="0.3 0.3 0.35 1.0"/>
+  </material>
+  <material name="carbon_fiber">
+    <color rgba="0.1 0.1 0.1 1.0"/>
+  </material>
+  <material name="aluminum">
+    <color rgba="0.75 0.75 0.75 1.0"/>
+  </material>
+
+  <!-- ==================== Base Footprint (Ground Projection) ==================== -->
+  <link name="base_footprint"/>
+
+  <joint name="base_footprint_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <origin xyz="0.0 0.0 0.062679" rpy="0.0 0.0 0.0"/>
+  </joint>
+
+  <!-- ==================== Base Link (Chassis) ==================== -->
+  <link name="base_link">
+    <inertial>
+      <origin xyz="-0.003613 -0.004093 0.057905" rpy="0.0 0.0 0.0"/>
+      <mass value="11.543771"/>
+      <inertia ixx="0.255092" ixy="0.003801" ixz="-0.000133"
+               iyy="0.233579" iyz="-0.000716" izz="0.423368"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+      <geometry>
+        <mesh filename="package://sentry_description/meshes/visual/chassis.stl"/>
+      </geometry>
+      <material name="chassis_dark"/>
+    </visual>
+    <collision>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+      <geometry>
+        <mesh filename="package://sentry_description/meshes/collision/chassis.stl"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- ==================== Front Left Wheel ==================== -->
+  <link name="fl_wheel">
+    <inertial>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 1.570796 0.785398"/>
+      <mass value="0.717025"/>
+      <inertia ixx="0.000868" ixy="-0.000001" ixz="-0.000001"
+               iyy="0.000870" iyz="-0.000001" izz="0.001528"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 1.570796 0.785398"/>
+      <geometry>
+        <mesh filename="package://sentry_description/meshes/visual/omni_wheel.stl"/>
+      </geometry>
+      <material name="wheel_rubber"/>
+    </visual>
+    <collision>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 1.570796 0.785398"/>
+      <geometry>
+        <mesh filename="package://sentry_description/meshes/collision/omni_wheel.stl"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="joint_fl_wheel" type="continuous">
+    <parent link="base_link"/>
+    <child link="fl_wheel"/>
+    <origin xyz="0.15672 0.15672 0.013181" rpy="0.0 0.0 0.0"/>
+    <axis xyz="0.707107 0.707107 0.0"/>
+    <limit effort="5.0" velocity="46.8"/>
+  </joint>
+
+  <!-- ==================== Front Right Wheel ==================== -->
+  <link name="fr_wheel">
+    <inertial>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 1.570796 -0.785398"/>
+      <mass value="0.717025"/>
+      <inertia ixx="0.000868" ixy="-0.000001" ixz="-0.000001"
+               iyy="0.000870" iyz="-0.000001" izz="0.001528"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 1.570796 -0.785398"/>
+      <geometry>
+        <mesh filename="package://sentry_description/meshes/visual/omni_wheel.stl"/>
+      </geometry>
+      <material name="wheel_rubber"/>
+    </visual>
+    <collision>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 1.570796 -0.785398"/>
+      <geometry>
+        <mesh filename="package://sentry_description/meshes/collision/omni_wheel.stl"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="joint_fr_wheel" type="continuous">
+    <parent link="base_link"/>
+    <child link="fr_wheel"/>
+    <origin xyz="0.15672 -0.15672 0.013181" rpy="0.0 0.0 0.0"/>
+    <axis xyz="0.707107 -0.707107 0.0"/>
+    <limit effort="5.0" velocity="46.8"/>
+  </joint>
+
+  <!-- ==================== Back Left Wheel ==================== -->
+  <link name="bl_wheel">
+    <inertial>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 1.570796 2.356194"/>
+      <mass value="0.717025"/>
+      <inertia ixx="0.000868" ixy="-0.000001" ixz="-0.000001"
+               iyy="0.000870" iyz="-0.000001" izz="0.001528"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 1.570796 2.356194"/>
+      <geometry>
+        <mesh filename="package://sentry_description/meshes/visual/omni_wheel.stl"/>
+      </geometry>
+      <material name="wheel_rubber"/>
+    </visual>
+    <collision>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 1.570796 2.356194"/>
+      <geometry>
+        <mesh filename="package://sentry_description/meshes/collision/omni_wheel.stl"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="joint_bl_wheel" type="continuous">
+    <parent link="base_link"/>
+    <child link="bl_wheel"/>
+    <origin xyz="-0.15672 0.15672 0.013181" rpy="0.0 0.0 0.0"/>
+    <axis xyz="-0.707107 0.707107 0.0"/>
+    <limit effort="5.0" velocity="46.8"/>
+  </joint>
+
+  <!-- ==================== Back Right Wheel ==================== -->
+  <link name="br_wheel">
+    <inertial>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 1.570796 -2.356194"/>
+      <mass value="0.717025"/>
+      <inertia ixx="0.000868" ixy="-0.000001" ixz="-0.000001"
+               iyy="0.000870" iyz="-0.000001" izz="0.001528"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 1.570796 -2.356194"/>
+      <geometry>
+        <mesh filename="package://sentry_description/meshes/visual/omni_wheel.stl"/>
+      </geometry>
+      <material name="wheel_rubber"/>
+    </visual>
+    <collision>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 1.570796 -2.356194"/>
+      <geometry>
+        <mesh filename="package://sentry_description/meshes/collision/omni_wheel.stl"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="joint_br_wheel" type="continuous">
+    <parent link="base_link"/>
+    <child link="br_wheel"/>
+    <origin xyz="-0.15672 -0.15672 0.013181" rpy="0.0 0.0 0.0"/>
+    <axis xyz="-0.707107 -0.707107 0.0"/>
+    <limit effort="5.0" velocity="46.8"/>
+  </joint>
+
+  <!-- ==================== Turret Major (Yaw) ==================== -->
+  <link name="turret_major">
+    <inertial>
+      <origin xyz="0.005345 -0.001700 0.076253" rpy="0.0 0.0 0.0"/>
+      <mass value="3.472084"/>
+      <inertia ixx="0.030300" ixy="0.000664" ixz="0.001056"
+               iyy="0.035412" iyz="-0.000022" izz="0.047017"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+      <geometry>
+        <mesh filename="package://sentry_description/meshes/visual/turret_major.stl"/>
+      </geometry>
+      <material name="turret_grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+      <geometry>
+        <mesh filename="package://sentry_description/meshes/collision/turret_major.stl"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="joint_major" type="continuous">
+    <parent link="base_link"/>
+    <child link="turret_major"/>
+    <origin xyz="0.0 0.0 0.0776" rpy="0.0 0.0 0.0"/>
+    <axis xyz="0.0 0.0 1.0"/>
+    <limit effort="15.0" velocity="20.0"/>
+  </joint>
+
+  <!-- ==================== Turret Minor Frame (Yaw) ==================== -->
+  <link name="turret_minor_frame">
+    <inertial>
+      <origin xyz="0.014014 -0.004878 0.070236" rpy="0.0 0.0 0.0"/>
+      <mass value="0.765757"/>
+      <inertia ixx="0.002123" ixy="0.000142" ixz="-0.000101"
+               iyy="0.002745" iyz="-0.000102" izz="0.001032"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+      <geometry>
+        <mesh filename="package://sentry_description/meshes/visual/turret_minor_frame.stl"/>
+      </geometry>
+      <material name="carbon_fiber"/>
+    </visual>
+    <collision>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+      <geometry>
+        <mesh filename="package://sentry_description/meshes/collision/turret_minor_frame.stl"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="joint_minor_yaw" type="revolute">
+    <parent link="turret_major"/>
+    <child link="turret_minor_frame"/>
+    <origin xyz="0.0 0.0 0.13935" rpy="0.0 0.0 0.0"/>
+    <axis xyz="0.0 0.0 1.0"/>
+    <limit lower="-1.570796" upper="1.570796" effort="3.0" velocity="33.5"/>
+  </joint>
+
+  <!-- ==================== Turret Minor Firing System (Pitch) ==================== -->
+  <link name="turret_minor_firing_system">
+    <inertial>
+      <origin xyz="0.054018 -0.000068 0.030540" rpy="0.0 0.0 0.0"/>
+      <mass value="0.981571"/>
+      <inertia ixx="0.001720" ixy="0.000004" ixz="-0.000303"
+               iyy="0.007493" iyz="0.000003" izz="0.007408"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+      <geometry>
+        <mesh filename="package://sentry_description/meshes/visual/turret_minor_firing_system.stl"/>
+      </geometry>
+      <material name="aluminum"/>
+    </visual>
+    <collision>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+      <geometry>
+        <mesh filename="package://sentry_description/meshes/collision/turret_minor_firing_system.stl"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="joint_minor_pitch" type="revolute">
+    <parent link="turret_minor_frame"/>
+    <child link="turret_minor_firing_system"/>
+    <origin xyz="0.0 0.0 0.214" rpy="0.0 0.0 0.0"/>
+    <axis xyz="0.0 1.0 0.0"/>
+    <limit lower="-0.35" upper="0.61" effort="3.0" velocity="33.5"/>
+  </joint>
+
+</robot>

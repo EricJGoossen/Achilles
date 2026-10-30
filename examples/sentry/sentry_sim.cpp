@@ -83,6 +83,7 @@
 #include "interface/actuator.hpp"
 #include "interface/sensor_handle.hpp"
 #include "interface/simulation.hpp"
+#include "sentry_geometry.hpp"
 
 namespace {
 
@@ -112,11 +113,14 @@ constexpr ScalarOperationT kPhysicsDt = 0.002F;
 constexpr double kHardwareDt = 0.001;
 constexpr const char* kRobot = "sentry";
 
-// --- The sentry's geometry and mass, matching tools/generate_scene.py ---
-constexpr float kWheelRadius = 0.0762F;
+// --- The sentry's geometry and mass: robot/sentry_coarse.urdf's, via
+// sentry_geometry.hpp (generated with sentry.arow) ---
+using sentry::geometry::kRobotMass;
+using sentry::geometry::kWheelAxleInertia;
+using sentry::geometry::kWheelOffset;
+using sentry::geometry::kWheelRadius;
 constexpr float kChassisGearRatio = 17.0F / 268.0F;  // CHASSIS_GEARBOX_RATIO
 constexpr float kTurretMajorGearRatio = (187.0F / 3591.0F) * (30.0F / 95.0F);
-constexpr float kRobotMass = 23.0F;  // kg, everything the wheels carry
 
 // The omni wheels' rollers: traction along each wheel's rolling direction
 // sticks, up to friction; across it, the rollers turn almost freely.
@@ -124,10 +128,6 @@ constexpr float kRobotMass = 23.0F;  // kg, everything the wheels carry
 // (static friction), since an explicit damper soft enough to be stable left the
 // wheel all but free above ~70 Hz and the firmware's wheel PID, tuned for a
 // loaded wheel, chattered it against the friction cap.
-// The wheel's axle inertia with the M3508 rotor's reflected, as
-// generate_scene.py has it.
-constexpr float kWheelInertia =
-    1.0e-3F + 1.2e-5F / (kChassisGearRatio * kChassisGearRatio);
 // The robot's mass as one wheel sees it: a quarter of it, which overstates how
 // easily the chassis yields (the other wheels hold it too), so the solve
 // undershoots rather than overshoots.
@@ -272,6 +272,7 @@ class SentrySim {
             .match_start = args.autonav_at,
         }),
         chassis_row_(sim.RowFor<TopologicalOrdering>({kRobot, "chassis"})),
+        field_row_(sim.RowFor<TopologicalOrdering>({"field", "world"})),
         chassis_x_(
             sim.AttachActuator<LinearActuator>({kRobot, "chassis"}, {1, 0, 0})
         ),
@@ -299,7 +300,7 @@ class SentrySim {
     using sentry::hw::kGm6020Current;
     using sentry::hw::kM3508;
     const float s = 1.0F / std::numbers::sqrt2_v<float>;
-    const float a = 0.23864F * s;  // WHEELBASE_RADIUS on the diagonals
+    const float a = kWheelOffset;
     // Ids, buses and inversion as sentry_control.cpp declares the motors;
     // rolling directions as tools/generate_scene.py's wheel_directions.
     struct WheelSpec {
@@ -408,11 +409,14 @@ class SentrySim {
   bool McbConnected() const { return mcb_.Connected(); }
   const OverheardOdometry& Estimate() const { return overheard_; }
 
-  // The chassis's true pose: x, y, yaw.
+  // The chassis's true pose in the field frame (the field's world joint;
+  // field.arow sets it off so the viewer centres on the field): x, y, yaw.
   std::array<float, 3> TruePose() const {
+    const auto view = sim_.ViewFor<ABAAlgorithm>();
     const auto world =
-        sim_.ViewFor<ABAAlgorithm>()
-            .Load<ABAField::kWorldTransform, ScalarOperationT>(chassis_row_);
+        view.Load<ABAField::kWorldTransform, ScalarOperationT>(field_row_)
+            .Inverse() *
+        view.Load<ABAField::kWorldTransform, ScalarOperationT>(chassis_row_);
     const auto forward = world.Rotation().Rotate({1.0F, 0.0F, 0.0F});
     return {
         world.Translation().X(),
@@ -563,8 +567,9 @@ class SentrySim {
       // The force that ends this step without slip: it slows the rim by
       // F r^2 / I per second and speeds the contact point by F / m.
       const float stick =
-          (slip + kPhysicsDt * kWheelRadius * motor_torque / kWheelInertia) /
-          (kPhysicsDt * (kWheelRadius * kWheelRadius / kWheelInertia +
+          (slip + kPhysicsDt * kWheelRadius * motor_torque / kWheelAxleInertia
+          ) /
+          (kPhysicsDt * (kWheelRadius * kWheelRadius / kWheelAxleInertia +
                          1.0F / kWheelEffectiveMass));
       const float traction = std::clamp(
           stick, -kFrictionCoefficient * normal, kFrictionCoefficient * normal
@@ -785,6 +790,7 @@ class SentrySim {
   sentry::hw::TurretMajorEncoders encoders_;
   sentry::hw::Referee referee_;
   std::size_t chassis_row_;
+  std::size_t field_row_;
   LinearActuator chassis_x_;
   LinearActuator chassis_y_;
   AngularActuator chassis_yaw_;

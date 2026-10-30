@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import Rectangle  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from generate_scene import field_boxes  # noqa: E402
+from generate_scene import field_pieces, field_zones  # noqa: E402
 
 
 def wrap(angle):
@@ -63,8 +63,17 @@ def main():
     ax_pos = fig.add_subplot(grid[0, 1])
     ax_yaw = fig.add_subplot(grid[1, 1])
 
-    for _name, cx, cy, hx, hy in field_boxes():
-        ax_map.add_patch(Rectangle((cx - hx, cy - hy), 2 * hx, 2 * hy, color="#9aa4b1", lw=0))
+    for name, x0, y0, x1, y1, _height, colour in field_zones():
+        if name.startswith("bumpy_road"):  # drivable floor: hatched, not filled
+            ax_map.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0, fill=False, hatch="..", lw=0,
+                                       edgecolor="#9aa0a6"))
+        else:
+            ax_map.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0, color=colour, alpha=0.35, lw=0))
+    # Obstacles shaded by height: the lidars (~0.34 m up) see over the High Ground's deck.
+    for _name, x0, y0, x1, y1, _z0, z1, shape, _colour in field_pieces():
+        shade = 0.78 - 0.5 * min(z1, 1.0)
+        ax_map.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0, color=(shade, shade, shade + 0.04), lw=0,
+                                   hatch="//" if shape != "box" else None))
     if args.route:
         points = route_points(args.route)
         for i, (x, y) in enumerate(points):
