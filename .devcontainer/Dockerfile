@@ -55,6 +55,16 @@ RUN git clone --branch 13.0.0 --depth 1 https://github.com/xtensor-stack/xsimd.g
 	&& cmake --install /tmp/xsimd/build \
 	&& rm -rf /tmp/xsimd
 
+# VS Code forwards the host's LC_ALL/LANG (en_US.UTF-8) into the container,
+# but debian-slim ships no generated locales -- every shell VS Code's git
+# integration spawned failed with "setlocale: LC_ALL: cannot change locale".
+RUN apt-get update && apt-get install -y --no-install-recommends locales \
+    && rm -rf /var/lib/apt/lists/* \
+    && sed -i 's/^# *\(en_US.UTF-8 UTF-8\)/\1/' /etc/locale.gen \
+    && locale-gen
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+
 # A non-root user for the devcontainer (devcontainer.json's remoteUser):
 # files it creates in the bind-mounted checkout belong to the host's user,
 # not root -- as root, every build dir and git object the container touched
