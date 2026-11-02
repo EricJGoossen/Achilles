@@ -55,8 +55,26 @@ RUN git clone --branch 13.0.0 --depth 1 https://github.com/xtensor-stack/xsimd.g
 	&& cmake --install /tmp/xsimd/build \
 	&& rm -rf /tmp/xsimd
 
-RUN echo "alias build='cmake --build build -j$(nproc)'" >> ~/.bashrc \
-    && echo "alias run='build && ./build/achilles'" >> ~/.bashrc
+# A non-root user for the devcontainer (devcontainer.json's remoteUser):
+# files it creates in the bind-mounted checkout belong to the host's user,
+# not root -- as root, every build dir and git object the container touched
+# was left unwritable from the host. The devcontainer remaps its UID/GID to
+# the host user's at startup (updateRemoteUserUID), so 1000 is only the
+# default. The image's own default user stays root: GitHub Actions'
+# `container:` jobs (ci.yml) need root to write their workspace.
+ARG USERNAME=dev
+ARG USER_UID=1000
+ARG USER_GID=${USER_UID}
+RUN apt-get update && apt-get install -y --no-install-recommends sudo \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid ${USER_GID} ${USERNAME} \
+    && useradd --uid ${USER_UID} --gid ${USER_GID} --create-home --shell /bin/bash ${USERNAME} \
+    && echo "${USERNAME} ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} \
+    && chmod 0440 /etc/sudoers.d/${USERNAME}
+
+# For every user: root (CI) and dev alike.
+RUN echo "alias build='cmake --build build -j$(nproc)'" >> /etc/bash.bashrc \
+    && echo "alias run='build && ./build/achilles'" >> /etc/bash.bashrc
 
 ENV CC=clang
 ENV CXX=clang++
