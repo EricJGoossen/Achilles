@@ -125,7 +125,7 @@ target_include_directories(achilles_lib PUBLIC
 target_link_libraries(achilles_lib PUBLIC yaml-cpp::yaml-cpp xsimd)
 if (ACHILLES_WITH_VIEWER)
     target_link_libraries(achilles_lib PUBLIC glfw OpenGL::GL)
-    # Public: interface/simulation.hpp holds the renderer only when it's
+    # Public: interface/viewer.hpp holds the renderer only when it's
     # built, so every translation unit must agree on whether it is.
     target_compile_definitions(achilles_lib PUBLIC ACHILLES_WITH_VIEWER=1)
 else ()

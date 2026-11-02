@@ -4,12 +4,15 @@
 
 namespace achilles::util {
 
-bool Warning(const char* message) {
+// inline: defined in a header that interface/simulation.hpp includes, so a
+// program of more than one translation unit would otherwise define these
+// once per unit and fail to link.
+inline bool Warning(const char* message) {
   std::cerr << "[WARNING] " << message << "\n";
   return false;
 }
 
-bool Warning(const char* message, const char* error) {
+inline bool Warning(const char* message, const char* error) {
   std::cerr << "[WARNING] " << message << ": " << error << "\n";
   return false;
 }
