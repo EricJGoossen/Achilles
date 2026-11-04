@@ -3,7 +3,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
-#include <random>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -15,6 +14,7 @@
 #include "domain/archetype.hpp"
 #include "domain/joint_layout.hpp"
 #include "domain/joint_topology.hpp"
+#include "domain/random/seed.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/layout_policy.hpp"
 #include "engine/topology/orderings.hpp"
@@ -72,6 +72,8 @@ class Simulation {
       );
     }
     seed_ = seed.value_or(GenerateSeed());
+    time_ = 0.0;
+    step_count_ = 0;
     try {
       state_ = Allocator::Build(archetypes_);
       WriteSensorConfigs(state_->context, archetypes_, seed_);
@@ -86,13 +88,18 @@ class Simulation {
 
   // A seed drawn from the system's random source -- what Init() uses when
   // it's given none.
-  static std::uint64_t GenerateSeed() {
-    std::random_device device;
-    return (static_cast<std::uint64_t>(device()) << 32U) | device();
-  }
+  static std::uint64_t GenerateSeed() { return domain::random::GenerateSeed(); }
 
   // The seed the sim was last Init()ed with.
   std::uint64_t Seed() const { return seed_; }
+
+  // Sim time, in seconds since Init(): the sum of every dt a successful
+  // Step() advanced over. Kept in double so a long run at a fine dt doesn't
+  // lose ticks to rounding (the physics itself runs in ScalarOperationT).
+  double Time() const { return time_; }
+
+  // How many Step()s have succeeded since Init().
+  std::uint64_t StepCount() const { return step_count_; }
 
   // Advances the physics by one tick of the selected integrator (see
   // SetIntegrator) over `dt`. Never renders -- see Render(). Returns false
@@ -103,7 +110,12 @@ class Simulation {
   // Apply()ed since the previous Step() -- however many times its step list
   // evaluates ABA.
   bool Step(algorithms::ScalarOperationT dt) {
-    return RunStepList(integrator_step_, dt);
+    if (!RunStepList(integrator_step_, dt)) {
+      return false;
+    }
+    time_ += dt;
+    ++step_count_;
+    return true;
   }
 
   // Runs any step list (a util::TypeList of Steps, see engine::StepLike)
@@ -311,6 +323,8 @@ class Simulation {
   std::optional<Allocator::State> state_;
   std::vector<domain::Archetype> archetypes_;
   std::uint64_t seed_ = 0;
+  double time_ = 0.0;
+  std::uint64_t step_count_ = 0;
   std::optional<render::SceneRenderer> renderer_;
   algorithms::IntegratorStepFn integrator_step_ =
       algorithms::StepFnFor(Integrator::kSemiImplicitEuler);

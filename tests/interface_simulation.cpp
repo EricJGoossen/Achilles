@@ -945,3 +945,30 @@ TEST(SimulationActuator, AttachActuatorThrowsOnBadInput) {
       std::invalid_argument
   );
 }
+
+// ---------------------------------------------------------------------------
+// Sim time
+// ---------------------------------------------------------------------------
+
+// A caller pacing the sim against other clocks (a hardware emulator, a
+// logger) needs sim time from the sim itself rather than its own tally.
+TEST(SimulationClock, TimeSumsStepsAndInitResetsIt) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.0F);
+  EXPECT_EQ(sim.Time(), 0.0);
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_TRUE(sim.Step(0.01F));
+  }
+  EXPECT_NEAR(sim.Time(), 0.03, 1e-6);
+  EXPECT_EQ(sim.StepCount(), 3U);
+  ASSERT_TRUE(sim.Init());
+  EXPECT_EQ(sim.Time(), 0.0);
+  EXPECT_EQ(sim.StepCount(), 0U);
+}
+
+// A failed step (here: before Init) doesn't move the clock.
+TEST(SimulationClock, FailedStepLeavesTimeAlone) {
+  Simulation sim;
+  EXPECT_FALSE(sim.Step(0.01F));
+  EXPECT_EQ(sim.Time(), 0.0);
+}
