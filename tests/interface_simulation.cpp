@@ -15,10 +15,11 @@
 #include "algorithms/contact_solver/contact_solver_step.hpp"
 #include "algorithms/conventions.hpp"
 #include "algorithms/sim_config.hpp"
-#include "domain/archetype.hpp"
+#include "domain/archetype/archetype.hpp"
+#include "domain/archetype/archetype_set.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/orderings.hpp"
-#include "interface/actuator.hpp"
+#include "interface/actuator_handle.hpp"
 #include "interface/archetype_loader.hpp"
 #include "interface/simulation.hpp"
 #include "support/aba_reference.hpp"
@@ -38,8 +39,7 @@ using achilles::algorithms::Velocity;
 using achilles::algorithms::aba::ABAAlgorithm;
 using achilles::algorithms::aba::ABAField;
 using achilles::algorithms::aba::ABAStep;
-using achilles::algorithms::aba::SwapTorqueStep;
-using achilles::domain::Archetype;
+using achilles::domain::archetype::Archetype;
 using achilles::engine::memory::SimAllocator;
 using achilles::engine::topology::TopologicalOrdering;
 using achilles::interface::ActuatorLike;
@@ -52,7 +52,6 @@ using achilles::test_support::ComputeAbaAcceleration;
 using achilles::test_support::ComputeAbaVelocity;
 using achilles::test_support::RevoluteZSubspace;
 using achilles::test_support::TempDir;
-using achilles::util::TypeList;
 
 using B = MathematicalT;
 
@@ -66,15 +65,16 @@ namespace {
 // below, so both build the exact same physical joint. Flattened row-major
 // (Matrix::operator()(i,j) == data_[i*N+j], see domain/math/matrix.hpp), so
 // entry (2, 0) lands at flat index 12; rotation is [w,x,y,z] (Quaternion::
-// ToTuple() is (W(),X(),Y(),Z()), scalar-first -- see domain/archetype.hpp),
-// so identity is [1,0,0,0], not [0,0,0,1].
+// ToTuple() is (W(),X(),Y(),Z()), scalar-first -- see
+// domain/archetype/archetype.hpp), so identity is [1,0,0,0], not [0,0,0,1].
 std::string RevoluteZFieldsYaml(float q0, float qd0 = 0.0F, int mask = 1) {
   std::ostringstream out;
   // joint_position is x_joint itself (an SE(3) pose), not a raw
   // generalized coordinate -- q0 is a yaw angle about Z (this joint's own
   // subspace axis), so its equivalent pose is a pure Z-rotation, written
   // out here as the same [tx,ty,tz, qw,qx,qy,qz] leaf order
-  // domain/archetype.hpp's own comment describes for a Transform field.
+  // domain/archetype/archetype.hpp's own comment describes for a Transform
+  // field.
   float half_q0 = q0 * 0.5F;
   out << "      joint_subspace: [0,0,0,0,0,0,0,0,0,0,0,0,"
          "1,"
@@ -123,15 +123,21 @@ AngularActuator AttachYaw(const Simulation& sim) {
 }
 
 Transform WorldTransform(Simulation& sim) {
-  return sim.ViewFor<ABAAlgorithm>().Load<ABAField::kWorldTransform, B>(0);
+  return sim.Context()
+      .ViewFor<ABAAlgorithm>()
+      .Load<ABAField::kWorldTransform, B>(0);
 }
 
 Velocity SpatialVelocity(Simulation& sim) {
-  return sim.ViewFor<ABAAlgorithm>().Load<ABAField::kSpatialVelocity, B>(0);
+  return sim.Context()
+      .ViewFor<ABAAlgorithm>()
+      .Load<ABAField::kSpatialVelocity, B>(0);
 }
 
 Acceleration SpatialAcceleration(Simulation& sim) {
-  return sim.ViewFor<ABAAlgorithm>().Load<ABAField::kSpatialAcceleration, B>(0);
+  return sim.Context()
+      .ViewFor<ABAAlgorithm>()
+      .Load<ABAField::kSpatialAcceleration, B>(0);
 }
 
 // Reads kJointPosition/kJointVelocity back through ABA's OWN view --
@@ -142,11 +148,15 @@ Acceleration SpatialAcceleration(Simulation& sim) {
 // PI's writes and would stay frozen at whatever the archetype originally
 // populated.
 Transform JointPosition(Simulation& sim) {
-  return sim.ViewFor<ABAAlgorithm>().Load<ABAField::kJointPosition, B>(0);
+  return sim.Context()
+      .ViewFor<ABAAlgorithm>()
+      .Load<ABAField::kJointPosition, B>(0);
 }
 
 Velocity JointVelocityField(Simulation& sim) {
-  return sim.ViewFor<ABAAlgorithm>().Load<ABAField::kJointVelocity, B>(0);
+  return sim.Context()
+      .ViewFor<ABAAlgorithm>()
+      .Load<ABAField::kJointVelocity, B>(0);
 }
 
 ::testing::AssertionResult BatchTrue(const auto& mask) {
@@ -188,7 +198,9 @@ bool Lane0True(const auto& mask) {
 // The single real joint's rotation angle about Z (its own axis -- see
 // RevoluteZFieldsYaml), read through the scalar row-0 Load.
 float JointAngleZ(Simulation& sim) {
-  auto q = sim.ViewFor<ABAAlgorithm>().Load<ABAField::kJointPosition, float>(0);
+  auto q = sim.Context()
+               .ViewFor<ABAAlgorithm>()
+               .Load<ABAField::kJointPosition, float>(0);
   return 2.0F * std::atan2(q.Rotation().Z(), q.Rotation().W());
 }
 
@@ -252,13 +264,6 @@ TEST(Simulation, InitReturnsFalseWithoutLoadingAnArowFileFirst) {
 TEST(Simulation, StepReturnsFalseBeforeInit) {
   Simulation sim;
   EXPECT_FALSE(sim.Step(0.1F));
-}
-
-// StepWith shares Step's precondition and must report it the same way,
-// rather than dereferencing an empty state.
-TEST(Simulation, StepWithReturnsFalseBeforeInit) {
-  Simulation sim;
-  EXPECT_FALSE(sim.StepWith<TypeList<ABAStep>>(0.1F));
 }
 
 // Render needs the sim's state to draw; before Init it must refuse (and so
@@ -674,15 +679,15 @@ TEST(
 
   std::vector<Archetype> archetypes = LoadArchetypes(child_file);
   ASSERT_EQ(archetypes.size(), 2U);
-  ASSERT_EQ(archetypes[0].Name(), "base");
-  ASSERT_EQ(archetypes[1].Name(), "child");
+  ASSERT_EQ(archetypes[0].name, "base");
+  ASSERT_EQ(archetypes[1].name, "child");
 
-  SimAllocator<ABAAlgorithm> sim(archetypes);
+  SimAllocator<ABAAlgorithm> sim{achilles::domain::archetype::ArchetypeSet(archetypes)};
   auto view = sim.ViewFor<ABAAlgorithm>();
   const auto& layout = sim.LayoutFor<TopologicalOrdering>();
   std::size_t lane = B::size;
-  std::size_t root_group = layout.ToSorted({0, 0}) / lane;
-  std::size_t child_group = layout.ToSorted({1, 0}) / lane;
+  std::size_t root_group = layout.ToSorted(0, 0) / lane;
+  std::size_t child_group = layout.ToSorted(1, 0) / lane;
   ASSERT_NE(root_group, child_group);
 
   SimConfig sim_config;
@@ -704,28 +709,6 @@ TEST(
   EXPECT_TRUE(Lane0Approx(
       view.Load<ABAField::kSpatialVelocity, B>(child_group), reference.v
   ));
-}
-
-// StepWith runs exactly the list it's given: a swap-then-ABA list evaluates
-// the dynamics at the current state (qdd = tau / Izz = 5 / 4 for this
-// joint) without integrating -- q and qd must come out unchanged. This is what
-// the long-horizon validation relies on to read qdd at a committed state.
-TEST(Simulation, StepWithRunsOnlyTheGivenList) {
-  TempDir dir;
-  Simulation sim = MakeInitializedSim(dir, 0.3F, 1.0F);
-  AttachYaw(sim).Apply(5.0F);
-  Transform q_before = JointPosition(sim);
-  Velocity qd_before = JointVelocityField(sim);
-
-  ASSERT_TRUE((sim.StepWith<TypeList<SwapTorqueStep, ABAStep>>(0.5F)));
-
-  EXPECT_TRUE(BatchApprox(JointPosition(sim), q_before));
-  EXPECT_TRUE(BatchApprox(JointVelocityField(sim), qd_before));
-  EXPECT_FLOAT_EQ(
-      (sim.ViewFor<ABAAlgorithm>().Load<ABAField::kJointAcceleration, float>(0
-      )[0]),
-      5.0F / 4.0F
-  );
 }
 
 // From rest under a constant acceleration a, one tick of semi-implicit
@@ -786,7 +769,7 @@ TEST(Simulation, InitRunsTheSetupListBeforeAnyStep) {
   TempDir dir;
   Simulation sim = MakeInitializedSim(dir, 0.3F);
 
-  auto view = sim.ViewFor<ContactSolverAlgorithm>();
+  auto view = sim.Context().ViewFor<ContactSolverAlgorithm>();
   EXPECT_NEAR(
       (view.Load<ContactSolverField::kDofInvWeight, float>(0)[0]), 0.25F, 1e-6F
   );
@@ -827,8 +810,9 @@ namespace {
 
 // qdd of the single real joint -- tau / Izz, with Izz = 4 (SimpleInertia).
 float JointAccelerationZ(Simulation& sim) {
-  return sim.ViewFor<ABAAlgorithm>().Load<ABAField::kJointAcceleration, float>(0
-  )[0];
+  return sim.Context()
+      .ViewFor<ABAAlgorithm>()
+      .Load<ABAField::kJointAcceleration, float>(0)[0];
 }
 
 // A user's actuator model, returned by AttachActuator as its own type.
@@ -886,18 +870,6 @@ TEST(SimulationActuator, EveryAbaEvaluationInATickSeesTheSameEffort) {
   AttachYaw(sim).Apply(4.0F);
   ASSERT_TRUE(sim.Step(kOneTickDt));
   EXPECT_NEAR(JointAngleZ(sim), kExactOneTickAngle, 1e-6F);
-}
-
-// StepWith re-evaluates at the current state without starting a tick, so
-// it neither sees nor consumes effort pending for the next Step.
-TEST(SimulationActuator, StepWithLeavesPendingEffortForTheNextStep) {
-  TempDir dir;
-  Simulation sim = MakeInitializedSim(dir, 0.0F);
-  AttachYaw(sim).Apply(4.0F);
-  ASSERT_TRUE(sim.StepWith<TypeList<ABAStep>>(0.0F));
-  EXPECT_FLOAT_EQ(JointAccelerationZ(sim), 0.0F);
-  ASSERT_TRUE(sim.Step(0.0F));
-  EXPECT_FLOAT_EQ(JointAccelerationZ(sim), 1.0F);
 }
 
 // AttachActuator<T> hands back the caller's own model, built from the base
@@ -971,4 +943,19 @@ TEST(SimulationClock, FailedStepLeavesTimeAlone) {
   Simulation sim;
   EXPECT_FALSE(sim.Step(0.01F));
   EXPECT_EQ(sim.Time(), 0.0);
+}
+
+// ---------------------------------------------------------------------------
+// Joints by name
+// ---------------------------------------------------------------------------
+
+// Joints() names every joint a config could refer to.
+TEST(SimulationJoints, ListsEveryNamedJoint) {
+  TempDir dir;
+  Simulation sim = MakeInitializedSim(dir, 0.0F);
+  const auto joints = sim.Joints();
+  ASSERT_EQ(joints.size(), 1U);
+  EXPECT_EQ(joints[0].archetype, "base");
+  EXPECT_EQ(joints[0].joint, "joint");
+  EXPECT_EQ(joints[0].instance, 0U);
 }

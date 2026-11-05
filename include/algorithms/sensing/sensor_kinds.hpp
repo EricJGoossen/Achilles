@@ -29,7 +29,7 @@ using SensorKinds = util::ConcatT<
     util::TypeList<Encoder, Gyroscope, Accelerometer, Magnetometer, Lidar>,
     TruthSensorsOf<PhysicsAlgorithms>>;
 
-// Every sensor's row: one per attachment the archetypes declare under any
+// Every sensor's row: one per attachment the scene declares under any
 // registered kind's kListName, kind by kind -- each kind's rows one segment
 // -- each linked to its mount joint's row.
 using SensingOrdering = engine::topology::

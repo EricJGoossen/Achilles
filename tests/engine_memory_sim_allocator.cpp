@@ -8,7 +8,8 @@
 #include <utility>
 #include <vector>
 
-#include "domain/archetype.hpp"
+#include "domain/archetype/archetype.hpp"
+#include "domain/archetype/archetype_set.hpp"
 #include "domain/joint_layout.hpp"
 #include "domain/math/vector3.hpp"
 #include "engine/algorithm_contract.hpp"
@@ -21,10 +22,9 @@
 #include "support/toy_buffered_field.hpp"
 #include "util/tmp.hpp"
 
-using achilles::domain::Archetype;
-using achilles::domain::ArchetypeField;
-using achilles::domain::ArchetypeJointHandle;
-using achilles::domain::ArchetypeTreeStructure;
+using achilles::domain::archetype::Archetype;
+using achilles::domain::JointField;
+using achilles::domain::JointRef;
 using achilles::domain::math::Vector3;
 using achilles::domain::math::Vector3Assembler;
 using achilles::engine::Algorithm;
@@ -95,18 +95,14 @@ static_assert(achilles::engine::
 // joint 0) -- enough to exercise real placement, padding, and the shared
 // base row without hardcoding a SIMD width.
 Archetype MakeArmArchetype() {
-  std::vector<std::size_t> tree_structure = {
-      ArchetypeTreeStructure::kNoParent, 0
-  };
-  std::vector<ArchetypeJointHandle> root_parents = {
-      ArchetypeJointHandle{0, 0}, ArchetypeJointHandle{1, 0}
-  };
-  std::vector<ArchetypeField> fields;
+  std::vector<std::size_t> tree_structure = {achilles::domain::kNoParent, 0};
+  std::vector<JointRef> root_parents = {JointRef{0, 0}, JointRef{1, 0}};
+  std::vector<JointField> fields;
   // instance i, joint j, leaf l -> 100*i + 10*j + l (every value distinct).
-  fields.push_back(ArchetypeField{
+  fields.push_back(JointField{
       "shared_input", 3, {0, 1, 2, 10, 11, 12, 100, 101, 102, 110, 111, 112}
   });
-  fields.push_back(ArchetypeField{
+  fields.push_back(JointField{
       "private_input",
       3,
       {1000, 1001, 1002, 1010, 1011, 1012, 1100, 1101, 1102, 1110, 1111, 1112}
@@ -127,12 +123,12 @@ TEST(SimAllocatorPopulate, CopiesArchetypeDataIntoTheRightSortedRow) {
   std::array<Archetype, 1> archetypes = {std::move(arm)};
 
   using Sim = SimAllocator<Algorithm<SharedField, SharedFieldTraits>>;
-  Sim sim(archetypes);
+  Sim sim{achilles::domain::archetype::ArchetypeSet(archetypes)};
   auto view = sim.ViewFor<Algorithm<SharedField, SharedFieldTraits>>();
 
   for (std::size_t i = 0; i < 2; ++i) {
     for (std::size_t j = 0; j < 2; ++j) {
-      std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted({i, j});
+      std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted(i, j);
       auto base = static_cast<float>((100 * i) + (10 * j));
       EXPECT_TRUE((view.Load<SharedField::kSharedInput, float>(row).IsApprox(
           Vector3<float>(base, base + 1.0F, base + 2.0F)
@@ -145,17 +141,17 @@ TEST(SimAllocatorPopulate, CopiesArchetypeDataIntoTheRightSortedRow) {
   }
 }
 
-// kOutput names no ArchetypeField (no kName at all) -- Populate must leave
+// kOutput names no JointField (no kName at all) -- Populate must leave
 // it exactly as Carve's own ZeroFill left it, not touch it.
 TEST(SimAllocatorPopulate, LeavesFieldsWithNoKNameZeroed) {
   Archetype arm = MakeArmArchetype();
   std::array<Archetype, 1> archetypes = {std::move(arm)};
 
   using Sim = SimAllocator<Algorithm<SharedField, SharedFieldTraits>>;
-  Sim sim(archetypes);
+  Sim sim{achilles::domain::archetype::ArchetypeSet(archetypes)};
   auto view = sim.ViewFor<Algorithm<SharedField, SharedFieldTraits>>();
 
-  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted({0, 0});
+  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted(0, 0);
   EXPECT_TRUE((view.Load<SharedField::kOutput, float>(row).IsZero()));
 }
 
@@ -170,7 +166,7 @@ TEST(SimAllocatorSeedPadding, PaddingRowsAreDistinctFromRealRows) {
   std::array<Archetype, 1> archetypes = {std::move(arm)};
 
   using Sim = SimAllocator<Algorithm<SharedField, SharedFieldTraits>>;
-  Sim sim(archetypes);
+  Sim sim{achilles::domain::archetype::ArchetypeSet(archetypes)};
 
   const auto& layout = sim.LayoutFor<TopologicalOrdering>();
   bool found_padding_row = false;
@@ -193,7 +189,7 @@ TEST(SimAllocatorTopology, SizeMatchesLayoutPaddedSize) {
   std::array<Archetype, 1> archetypes = {std::move(arm)};
 
   using Sim = SimAllocator<Algorithm<SharedField, SharedFieldTraits>>;
-  Sim sim(archetypes);
+  Sim sim{achilles::domain::archetype::ArchetypeSet(archetypes)};
 
   EXPECT_EQ(
       sim.TopologyFor<TopologicalOrdering>().Size(),
@@ -209,11 +205,11 @@ TEST(SimAllocatorTopology, ChildResolvesToParentsRowWithinSameInstance) {
   std::array<Archetype, 1> archetypes = {std::move(arm)};
 
   using Sim = SimAllocator<Algorithm<SharedField, SharedFieldTraits>>;
-  Sim sim(archetypes);
+  Sim sim{achilles::domain::archetype::ArchetypeSet(archetypes)};
 
   const auto& layout = sim.LayoutFor<TopologicalOrdering>();
-  std::size_t instance0_joint0 = layout.ToSorted({0, 0});
-  std::size_t instance0_joint1 = layout.ToSorted({0, 1});
+  std::size_t instance0_joint0 = layout.ToSorted(0, 0);
+  std::size_t instance0_joint1 = layout.ToSorted(0, 1);
   EXPECT_EQ(
       sim.TopologyFor<TopologicalOrdering>()[instance0_joint1], instance0_joint0
   );
@@ -231,12 +227,12 @@ TEST(SimAllocatorSharedAs, CrossAlgorithmFieldsAliasTheSameBlock) {
   using Sim = SimAllocator<
       Algorithm<SharedField, SharedFieldTraits>,
       Algorithm<SecondField, SecondFieldTraits>>;
-  Sim sim(archetypes);
+  Sim sim{achilles::domain::archetype::ArchetypeSet(archetypes)};
 
   auto shared_view = sim.ViewFor<Algorithm<SharedField, SharedFieldTraits>>();
   auto second_view = sim.ViewFor<Algorithm<SecondField, SecondFieldTraits>>();
 
-  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted({1, 1});
+  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted(1, 1);
   Vector3<float> via_shared =
       shared_view.Load<SharedField::kSharedInput, float>(row);
   Vector3<float> via_second =
@@ -274,12 +270,12 @@ TEST(SimAllocatorForRegisteredList, BehavesIdenticallyToDirectSimAllocator) {
       Algorithm<SharedField, SharedFieldTraits>,
       Algorithm<SecondField, SecondFieldTraits>>;
   using Sim = SimAllocatorForT<Registered>;
-  Sim sim(archetypes);
+  Sim sim{achilles::domain::archetype::ArchetypeSet(archetypes)};
 
   auto shared_view = sim.ViewFor<Algorithm<SharedField, SharedFieldTraits>>();
   auto second_view = sim.ViewFor<Algorithm<SecondField, SecondFieldTraits>>();
 
-  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted({1, 1});
+  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted(1, 1);
   Vector3<float> via_shared =
       shared_view.Load<SharedField::kSharedInput, float>(row);
   Vector3<float> via_second =
@@ -330,20 +326,18 @@ TEST(
     SimAllocatorPerFieldOrdering,
     FieldsWithDifferentPoliciesGetIndependentRowMappings
 ) {
-  std::vector<std::size_t> tree_structure = {
-      1, ArchetypeTreeStructure::kNoParent
-  };
-  std::vector<ArchetypeJointHandle> root_parents = {ArchetypeJointHandle{0, 0}};
+  std::vector<std::size_t> tree_structure = {1, achilles::domain::kNoParent};
+  std::vector<JointRef> root_parents = {JointRef{0, 0}};
   Archetype backwards(
       "backwards", std::move(tree_structure), std::move(root_parents), true, {}
   );
   std::array<Archetype, 1> archetypes = {std::move(backwards)};
 
   using Sim = SimAllocator<Algorithm<MixedField, MixedFieldTraits>>;
-  Sim sim(archetypes);
+  Sim sim{achilles::domain::archetype::ArchetypeSet(archetypes)};
 
-  std::size_t topo_row = sim.LayoutFor<TopologicalOrdering>().ToSorted({0, 0});
-  std::size_t linear_row = sim.LayoutFor<LinearOrdering>().ToSorted({0, 0});
+  std::size_t topo_row = sim.LayoutFor<TopologicalOrdering>().ToSorted(0, 0);
+  std::size_t linear_row = sim.LayoutFor<LinearOrdering>().ToSorted(0, 0);
   EXPECT_NE(topo_row, linear_row);
 }
 
@@ -353,10 +347,10 @@ TEST(
 // deliberately mismatching scalars_per_leaf here must trip Populate's own
 // shape assert rather than silently reading past the declared count.
 TEST(SimAllocatorPopulate, DiesOnArchetypeFieldScalarCountMismatch) {
-  std::vector<std::size_t> tree_structure = {ArchetypeTreeStructure::kNoParent};
-  std::vector<ArchetypeJointHandle> root_parents = {ArchetypeJointHandle{0, 0}};
-  std::vector<ArchetypeField> fields;
-  fields.push_back(ArchetypeField{"private_input", 2, {1.0, 2.0}});
+  std::vector<std::size_t> tree_structure = {achilles::domain::kNoParent};
+  std::vector<JointRef> root_parents = {JointRef{0, 0}};
+  std::vector<JointField> fields;
+  fields.push_back(JointField{"private_input", 2, {1.0, 2.0}});
   Archetype mismatched(
       "mismatched",
       std::move(tree_structure),
@@ -367,7 +361,10 @@ TEST(SimAllocatorPopulate, DiesOnArchetypeFieldScalarCountMismatch) {
   std::array<Archetype, 1> archetypes = {std::move(mismatched)};
 
   using Sim = SimAllocator<Algorithm<SharedField, SharedFieldTraits>>;
-  EXPECT_DEATH(Sim sim(archetypes), "scalar count doesn't match");
+  EXPECT_DEATH(
+      Sim sim{achilles::domain::archetype::ArchetypeSet(archetypes)},
+      "scalar count doesn't match"
+  );
 }
 
 namespace {
@@ -406,7 +403,7 @@ TEST(SimAllocatorSharedAs, DiesOnIncompatibleOrderingForSameSharedTag) {
   using Sim = SimAllocator<
       Algorithm<SharedField, SharedFieldTraits>,
       Algorithm<MismatchedOrderingField, MismatchedOrderingFieldTraits>>;
-  EXPECT_DEATH(Sim sim(archetypes), "unsound");
+  EXPECT_DEATH(Sim sim{achilles::domain::archetype::ArchetypeSet(archetypes)}, "unsound");
 }
 
 namespace {
@@ -463,5 +460,5 @@ TEST(SimAllocatorSharedAs, DiesOnIncompatibleBufferingForSameSharedTag) {
   using Sim = SimAllocator<
       Algorithm<SharedField, SharedFieldTraits>,
       Algorithm<MismatchedBufferingField, MismatchedBufferingFieldTraits>>;
-  EXPECT_DEATH(Sim sim(archetypes), "unsound");
+  EXPECT_DEATH(Sim sim{achilles::domain::archetype::ArchetypeSet(archetypes)}, "unsound");
 }

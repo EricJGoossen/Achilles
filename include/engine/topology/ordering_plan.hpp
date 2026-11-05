@@ -7,14 +7,11 @@
 #include <utility>
 #include <vector>
 
-#include "domain/archetype.hpp"
 #include "domain/joint_layout.hpp"
 #include "domain/joint_topology.hpp"
 #include "engine/memory/arena.hpp"
 
 namespace achilles::engine::topology {
-
-using domain::ArchetypeJointHandle;
 
 // What an ordering policy's Build produces: the row placement it chose,
 // as plain arrays, plus the lane width it padded to. Scratch -- it lives
@@ -35,7 +32,7 @@ class OrderingPlan {
       std::vector<std::size_t> parents,
       std::vector<std::size_t> instance_offsets,
       std::vector<std::size_t> sorted_rows,
-      std::vector<ArchetypeJointHandle> joints,
+      std::vector<domain::JointRef> joints,
       std::size_t lane_size
   )
       : parents_(std::move(parents)),
@@ -51,7 +48,7 @@ class OrderingPlan {
       std::vector<std::size_t> partners,
       std::vector<std::size_t> instance_offsets,
       std::vector<std::size_t> sorted_rows,
-      std::vector<ArchetypeJointHandle> joints,
+      std::vector<domain::JointRef> joints,
       std::size_t lane_size
   )
       : parents_(std::move(parents)),
@@ -126,7 +123,7 @@ class OrderingPlan {
   std::vector<std::size_t> parents_;
   std::vector<std::size_t> instance_offsets_;
   std::vector<std::size_t> sorted_rows_;
-  std::vector<ArchetypeJointHandle> joints_;
+  std::vector<domain::JointRef> joints_;
   std::vector<std::size_t> partners_;
   std::size_t lane_size_;
 };

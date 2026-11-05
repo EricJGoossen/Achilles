@@ -5,27 +5,32 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 #include "algorithms/integrators.hpp"
 #include "algorithms/registry.hpp"
 #include "algorithms/sim_config.hpp"
 #include "algorithms/viz/viz_step.hpp"
-#include "domain/archetype.hpp"
+#include "domain/archetype/archetype_set.hpp"
 #include "domain/joint_layout.hpp"
 #include "domain/joint_topology.hpp"
 #include "domain/random/seed.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/layout_policy.hpp"
 #include "engine/topology/orderings.hpp"
-#include "interface/actuator.hpp"
+#include "interface/actuator_handle.hpp"
 #include "interface/archetype_loader.hpp"
 #include "interface/sensor_handle.hpp"
 #include "interface/sim_config_loader.hpp"
+#include "interface/truth.hpp"
 #include "render/scene_renderer.hpp"
 #include "util/io.hpp"
 
 namespace achilles::interface {
+
+using domain::JointAddress;
 
 class Simulation {
   using Allocator =
@@ -53,7 +58,7 @@ class Simulation {
 
   bool LoadArowFile(const std::string& path) {
     try {
-      archetypes_ = LoadArchetypes(path);
+      archetypes_ = domain::archetype::ArchetypeSet(LoadArchetypes(path));
     } catch (const std::exception& e) {
       return util::Warning("Failed to load world from file", e.what());
     }
@@ -65,7 +70,7 @@ class Simulation {
   // after run; without one, a fresh seed is drawn (GenerateSeed) and can be
   // read back with Seed() to reproduce the run.
   bool Init(std::optional<std::uint64_t> seed = std::nullopt) {
-    if (archetypes_.empty()) {
+    if (archetypes_.All().empty()) {
       return util::Warning(
           "Simulation::Init() called before Simulation::LoadArowFile() -- no "
           "archetypes loaded."
@@ -94,8 +99,9 @@ class Simulation {
   std::uint64_t Seed() const { return seed_; }
 
   // Sim time, in seconds since Init(): the sum of every dt a successful
-  // Step() advanced over. Kept in double so a long run at a fine dt doesn't
-  // lose ticks to rounding (the physics itself runs in ScalarOperationT).
+  // Step() advanced over. Kept in double so a long run at a
+  // fine dt doesn't lose ticks to rounding (the physics itself runs in
+  // ScalarOperationT).
   double Time() const { return time_; }
 
   // How many Step()s have succeeded since Init().
@@ -116,19 +122,6 @@ class Simulation {
     time_ += dt;
     ++step_count_;
     return true;
-  }
-
-  // Runs any step list (a util::TypeList of Steps, see engine::StepLike)
-  // once, over the same state Step() advances -- e.g.
-  // StepWith<util::TypeList<algorithms::aba::ABAStep>>(0) re-evaluates the
-  // dynamics at the current (q, qd) without integrating anything. Same
-  // return contract as Step(). Swaps actuator torque only if StepList
-  // starts with aba::SwapTorqueStep (an integrator does); otherwise it
-  // reads the same torque the last Step() did, and leaves pending Apply()s
-  // for the next Step().
-  template <typename StepList>
-  bool StepWith(algorithms::ScalarOperationT dt) {
-    return RunStepList(&algorithms::StepIntegrator<StepList>, dt);
   }
 
   // Draws one frame of the current state through render::SceneRenderer,
@@ -162,7 +155,7 @@ class Simulation {
   }
 
   // Attaches an actuator to `joint`, driving it along `axis` -- any
-  // direction in the joint's own frame (see JointActuator::Attach) -- and
+  // direction in the joint's own frame (see ActuatorHandle::Attach) -- and
   // returns it as T: LinearActuator/AngularActuator itself,
   // or a class deriving from one, built as T(base, args...) where `base` is
   // the attached LinearActuator/AngularActuator -- so a user's actuator
@@ -187,104 +180,51 @@ class Simulation {
   T AttachActuator(
       const JointAddress& joint, const ActuatorAxis& axis, Args&&... args
   ) const {
-    if (!state_.has_value()) {
-      throw std::runtime_error(
-          "Simulation::AttachActuator() called before Simulation::Init() -- "
-          "the sim is not yet initialized."
-      );
-    }
+    const auto& context = Context("AttachActuator");
     return T(
-        JointActuator<T::kKind>::Attach(
-            state_->context, domain::ResolveJoint(archetypes_, joint), axis
+        ActuatorHandle<T::kKind>::Attach(
+            context,
+            archetypes_.RowOf(
+                joint,
+                context
+                    .template LayoutFor<engine::topology::TopologicalOrdering>()
+            ),
+            axis
         ),
         std::forward<Args>(args)...
     );
   }
 
-  // Read-only access to one hosted Algorithm's own View, once Init() has
-  // run -- the same ViewFor<AlgorithmT>() forwarding SimAllocator/SimContext
-  // already expose, for a caller (or a test) that needs to inspect state
-  // Step() produced. Only ever called after a successful Init(), the same
-  // documented precondition Step() itself relies on -- not re-checked
-  // here (state_->context, not state_.value()->context) since a runtime
-  // guard would just have to invent a return value for the "precondition
-  // violated" case this class's whole contract already says never happens.
-  template <engine::AlgorithmLike AlgorithmT>
-  typename AlgorithmT::View ViewFor() const {
-    if (!state_.has_value()) {
-      throw std::runtime_error(
-          "Simulation::ViewFor() called before Simulation::Init() -- "
-          "the sim is not yet initialized."
-      );
-    }
-    return state_->context.template ViewFor<AlgorithmT>();
+  // The built sim itself, and the archetypes it was built from -- for a
+  // caller that really means to go around the handles (and a test checking
+  // what they're built on). Nothing here keeps a write consistent with the
+  // rest of the sim, and rows and fields can change: reads go through
+  // Sensor() and effort through AttachActuator() everywhere else. Context()
+  // throws std::runtime_error before Init().
+  const algorithms::RegisteredSimContext& Context() const {
+    return Context("Context");
+  }
+  const domain::archetype::ArchetypeSet& Archetypes() const {
+    return archetypes_;
   }
 
-  // Read-only access to the one JointTopology built for a given ordering
-  // policy, once Init() has run -- same precondition and same forwarding
-  // shape as ViewFor above. A renderer walks this to find each row's
-  // parent (e.g. to draw a bone from a joint to its parent's world
-  // position) the same way ABAStep itself does.
-  template <engine::topology::LayoutPolicyLike PolicyT>
-  engine::topology::TopologyOfT<PolicyT> TopologyFor() const {
-    if (!state_.has_value()) {
-      throw std::runtime_error(
-          "Simulation::TopologyFor() called before Simulation::Init() -- "
-          "the sim is not yet initialized."
-      );
-    }
-    return state_->context.template TopologyFor<PolicyT>();
-  }
-
-  // The sensor `address` names (see SensorAddress), as a handle of its kind
-  // K -- e.g. FindSensor<algorithms::sensing::TruthOf<aba::ABAAlgorithm,
-  // aba::ABAField::kWorldTransform>>({"body_pose", 0}). Throws
+  // Instance `instance` of the sensor named `name`, as a handle of its kind
+  // K -- e.g. Sensor<truth::WorldTransform>("body_pose"). Instance i is the
+  // one mounted on instance i of the archetype it's attached to. Throws
   // std::runtime_error before Init(), std::invalid_argument for an unknown
   // sensor or instance, or one that isn't a K.
   template <algorithms::sensing::SensorLike K>
-  SensorHandle<K> FindSensor(const SensorAddress& address) const {
-    return interface::FindSensor<K>(
-        Context("FindSensor"), archetypes_, address
+  SensorHandle<K> Sensor(std::string_view name, std::size_t instance = 0)
+      const {
+    const auto& context = Context("Sensor");
+    return SensorHandle<K>::Find(
+        context, archetypes_.AttachmentEntry(name, instance, K::kListName)
     );
   }
 
-  // The sensor's latest reading, as of the last Step().
-  template <algorithms::sensing::SensorLike K>
-  algorithms::sensing::Reading<typename K::Output> Read(SensorHandle<K> handle
-  ) const {
-    return ReadSensor(Context("Read"), handle);
-  }
-
-  // The sensor's configuration, and replacing it: the sensor starts over
-  // from the new one (see interface::SetSensorConfig).
-  template <algorithms::sensing::SensorLike K>
-  K SensorConfig(SensorHandle<K> handle) const {
-    return interface::SensorConfig(Context("SensorConfig"), handle);
-  }
-  template <algorithms::sensing::SensorLike K>
-  void SetSensorConfig(SensorHandle<K> handle, const K& config) const {
-    interface::SetSensorConfig(Context("SetSensorConfig"), handle, config);
-  }
-
-  // The row `joint` lives at in every View whose fields PolicyT orders --
-  // e.g. RowFor<TopologicalOrdering>() for ABA's -- once Init() has run.
-  // Resolved against the archetypes Init() was built from and the
-  // JointLayout the context already keeps, so a caller never re-loads the
-  // scene or rebuilds an ordering plan to find a joint. Throws
-  // std::invalid_argument for an unknown archetype or joint, or an
-  // out-of-range instance (see domain::ResolveJoint).
-  template <engine::topology::LayoutPolicyLike PolicyT>
-  std::size_t RowFor(const JointAddress& joint) const {
-    if (!state_.has_value()) {
-      throw std::runtime_error(
-          "Simulation::RowFor() called before Simulation::Init() -- "
-          "the sim is not yet initialized."
-      );
-    }
-    return state_->context.template LayoutFor<PolicyT>().ToSorted(
-        domain::ResolveJoint(archetypes_, joint)
-    );
-  }
+  // Every named joint of the loaded archetypes, archetype by archetype.
+  // Valid once LoadArowFile() has run.
+  std::vector<JointAddress> Joints() const { return archetypes_.Joints(); }
 
  private:
   // The built sim's context, for a call that needs one; throws before
@@ -301,7 +241,7 @@ class Simulation {
   }
 
   // Runs one pass of a step list (`step`, an IntegratorStepFn) over this
-  // sim's state: a tick (Step/StepWith) or the one-time Setup list (Init).
+  // sim's state: a tick (Step) or the one-time Setup list (Init).
   bool RunStepList(
       algorithms::IntegratorStepFn step, algorithms::ScalarOperationT dt
   ) {
@@ -321,7 +261,7 @@ class Simulation {
 
   algorithms::SimConfig config_;
   std::optional<Allocator::State> state_;
-  std::vector<domain::Archetype> archetypes_;
+  domain::archetype::ArchetypeSet archetypes_;
   std::uint64_t seed_ = 0;
   double time_ = 0.0;
   std::uint64_t step_count_ = 0;

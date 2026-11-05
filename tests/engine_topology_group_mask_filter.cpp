@@ -4,13 +4,13 @@
 #include <string_view>
 #include <vector>
 
-#include "domain/archetype.hpp"
+#include "domain/archetype/archetype.hpp"
 #include "engine/topology/group_mask_filter.hpp"
 #include "engine/topology/orderings.hpp"
 
-using achilles::domain::ArchetypeField;
-using achilles::domain::ArchetypeJointHandle;
-using achilles::domain::ArchetypeTreeStructure;
+using achilles::domain::archetype::Archetype;
+using achilles::domain::JointField;
+using achilles::domain::JointRef;
 using achilles::engine::topology::GroupMaskFilter;
 using achilles::engine::topology::PairFilterLike;
 
@@ -25,21 +25,17 @@ static_assert(PairFilterLike<Filter>);
 
 // One instance of three joints, each with its own group and mask.
 struct ThreeJoints {
-  std::vector<std::size_t> tree_structure = {
-      ArchetypeTreeStructure::kNoParent, 0, 0
+  std::vector<std::size_t> tree_structure = {achilles::domain::kNoParent, 0, 0};
+  std::vector<JointRef> root_parents = {
+      JointRef{achilles::domain::kNoParent, achilles::domain::kNoParent}
   };
-  std::vector<ArchetypeJointHandle> root_parents = {ArchetypeJointHandle{
-      ArchetypeTreeStructure::kNoParent, ArchetypeTreeStructure::kNoParent
-  }};
-  std::vector<ArchetypeField> fields = {
-      ArchetypeField{"toy_group", 1, {1, 2, 4}},
-      ArchetypeField{"toy_mask", 1, {2, 1, 0}},
+  std::vector<JointField> fields = {
+      JointField{"toy_group", 1, {1, 2, 4}},
+      JointField{"toy_mask", 1, {2, 1, 0}},
   };
 
-  ArchetypeTreeStructure Tree() const {
-    return ArchetypeTreeStructure{
-        true, tree_structure, root_parents, {}, fields
-    };
+  Archetype Tree() const {
+    return Archetype("joints", tree_structure, root_parents, true, fields);
   }
 };
 
@@ -54,7 +50,7 @@ TEST(GroupMaskFilter, KeyReadsEachJointsGroupAndMask) {
 
 TEST(GroupMaskFilter, AdmitsOnlyWhenEachGroupMeetsTheOthersMask) {
   ThreeJoints joints;
-  const ArchetypeTreeStructure tree = joints.Tree();
+  const Archetype tree = joints.Tree();
   // 0 (group 1, mask 2) and 1 (group 2, mask 1): both ways.
   EXPECT_TRUE(Filter::Admits(Filter::Key(tree, 0), Filter::Key(tree, 1)));
   EXPECT_TRUE(Filter::Admits(Filter::Key(tree, 1), Filter::Key(tree, 0)));
@@ -67,7 +63,7 @@ TEST(GroupMaskFilter, AdmitsOnlyWhenEachGroupMeetsTheOthersMask) {
 TEST(GroupMaskFilter, AJointWithNoFieldsPairsWithNothing) {
   ThreeJoints joints;
   joints.fields.clear();
-  const ArchetypeTreeStructure tree = joints.Tree();
+  const Archetype tree = joints.Tree();
   const auto key = Filter::Key(tree, 0);
   EXPECT_EQ(key.group, 0U);
   EXPECT_EQ(key.mask, 0U);

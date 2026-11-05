@@ -25,7 +25,7 @@ namespace achilles::algorithms::broad_phase {
 // How many distinct collision groups a body can belong to/collide with --
 // the bit width of kCollisionGroup/kCollisionMask. 16 rather than the full
 // 32 an int32 lane holds so that "every group" is a small positive literal
-// (65535) in archetype data, which is read as a double and narrowed to
+// (65535) in scene data, which is read as a double and narrowed to
 // int32 (see SimAllocator's Populate pass).
 inline constexpr std::size_t kCollisionGroupCount = 16;
 
@@ -48,7 +48,7 @@ using CollisionGroupMask = math::
 // rounded box, so the narrow phase has exactly one shape pair to handle and
 // never branches on shape type. kCollisionPose places the shape's own frame
 // in the body's, so a capsule can lie along any axis and a link's geometry
-// needn't be centred on its joint. All four are static per-archetype data,
+// needn't be centred on its joint. All four are static scene data,
 // set once at load time.
 //
 // More shape types later each bring their own shape fields and their own
@@ -69,7 +69,7 @@ using CollisionGroupMask = math::
 // decides whether such a not-yet-touching contact produces force, belongs
 // to the contact solver and has no broad-phase meaning.)
 //
-// A body that gives none of these in its archetype reads the zero-fill
+// A body that gives none of these in the scene reads the zero-fill
 // default: zero extents, radius and margin -- a point at its body origin --
 // and a zero kCollisionPose, whose rotation part is read as identity (see
 // ComputeSweptBoxBoundsOp), so the shape just sits on the body frame. That's
@@ -81,7 +81,7 @@ using CollisionGroupMask = math::
 // style: kCollisionGroup is the set of groups a body belongs to,
 // kCollisionMask the set of groups it collides with, and a pair (a, b) is
 // tested only when each one's group intersects the other's mask -- two ANDs
-// per lane, no branch. A padding row (or a body whose archetype gives no
+// per lane, no branch. A padding row (or a body the scene gives no
 // "collision_group") reads Zero() and so never collides with anything.
 //
 // Groups and masks never change, so the pairs they rule out are dropped

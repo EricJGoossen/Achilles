@@ -128,12 +128,12 @@ struct ResolvedFieldLayout<EnumT, Traits, F> {
 template <typename EnumT, template <EnumT> class Traits, EnumT F>
 using FieldLayoutT = typename ResolvedFieldLayout<EnumT, Traits, F>::Type;
 
-// The name a field is addressed by in user-authored archetype data (see
-// domain/archetype.hpp's ArchetypeField and SimAllocator's
+// The name a field is addressed by in user-authored scene data (see
+// domain/archetype/archetype.hpp's domain::JointField and SimAllocator's
 // Populate pass) -- optional, like SharedAs/Ordering: an algorithm-internal
 // scratch or output field (e.g. ABA's kJointAcceleration) is never
 // user-supplied and simply declares no kName, so SimAllocator's Populate
-// pass skips it entirely rather than looking for archetype data that will
+// pass skips it entirely rather than looking for scene data that will
 // never exist.
 template <typename EnumT, template <EnumT> class Traits, EnumT F>
 concept FieldHasName = requires {

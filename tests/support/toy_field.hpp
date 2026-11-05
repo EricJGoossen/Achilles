@@ -7,7 +7,8 @@
 #include <utility>
 #include <vector>
 
-#include "domain/archetype.hpp"
+#include "domain/archetype/archetype.hpp"
+#include "domain/archetype/archetype_set.hpp"
 #include "domain/math/vector3.hpp"
 #include "engine/algorithm_contract.hpp"
 #include "engine/field_contract.hpp"
@@ -69,20 +70,16 @@ using ToyAlgorithm = achilles::engine::Algorithm<ToyField, ToyFieldTraits>;
 // View::Load/Store<Field, float> gets exactly that, the same guarantee
 // tests/support/view_fixture.hpp used to provide by construction instead of
 // by this file's own derivation from the real ordering policy.
-inline domain::Archetype MakeToyArchetype(std::size_t instance_count) {
-  std::vector<std::size_t> tree_structure = {
-      domain::ArchetypeTreeStructure::kNoParent
-  };
-  std::vector<domain::ArchetypeJointHandle> root_parents(
+inline domain::archetype::Archetype MakeToyArchetype(std::size_t instance_count) {
+  std::vector<std::size_t> tree_structure = {domain::kNoParent};
+  std::vector<domain::JointRef> root_parents(
       instance_count,
-      domain::ArchetypeJointHandle{
+      domain::JointRef{
           std::numeric_limits<std::size_t>::max(),
           std::numeric_limits<std::size_t>::max()
       }
   );
-  return {
-      "toy", std::move(tree_structure), std::move(root_parents), true, {}
-  };
+  return {"toy", std::move(tree_structure), std::move(root_parents), true, {}};
 }
 
 // A real, memory-backed ToyAlgorithm sim over `instance_count` standalone
@@ -95,10 +92,11 @@ inline domain::Archetype MakeToyArchetype(std::size_t instance_count) {
 inline engine::memory::SimAllocator<ToyAlgorithm> MakeToySim(
     std::size_t instance_count
 ) {
-  std::array<domain::Archetype, 1> archetypes = {
-      MakeToyArchetype(instance_count)
-  };
-  return engine::memory::SimAllocator<ToyAlgorithm>(archetypes);
+  std::array<domain::archetype::Archetype, 1> archetypes = {MakeToyArchetype(instance_count
+  )};
+  return engine::memory::SimAllocator<ToyAlgorithm>(
+      achilles::domain::archetype::ArchetypeSet(archetypes)
+  );
 }
 
 }  // namespace achilles::test_support

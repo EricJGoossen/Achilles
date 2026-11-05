@@ -43,7 +43,7 @@ struct WorldTransformSlot;
 // re-deriving the other's work.
 struct CollisionExtentsSlot;
 struct CollisionRadiusSlot;
-// The shape's frame in its body's (static archetype data) -- shared so a
+// The shape's frame in its body's (static scene data) -- shared so a
 // lidar (sensing/lidar.hpp) can place each body's shape in world itself.
 struct CollisionPoseSlot;
 struct CollisionMarginSlot;

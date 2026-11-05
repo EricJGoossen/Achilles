@@ -7,7 +7,7 @@
 
 namespace achilles::algorithms {
 
-// The archetype fields a body's collision groups and mask are given in --
+// The scene fields a body's collision groups and mask are given in --
 // the broad phase's kCollisionGroup/kCollisionMask (broad_phase_data.hpp),
 // read by name here before they're loaded.
 struct CollisionMaskFields {

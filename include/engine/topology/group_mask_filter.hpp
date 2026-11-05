@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <string_view>
 
-#include "domain/archetype.hpp"
+#include "domain/archetype/archetype.hpp"
 
 namespace achilles::engine::topology {
 
@@ -30,7 +30,7 @@ struct GroupMaskFilter {
   };
 
   static Groups Key(
-      const domain::ArchetypeTreeStructure& archetype, std::size_t joint
+      const domain::archetype::Archetype& archetype, std::size_t joint
   ) {
     return {
         Bits(archetype, Fields::kGroup, joint),
@@ -44,13 +44,13 @@ struct GroupMaskFilter {
 
  private:
   static std::uint64_t Bits(
-      const domain::ArchetypeTreeStructure& archetype,
+      const domain::archetype::Archetype& archetype,
       std::string_view name,
       std::size_t joint
   ) {
-    for (const domain::ArchetypeField& field : archetype.fields) {
+    for (const domain::JointField& field : archetype.fields) {
       if (field.name == name) {
-        return static_cast<std::uint64_t>(domain::ArchetypeFieldAt(
+        return static_cast<std::uint64_t>(domain::JointFieldAt(
             field, 0, joint, 0, archetype.tree_structure.size()
         ));
       }

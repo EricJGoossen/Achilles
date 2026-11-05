@@ -10,7 +10,8 @@
 #include "algorithms/sim_config.hpp"
 #include "algorithms/vi/vi_data.hpp"
 #include "algorithms/vi/vi_step.hpp"
-#include "domain/archetype.hpp"
+#include "domain/archetype/archetype.hpp"
+#include "domain/archetype/archetype_set.hpp"
 #include "domain/joint_layout.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/orderings.hpp"
@@ -43,9 +44,8 @@
 
 using namespace achilles::algorithms;
 using namespace achilles::algorithms::vi;
-using achilles::domain::Archetype;
-using achilles::domain::ArchetypeJointHandle;
-using achilles::domain::ArchetypeTreeStructure;
+using achilles::domain::archetype::Archetype;
+using achilles::domain::JointRef;
 using achilles::engine::memory::SimAllocator;
 using achilles::engine::topology::TopologicalOrdering;
 
@@ -71,23 +71,17 @@ std::size_t Lane() { return B::size; }
 // beyond satisfying TopologicalOrdering::Build's own single-root-per-
 // instance precondition -- see orderings.hpp's SortTree comment).
 SimAllocator<VIAlgorithm> MakeSim(std::size_t instance_count) {
-  std::vector<ArchetypeJointHandle> root_parents(
-      instance_count, ArchetypeJointHandle{0, 0}
-  );
+  std::vector<JointRef> root_parents(instance_count, JointRef{0, 0});
   std::array<Archetype, 1> archetypes = {Archetype(
-      "joints",
-      {ArchetypeTreeStructure::kNoParent},
-      std::move(root_parents),
-      true,
-      {}
+      "joints", {achilles::domain::kNoParent}, std::move(root_parents), true, {}
   )};
-  return SimAllocator<VIAlgorithm>(archetypes);
+  return SimAllocator<VIAlgorithm>(achilles::domain::archetype::ArchetypeSet(archetypes));
 }
 
 std::size_t BatchGroup(
     const achilles::domain::JointLayout& layout, std::size_t instance
 ) {
-  return layout.ToSorted({instance, 0}) / Lane();
+  return layout.ToSorted(instance, 0) / Lane();
 }
 
 void PopulateJoint(

@@ -7,7 +7,8 @@
 #include <utility>
 #include <vector>
 
-#include "domain/archetype.hpp"
+#include "domain/archetype/archetype.hpp"
+#include "domain/archetype/archetype_set.hpp"
 #include "domain/math/vector3.hpp"
 #include "engine/algorithm_contract.hpp"
 #include "engine/field_contract.hpp"
@@ -79,16 +80,18 @@ inline engine::memory::SimAllocator<ToyBufferedAlgorithm> MakeToyBufferedSim(
     domain::math::Vector3<float> rest = ToyCommandRest(i);
     command.insert(command.end(), {rest.X(), rest.Y(), rest.Z()});
   }
-  std::vector<domain::ArchetypeField> fields;
-  fields.push_back(domain::ArchetypeField{"command", 3, std::move(command)});
-  std::array<domain::Archetype, 1> archetypes = {domain::Archetype(
+  std::vector<domain::JointField> fields;
+  fields.push_back(domain::JointField{"command", 3, std::move(command)});
+  std::array<domain::archetype::Archetype, 1> archetypes = {domain::archetype::Archetype(
       "toy",
-      {domain::ArchetypeTreeStructure::kNoParent},
-      std::vector<domain::ArchetypeJointHandle>(instance_count),
+      {domain::kNoParent},
+      std::vector<domain::JointRef>(instance_count),
       true,
       std::move(fields)
   )};
-  return engine::memory::SimAllocator<ToyBufferedAlgorithm>(archetypes);
+  return engine::memory::SimAllocator<ToyBufferedAlgorithm>(
+      achilles::domain::archetype::ArchetypeSet(archetypes)
+  );
 }
 
 // Swaps kCommand's halves the way an Algorithm's own Step would.

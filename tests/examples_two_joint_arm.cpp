@@ -65,7 +65,6 @@ using achilles::domain::math::Vector3;
 using achilles::engine::topology::TopologicalOrdering;
 using achilles::interface::Simulation;
 using achilles::test_support::TempDir;
-using achilles::util::TypeList;
 
 using B = MathematicalT;
 
@@ -306,13 +305,13 @@ TEST(TwoJointArmReference, InitialAccelerationMatchesClosedFormAtRest) {
   TempDir dir;
   Simulation sim = MakeTwoJointArmSim(dir);
 
-  JointTopology topology = sim.TopologyFor<TopologicalOrdering>();
+  JointTopology topology = sim.Context().TopologyFor<TopologicalOrdering>();
   JointRows rows = FindJointRows(topology);
   ASSERT_NE(rows.shoulder, topology.Size());
   ASSERT_NE(rows.elbow, topology.Size());
 
   ASSERT_TRUE(sim.Step(kDt));
-  auto view = sim.ViewFor<ABAAlgorithm>();
+  auto view = sim.Context().ViewFor<ABAAlgorithm>();
   auto shoulder_qdd =
       view.Load<ABAField::kJointAcceleration, ScalarOperationT>(rows.shoulder);
   auto elbow_qdd =
@@ -348,7 +347,7 @@ TEST(TwoJointArmReference, TrajectoryMatchesIndependentModelOverTwoSeconds) {
   TempDir dir;
   Simulation sim = MakeTwoJointArmSim(dir);
 
-  JointTopology topology = sim.TopologyFor<TopologicalOrdering>();
+  JointTopology topology = sim.Context().TopologyFor<TopologicalOrdering>();
   JointRows rows = FindJointRows(topology);
   ASSERT_NE(rows.shoulder, topology.Size());
   ASSERT_NE(rows.elbow, topology.Size());
@@ -360,7 +359,7 @@ TEST(TwoJointArmReference, TrajectoryMatchesIndependentModelOverTwoSeconds) {
     ASSERT_TRUE(sim.Step(kDt));
     reference.Step(kDt);
 
-    auto view = sim.ViewFor<ABAAlgorithm>();
+    auto view = sim.Context().ViewFor<ABAAlgorithm>();
     auto shoulder_q =
         view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.shoulder);
     auto elbow_q =
@@ -416,7 +415,7 @@ TEST(
   TempDir dir;
   Simulation sim = MakeTwoJointArmSim(dir);
 
-  JointTopology topology = sim.TopologyFor<TopologicalOrdering>();
+  JointTopology topology = sim.Context().TopologyFor<TopologicalOrdering>();
   JointRows rows = FindJointRows(topology);
   ASSERT_NE(rows.shoulder, topology.Size());
   ASSERT_NE(rows.elbow, topology.Size());
@@ -438,7 +437,7 @@ TEST(
   for (int i = 0; i < kSteps; ++i) {
     ASSERT_TRUE(sim.Step(kDt));
 
-    auto view = sim.ViewFor<ABAAlgorithm>();
+    auto view = sim.Context().ViewFor<ABAAlgorithm>();
     auto shoulder_q =
         view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.shoulder);
     auto elbow_q =
@@ -504,7 +503,7 @@ TEST(TwoJointArmReference, RungeKutta4DrasticallyOutperformsEulerOnEnergy) {
     Simulation sim = MakeTwoJointArmSim(dir);
     sim.SetIntegrator(integrator);
 
-    JointTopology topology = sim.TopologyFor<TopologicalOrdering>();
+    JointTopology topology = sim.Context().TopologyFor<TopologicalOrdering>();
     JointRows rows = FindJointRows(topology);
 
     constexpr int kSteps = 120 * 8;  // 8 simulated seconds.
@@ -512,7 +511,7 @@ TEST(TwoJointArmReference, RungeKutta4DrasticallyOutperformsEulerOnEnergy) {
     for (int i = 0; i < kSteps; ++i) {
       EXPECT_TRUE(sim.Step(kDt));
 
-      auto view = sim.ViewFor<ABAAlgorithm>();
+      auto view = sim.Context().ViewFor<ABAAlgorithm>();
       auto shoulder_q =
           view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.shoulder);
       auto elbow_q =
@@ -639,7 +638,7 @@ double TrendSlope(const std::vector<double>& y) {
 // The actual check is *per-tick* rather than trajectory-wide: at every
 // state the sim visits, feed that state into the closed-form
 // ReferenceAngularAcceleration and compare against the qdd algorithms::aba
-// just produced for it (via Simulation::StepWith<ABAStep alone>, which
+// just produced for it (via ABAStep run alone, which
 // forces a fresh ABA evaluation at exactly the captured state -- see the
 // loop below for why that call can't be skipped for any Integrator other
 // than kSemiImplicitEuler). That error never accumulates,
@@ -714,14 +713,17 @@ TEST(
   TempDir dir;
   Simulation sim = MakeTwoJointArmSim(dir);
   sim.SetIntegrator(integrator);
-  JointTopology topology = sim.TopologyFor<TopologicalOrdering>();
+  JointTopology topology = sim.Context().TopologyFor<TopologicalOrdering>();
   JointRows rows = FindJointRows(topology);
   ASSERT_NE(rows.shoulder, topology.Size());
   ASSERT_NE(rows.elbow, topology.Size());
+  const auto& context = sim.Context();
+  const auto config =
+      achilles::interface::LoadSimConfig(dir.Path() / "sim_config.yaml");
 
   // Matches the archetype's own initial state (both links at rest,
   // identity rotation) -- Simulation::Init() loads exactly this, so the
-  // very first ABA-only StepWith() below evaluates ABA at
+  // very first ABA-only evaluation below runs ABA at
   // exactly this state.
   ScalarOperationT phi = 0.0F;
   ScalarOperationT psi = 0.0F;
@@ -744,8 +746,8 @@ TEST(
     // psi_dot) -- that mismatch alone produces a large, integrator-
     // specific-looking "error" that has nothing to do with dynamics
     // correctness.
-    ASSERT_TRUE(sim.StepWith<TypeList<ABAStep>>(0.0F));
-    auto view = sim.ViewFor<ABAAlgorithm>();
+    ABAStep::Step(context, config, 0.0F);
+    auto view = sim.Context().ViewFor<ABAAlgorithm>();
     Accelerations expected =
         ReferenceAngularAcceleration(phi, psi, phi_dot, psi_dot);
     ScalarOperationT shoulder_qdd =
@@ -777,7 +779,7 @@ TEST(
     // Now advance, and read the new committed state for the next
     // iteration's comparison.
     ASSERT_TRUE(sim.Step(kDt));
-    auto next_view = sim.ViewFor<ABAAlgorithm>();
+    auto next_view = sim.Context().ViewFor<ABAAlgorithm>();
     auto shoulder_q =
         next_view.Load<ABAField::kJointPosition, ScalarOperationT>(rows.shoulder
         );

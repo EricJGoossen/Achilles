@@ -4,7 +4,7 @@
 #include <stdexcept>
 #include <vector>
 
-#include "domain/archetype.hpp"
+#include "domain/archetype/archetype.hpp"
 
 namespace achilles::interface {
 
@@ -27,7 +27,7 @@ class ArchetypeLoadError : public std::runtime_error {
 // joint, generic flat-array field values keyed by name (matched against a
 // concrete Algorithm's Traits<F>::kName only later, by SimAllocator), and
 // nothing yet for static joints (every joint this loader produces is
-// non-static -- see ArchetypeTreeStructure/Ordering, which have no notion
+// non-static -- see Ordering, which has no notion
 // of "static" at all today).
 //
 // Validates, and throws ArchetypeLoadError if not satisfied:
@@ -42,7 +42,7 @@ class ArchetypeLoadError : public std::runtime_error {
 //    tree: no archetype (in)directly attaches to itself.
 //  - Every joint's own `parent` (by name, within the same archetype) forms
 //    a single tree with exactly one local root.
-std::vector<domain::Archetype> LoadArchetypes(
+std::vector<domain::archetype::Archetype> LoadArchetypes(
     const std::filesystem::path& root_file
 );
 

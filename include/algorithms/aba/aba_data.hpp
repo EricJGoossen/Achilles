@@ -63,7 +63,7 @@ struct ABAFieldTraits;
 // Ordering = topology::TopologicalOrdering -- there is no ABA field that
 // could safely use the (looser, no-cross-batch-dependency) default.
 //
-// kName is a field's one name: what an archetype (.arow) field is matched
+// kName is a field's one name: what a .arow field is matched
 // against when loading (memory::SimAllocator's Populate pass), and what a
 // truth sensor of it is attached under (algorithms/sensing). The model
 // inputs and the state ABA computes (world pose, body velocity, the
@@ -124,7 +124,7 @@ struct ABAFieldTraits<ABAField::kJointVelocity> {
 template <>
 struct ABAFieldTraits<ABAField::kJointTorque> {
   // Double-buffered (engine/memory/buffering_policy.hpp) so actuators
-  // (interface/actuator.hpp) accumulate next tick's torque into one half
+  // (interface/actuator_handle.hpp) accumulate next tick's torque into one half
   // while this tick's ABA passes read the other; SwapTorqueStep
   // (aba_step.hpp) swaps them and zeroes the half handed back, so a tick's
   // torque is exactly what actuators applied for it. Each element is one

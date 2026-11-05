@@ -42,7 +42,7 @@ struct MidpointFieldTraits;
 // The first four fields are SharedAs-aliased onto ABA's own blocks
 // (aba_data.hpp): every trial this algorithm writes into kJointPosition/
 // kJointVelocity is exactly what ABA's next evaluation reads. The scratch
-// fields are private and unnamed -- neither loaded from an archetype nor
+// fields are private and unnamed -- neither loaded from a scene nor
 // meaningful between ticks.
 template <>
 struct MidpointFieldTraits<MidpointField::kJointSubspace> {

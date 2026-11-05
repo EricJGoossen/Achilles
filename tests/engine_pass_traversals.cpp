@@ -5,13 +5,14 @@
 #include <utility>
 #include <vector>
 
-#include "domain/archetype.hpp"
+#include "domain/archetype/archetype.hpp"
 #include "domain/joint_layout.hpp"
 #include "domain/joint_topology.hpp"
 #include "engine/pass/row_policies.hpp"
 #include "engine/pass/traversals.hpp"
 #include "engine/topology/indexing_policy.hpp"
 
+using achilles::domain::archetype::Archetype;
 using achilles::engine::pass::BackwardLinearTraversal;
 using achilles::engine::pass::BackwardTreeTraversal;
 using achilles::engine::pass::Direction;
@@ -533,7 +534,6 @@ TEST(PairTraversalInitOp, InitializesEvenWithNoPairs) {
 
 namespace {
 
-using achilles::domain::ArchetypeJointHandle;
 using achilles::domain::JointLayout;
 using achilles::domain::SegmentedTopology;
 using achilles::engine::pass::LinkedSegmentScanTraversal;
@@ -573,10 +573,10 @@ struct TwoLists {
 
 // Three rows of a scene, the middle one padding.
 struct Scene {
-  static constexpr size_t kNo = JointLayout::kNoInstance;
+  static constexpr size_t kNo = achilles::domain::kNoParent;
   std::vector<size_t> offsets = {0, 2};
   std::vector<size_t> sorted = {0, 2};
-  std::vector<ArchetypeJointHandle> joints = {{0, 0}, {kNo, kNo}, {0, 1}};
+  std::vector<achilles::domain::JointRef> joints = {{0, 0}, {kNo, kNo}, {0, 1}};
   JointLayout Layout() const { return {offsets, sorted, joints}; }
 };
 

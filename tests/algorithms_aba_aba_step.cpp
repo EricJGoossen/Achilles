@@ -9,7 +9,8 @@
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
 #include "algorithms/sim_config.hpp"
-#include "domain/archetype.hpp"
+#include "domain/archetype/archetype.hpp"
+#include "domain/archetype/archetype_set.hpp"
 #include "domain/joint_layout.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/orderings.hpp"
@@ -35,9 +36,8 @@
 
 using namespace achilles::algorithms;
 using namespace achilles::algorithms::aba;
-using achilles::domain::Archetype;
-using achilles::domain::ArchetypeJointHandle;
-using achilles::domain::ArchetypeTreeStructure;
+using achilles::domain::archetype::Archetype;
+using achilles::domain::JointRef;
 using achilles::engine::memory::SimAllocator;
 using achilles::engine::topology::TopologicalOrdering;
 using achilles::test_support::AbaInertiaOutputs;
@@ -68,23 +68,23 @@ std::size_t Lane() { return B::size; }
 
 // A one-archetype, one-instance-per-joint sim: `tree_structure` describes
 // that single instance's real joints (parent-per-joint,
-// ArchetypeTreeStructure::kNoParent for the instance's own root). Every ABA
+// achilles::domain::kNoParent for the instance's own root). Every ABA
 // field's own TopologicalOrdering pads a single instance up to a full lane,
-// so Layout::ToSorted({0, j}) always comes out as an exact multiple of
+// so Layout::ToSorted(0, j) always comes out as an exact multiple of
 // Lane() here -- BatchGroup() below turns that back into the View index
 // ABA's batched Store/Load actually need (see this file's header comment).
 SimAllocator<ABAAlgorithm> MakeSim(std::vector<std::size_t> tree_structure) {
-  std::vector<ArchetypeJointHandle> root_parents = {ArchetypeJointHandle{0, 0}};
+  std::vector<JointRef> root_parents = {JointRef{0, 0}};
   std::array<Archetype, 1> archetypes = {Archetype(
       "chain", std::move(tree_structure), std::move(root_parents), true, {}
   )};
-  return SimAllocator<ABAAlgorithm>(archetypes);
+  return SimAllocator<ABAAlgorithm>(achilles::domain::archetype::ArchetypeSet(archetypes));
 }
 
 std::size_t BatchGroup(
     const achilles::domain::JointLayout& layout, std::size_t joint
 ) {
-  return layout.ToSorted({0, joint}) / Lane();
+  return layout.ToSorted(0, joint) / Lane();
 }
 
 void PopulateRevoluteZJoint(
@@ -116,7 +116,7 @@ void PopulateRevoluteZJoint(
 // NonzeroJointAngleRotatesWorldTransform/RepeatedStepsProduceConsistentResults
 // below.
 SimAllocator<ABAAlgorithm> MakeSingleJointSim() {
-  return MakeSim({ArchetypeTreeStructure::kNoParent});
+  return MakeSim({achilles::domain::kNoParent});
 }
 
 }  // namespace
@@ -186,8 +186,7 @@ TEST(AbaStep, NonzeroJointAngleRotatesWorldTransform) {
 // proves the += contract directly -- this is that same contract exercised
 // through a real tree traversal instead of a direct call.
 TEST(AbaStep, PropagatesThroughTwoJointChain) {
-  SimAllocator<ABAAlgorithm> sim =
-      MakeSim({ArchetypeTreeStructure::kNoParent, 0});
+  SimAllocator<ABAAlgorithm> sim = MakeSim({achilles::domain::kNoParent, 0});
   ABAView view = sim.ViewFor<ABAAlgorithm>();
   const auto& layout = sim.LayoutFor<TopologicalOrdering>();
   std::size_t group0 = BatchGroup(layout, 0);
@@ -244,8 +243,7 @@ TEST(AbaStep, PropagatesThroughTwoJointChain) {
 // accumulator) to prove the same thing actually happens when the traversal
 // itself drives two real sibling joints into the same real parent row.
 TEST(AbaStep, AccumulatesMultipleChildrenIntoSharedParent) {
-  SimAllocator<ABAAlgorithm> sim =
-      MakeSim({ArchetypeTreeStructure::kNoParent, 0, 0});
+  SimAllocator<ABAAlgorithm> sim = MakeSim({achilles::domain::kNoParent, 0, 0});
   ABAView view = sim.ViewFor<ABAAlgorithm>();
   const auto& layout = sim.LayoutFor<TopologicalOrdering>();
   std::size_t group0 = BatchGroup(layout, 0);
@@ -291,8 +289,7 @@ TEST(AbaStep, AccumulatesMultipleChildrenIntoSharedParent) {
 // directly, in the same order ABAStep::Step's own passes run them, so this
 // is an exact comparison, not just a "did anything change at all" check.
 TEST(AbaStep, PropagatesThroughMultiLevelTree) {
-  SimAllocator<ABAAlgorithm> sim =
-      MakeSim({ArchetypeTreeStructure::kNoParent, 0, 1});
+  SimAllocator<ABAAlgorithm> sim = MakeSim({achilles::domain::kNoParent, 0, 1});
   ABAView view = sim.ViewFor<ABAAlgorithm>();
   const auto& layout = sim.LayoutFor<TopologicalOrdering>();
   std::size_t group0 = BatchGroup(layout, 0);

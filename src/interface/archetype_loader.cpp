@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-#include "domain/archetype.hpp"
+#include "domain/archetype/archetype.hpp"
 #include "util/yaml.hpp"
 
 // -- .arow format --
@@ -45,9 +45,9 @@
 // found is appended, in encounter order, to that field's flat value list.
 // Nothing here knows what shape any particular field "should" have; it's
 // on whoever writes the .arow file to give a field's leaves in the same
-// order its bound Assembler flattens to (see ArchetypeField's own comment,
-// engine/topology/archetype.hpp) -- the loader stays generic on purpose,
-// so a brand new field needs no change here.
+// order its bound Assembler flattens to (see domain::JointField's
+// own comment, engine/topology/archetype.hpp) -- the loader stays generic on
+// purpose, so a brand new field needs no change here.
 //
 // A .arow file can instead declare one sensor, attached to a joint the same
 // way an archetype is, and pulled in through `includes` like any other
@@ -64,7 +64,7 @@
 // Every instance of the archetype it's attached to gets one (instance i of
 // the sensor is mounted on instance i of the archetype). Which kinds exist,
 // and which settings each takes, isn't the loader's business: it records
-// them on the archetype (domain::ArchetypeAttachment) for whatever hosts
+// them on the archetype (domain::JointAttachment) for whatever hosts
 // the sensors to check.
 //
 // A field must be given on either every joint of an archetype or none of
@@ -73,21 +73,19 @@
 // only repeats the shape, it never varies the data.
 //
 // Static joints aren't supported yet -- every joint this loader produces
-// is non-static, matching ArchetypeTreeStructure/Ordering, which have no
+// is non-static, matching Ordering, which has no
 // notion of "static" at all today.
 
 namespace achilles::interface {
 
-using domain::Archetype;
-using domain::ArchetypeField;
-using domain::ArchetypeJointHandle;
-using domain::ArchetypeTreeStructure;
+using domain::archetype::Archetype;
 
 namespace {
 
 // One field's raw per-leaf values for a single instance of one joint, in
 // the order they were parsed -- broadcast across every instance of the
-// owning archetype when the real ArchetypeField is built (see BuildField).
+// owning archetype when the real domain::JointField is built (see
+// BuildField).
 struct ParsedJoint {
   std::string name;
   std::string parent_name;  // empty => this joint is its archetype's root
@@ -390,7 +388,7 @@ std::size_t LocalJointIndex(
 // local root, every joint reachable from it.
 std::vector<std::size_t> BuildTreeStructure(const ParsedArchetype& archetype) {
   std::size_t n = archetype.joints.size();
-  std::vector<std::size_t> parents(n, ArchetypeTreeStructure::kNoParent);
+  std::vector<std::size_t> parents(n, domain::kNoParent);
   std::vector<std::vector<std::size_t>> children(n);
   std::size_t root_count = 0;
 
@@ -424,9 +422,7 @@ std::vector<std::size_t> BuildTreeStructure(const ParsedArchetype& archetype) {
 
   std::size_t local_root = std::distance(
       parents.begin(),
-      std::find(
-          parents.begin(), parents.end(), ArchetypeTreeStructure::kNoParent
-      )
+      std::find(parents.begin(), parents.end(), domain::kNoParent)
   );
   std::vector<bool> visited(n, false);
   std::vector<std::size_t> frontier = {local_root};
@@ -459,17 +455,17 @@ std::vector<std::size_t> BuildTreeStructure(const ParsedArchetype& archetype) {
 
 // A field must be declared on every joint of an archetype or none of them,
 // with the same leaf count throughout -- partial coverage would leave
-// some (instance, joint) slots in ArchetypeField::values with no defined
-// source, which BuildTreeStructure's own caller has no reasonable default
-// for. Returns every such field, broadcasting each joint's one-instance
+// some (instance, joint) slots in domain::JointField::values with no
+// defined source, which BuildTreeStructure's own caller has no reasonable
+// default for. Returns every such field, broadcasting each joint's one-instance
 // values across every one of the archetype's `copies`.
-std::vector<ArchetypeField> BuildFields(const ParsedArchetype& archetype) {
+std::vector<domain::JointField> BuildFields(const ParsedArchetype& archetype) {
   std::vector<std::string> field_order;
   for (const auto& [name, values] : archetype.joints.front().fields) {
     field_order.push_back(name);
   }
 
-  std::vector<ArchetypeField> result;
+  std::vector<domain::JointField> result;
   for (const std::string& field_name : field_order) {
     std::size_t scalars_per_leaf = 0;
     std::vector<double> per_instance;  // joint-major, leaf-minor
@@ -509,7 +505,7 @@ std::vector<ArchetypeField> BuildFields(const ParsedArchetype& archetype) {
       values.insert(values.end(), per_instance.begin(), per_instance.end());
     }
     result.push_back(
-        ArchetypeField{field_name, scalars_per_leaf, std::move(values)}
+        domain::JointField{field_name, scalars_per_leaf, std::move(values)}
     );
   }
   return result;
@@ -614,7 +610,7 @@ std::vector<Archetype> LoadArchetypesImpl(const std::filesystem::path& root_file
   ParseArchetypeFile(root_file, parsed, sensors, in_progress_files);
 
   // Every sensor, on the archetype it's attached to, in load order.
-  std::unordered_map<std::string, std::vector<domain::ArchetypeAttachment>>
+  std::unordered_map<std::string, std::vector<domain::JointAttachment>>
       attachments;
   for (const ParsedSensor& sensor : sensors) {
     auto target = parsed.find(sensor.attach_archetype);
@@ -626,7 +622,7 @@ std::vector<Archetype> LoadArchetypesImpl(const std::filesystem::path& root_file
               "' was never declared (missing an 'includes' entry?)."
       );
     }
-    attachments[sensor.attach_archetype].push_back(domain::ArchetypeAttachment{
+    attachments[sensor.attach_archetype].push_back(domain::JointAttachment{
         sensor.kind,
         LocalJointIndex(target->second, sensor.attach_joint),
         sensor.name,
@@ -651,11 +647,11 @@ std::vector<Archetype> LoadArchetypesImpl(const std::filesystem::path& root_file
   for (const std::string& name : order) {
     const ParsedArchetype& archetype = parsed.at(name);
     std::vector<std::size_t> tree_structure = BuildTreeStructure(archetype);
-    std::vector<ArchetypeField> fields = BuildFields(archetype);
+    std::vector<domain::JointField> fields = BuildFields(archetype);
     bool is_root = !archetype.has_attach;
 
-    std::vector<ArchetypeJointHandle> root_parents(
-        archetype.copies, ArchetypeJointHandle{0, 0}
+    std::vector<domain::JointRef> root_parents(
+        archetype.copies, domain::JointRef{0, 0}
     );
     if (!is_root) {
       const ParsedArchetype& target = parsed.at(archetype.attach_archetype);
@@ -665,12 +661,11 @@ std::vector<Archetype> LoadArchetypesImpl(const std::filesystem::path& root_file
 
       if (target.copies == archetype.copies) {
         for (std::size_t i = 0; i < archetype.copies; ++i) {
-          root_parents[i] =
-              ArchetypeJointHandle{target_offset + i, target_joint};
+          root_parents[i] = domain::JointRef{target_offset + i, target_joint};
         }
       } else if (target.copies == 1) {
         for (std::size_t i = 0; i < archetype.copies; ++i) {
-          root_parents[i] = ArchetypeJointHandle{target_offset, target_joint};
+          root_parents[i] = domain::JointRef{target_offset, target_joint};
         }
       } else {
         Fail(

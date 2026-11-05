@@ -4,7 +4,8 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "domain/archetype.hpp"
+#include "domain/archetype/archetype.hpp"
+#include "domain/archetype/archetype_set.hpp"
 #include "domain/math/scalar.hpp"
 #include "engine/algorithm_contract.hpp"
 #include "engine/field_contract.hpp"
@@ -58,10 +59,11 @@ using ToyReduceAlgorithm =
 inline engine::memory::SimAllocator<ToyReduceAlgorithm> MakeToyReduceSim(
     std::size_t instance_count
 ) {
-  std::array<domain::Archetype, 1> archetypes = {
-      MakeToyArchetype(instance_count)
-  };
-  return engine::memory::SimAllocator<ToyReduceAlgorithm>(archetypes);
+  std::array<domain::archetype::Archetype, 1> archetypes = {MakeToyArchetype(instance_count
+  )};
+  return engine::memory::SimAllocator<ToyReduceAlgorithm>(
+      achilles::domain::archetype::ArchetypeSet(archetypes)
+  );
 }
 
 }  // namespace achilles::test_support
