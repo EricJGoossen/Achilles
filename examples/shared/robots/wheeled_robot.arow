@@ -1,36 +1,42 @@
-# The maze robot: box_robot.arow's four-wheeled skid-steer chassis, with a
-# lidar on a mast, a gyroscope and an encoder on every wheel (the sensor
-# files in sensors/, one per sensor). Attached to maze.arow's world root;
-# see that file for the scene's conventions.
+# A four-wheeled skid-steer robot, shared by the box_robot and maze scenes.
+# A scene gives it a welded `robot_mount` joint to attach to, and that joint's
+# fixed transform places it. The scene also picks its sensors from
+# shared/sensors; its motors come with it.
 #
 # The chassis floats on a free joint with its frame at axle height (0.1 m,
-# the wheels' radius, above the ground); its box rises from there. Its
-# fixed transform places it in the maze's start cell, stands it up (a
-# quarter turn about x, so its +y is the world's +z) and turns it to face
-# the world's +y: in its own axes the robot drives toward +z, +x is its
-# left and +y is up. Each wheel is a revolute joint about its own local X
-# (the axle), collides as a sphere of radius 0.1 and is drawn as a striped
-# cylinder, centered on the axle by its visual_pose (see box_robot.arow).
-archetype: robot
+# the wheels' radius, above the ground); its box rises from there. In its own
+# axes the robot drives toward +z, +x is its left and +y is up. Each wheel is
+# a revolute joint about its own local X (the axle, along the chassis's
+# width), collides as a sphere of radius 0.1, and is drawn as a cylinder
+# (visual_shape 2) of radius 0.1 and width 0.05, whose stripe shows it turn.
+# The cylinder's axis is its frame's +y, so its visual_pose turns that onto
+# the axle (a quarter turn about z, taking +y to +x) and steps back half its
+# width, centering the disc on the axle. All the driving torque comes from
+# the actuators.
+#
+# Collision groups: the robot's bodies are group 2 and collide with group 1,
+# which is what a scene's ground and walls are -- the robot never collides
+# with itself.
+archetype: wheeled_robot
 attach:
-  archetype: maze
-  joint: world
+  archetype: scene
+  joint: robot_mount
 includes:
-  - sensors/lidar.arow
-  - sensors/gyroscope.arow
-  - sensors/left_front_encoder.arow
-  - sensors/left_rear_encoder.arow
-  - sensors/right_front_encoder.arow
-  - sensors/right_rear_encoder.arow
+  - ../actuators/left_front_motor.arow
+  - ../actuators/left_rear_motor.arow
+  - ../actuators/right_front_motor.arow
+  - ../actuators/right_rear_motor.arow
 joints:
   # 5 kg box, half-extents (0.2, 0.06, 0.3), its center 0.06 above the
-  # frame (see box_robot.arow).
+  # frame: h = m * c = (0, 0.3, 0), and the box's own inertia about its
+  # center (m/3 (b^2 + c^2), ...) raised to the frame by the parallel axis
+  # theorem.
   - name: chassis
     parent: null
     fields:
       joint_subspace: [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]
       joint_activation_mask: [63]
-      fixed_joint_transform: {translation: [-3.75, -3.75, 0], rotation: [0, 0, 0.70710678, 0.70710678]}
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
       rigid_body_inertia: [5, 0, 0.3, 0, 0.174, 0.216667, 0.090667, 0, 0, 0]
       joint_position: {translation: [0, 0.102, 0], rotation: [1, 0, 0, 0]}
       joint_velocity: [0, 0, 0, 0, 0, 0]

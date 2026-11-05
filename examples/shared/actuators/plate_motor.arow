@@ -1,0 +1,6 @@
+# Tilts the plate about Z, through its own pivot.
+actuator: plate_motor
+kind: angular
+attach: {archetype: plate_rig, joint: plate}
+config:
+  axis: [0, 0, 1]

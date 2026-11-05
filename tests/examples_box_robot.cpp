@@ -19,8 +19,9 @@
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
 #include "engine/topology/orderings.hpp"
-#include "interface/actuator.hpp"
+#include "interface/actuator_handle.hpp"
 #include "interface/simulation.hpp"
+#include "support/joint_row.hpp"
 
 using achilles::algorithms::ScalarOperationT;
 using achilles::algorithms::aba::ABAAlgorithm;
@@ -28,6 +29,7 @@ using achilles::algorithms::aba::ABAField;
 using achilles::engine::topology::TopologicalOrdering;
 using achilles::interface::AngularActuator;
 using achilles::interface::Simulation;
+using achilles::test_support::JointRow;
 
 namespace {
 
@@ -54,7 +56,8 @@ struct Pose {
 
 // Same convention as box_robot.cpp's ChassisPose, plus height.
 Pose ChassisPose(const Simulation& sim, std::size_t row) {
-  auto world = sim.ViewFor<ABAAlgorithm>()
+  auto world = sim.Context()
+                   .ViewFor<ABAAlgorithm>()
                    .Load<ABAField::kWorldTransform, ScalarOperationT>(row);
   const auto& q = world.Rotation();
   float forward_x = 2.0F * ((q.X() * q.Z()) + (q.W() * q.Y()));
@@ -75,8 +78,8 @@ struct Wheels {
 };
 
 Wheels AttachWheels(const Simulation& sim) {
-  auto attach = [&](const char* name) {
-    return sim.AttachActuator<AngularActuator>({"box_robot", name}, {1, 0, 0});
+  auto attach = [&](const std::string& name) {
+    return sim.Actuator<AngularActuator>(name + "_motor");
   };
   return {
       {attach("left_front"), attach("left_rear")},
@@ -116,7 +119,7 @@ class BoxRobotScene : public ::testing::Test {
     ASSERT_TRUE(sim_.Init());
     // The integrator box_robot.cpp runs with.
     sim_.SetIntegrator(Simulation::Integrator::kSemiImplicitEuler);
-    chassis_ = sim_.RowFor<TopologicalOrdering>({"box_robot", "chassis"});
+    chassis_ = JointRow(sim_, {"wheeled_robot", "chassis"});
   }
 
   Simulation sim_;
@@ -154,13 +157,13 @@ TEST_F(BoxRobotScene, EqualWheelTorqueDrivesStraightForward) {
   EXPECT_NEAR(end.y, start.y, 0.02F);
 }
 
-// Left wheels forward, right wheels back turns the robot in place toward
+// Right wheels forward, left wheels back turns the robot in place toward
 // +heading -- the sign box_robot.cpp's skid steering assumes (a positive
-// yaw-rate command speeds the left side up).
-TEST_F(BoxRobotScene, LeftForwardRightBackTurnsTowardPositiveHeading) {
+// yaw-rate command speeds the right side up).
+TEST_F(BoxRobotScene, RightForwardLeftBackTurnsTowardPositiveHeading) {
   Wheels wheels = AttachWheels(sim_);
   Pose start = ChassisPose(sim_, chassis_);
-  ASSERT_TRUE(Drive(sim_, wheels, 1.0F, -1.0F, kSeconds));
+  ASSERT_TRUE(Drive(sim_, wheels, -1.0F, 1.0F, kSeconds));
   Pose end = ChassisPose(sim_, chassis_);
 
   EXPECT_GT(end.heading - start.heading, 0.05F);

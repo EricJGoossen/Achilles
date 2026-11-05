@@ -1,0 +1,4 @@
+# The plate pivot's angle, exactly.
+sensor: plate_angle
+kind: joint_position
+attach: {archetype: plate_rig, joint: plate}

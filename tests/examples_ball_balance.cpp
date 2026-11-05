@@ -24,10 +24,10 @@
 #include "algorithms/aba/aba_data.hpp"
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
-#include "domain/archetype.hpp"
 #include "engine/topology/orderings.hpp"
-#include "interface/actuator.hpp"
+#include "interface/actuator_handle.hpp"
 #include "interface/simulation.hpp"
+#include "support/joint_row.hpp"
 #include "support/temp_dir.hpp"
 
 using achilles::algorithms::ScalarOperationT;
@@ -37,6 +37,7 @@ using achilles::engine::topology::TopologicalOrdering;
 using achilles::interface::AngularActuator;
 using achilles::interface::JointAddress;
 using achilles::interface::Simulation;
+using achilles::test_support::JointRow;
 using achilles::test_support::TempDir;
 
 namespace {
@@ -52,6 +53,10 @@ std::filesystem::path ExampleDir() {
          "examples" / "ball_balance";
 }
 
+std::filesystem::path SharedDir() {
+  return ExampleDir().parent_path() / "shared";
+}
+
 std::string ReadFile(const std::filesystem::path& path) {
   std::ifstream in(path);
   return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
@@ -60,7 +65,7 @@ std::string ReadFile(const std::filesystem::path& path) {
 // `file`'s text with its "copies: 1" raised to "copies: 2". Fails the
 // calling test if the scene no longer says 1.
 std::string RaiseCopies(const std::string& file) {
-  std::string text = ReadFile(ExampleDir() / file);
+  std::string text = ReadFile(SharedDir() / "robots" / file);
   const std::string copies = "copies: 1";
   std::size_t at = text.find(copies);
   EXPECT_NE(at, std::string::npos) << file << "'s copies changed";
@@ -70,20 +75,24 @@ std::string RaiseCopies(const std::string& file) {
   return text;
 }
 
-// The row each joint lives at in ABA's Views, which TopologicalOrdering
-// orders.
-std::size_t Row(const Simulation& sim, const JointAddress& joint) {
-  return sim.RowFor<TopologicalOrdering>(joint);
-}
-
-// Same as ball_balance.cpp's Place: moves a root joint to (x, y, z),
+// Moves a root joint to (x, y, z),
 // keeping its rotation, and stops it.
 void Place(const Simulation& sim, std::size_t row, float x, float y, float z) {
-  auto view = sim.ViewFor<ABAAlgorithm>();
+  auto view = sim.Context().ViewFor<ABAAlgorithm>();
   auto pose = view.Load<ABAField::kJointPosition, ScalarOperationT>(row);
   const auto& q = pose.Rotation();
   view.Store<ABAField::kJointPosition, ScalarOperationT>(
       row, decltype(pose)(x, y, z, q.W(), q.X(), q.Y(), q.Z())
+  );
+  view.Store<ABAField::kJointVelocity, ScalarOperationT>(row, {});
+}
+
+// Turns a pivot back to level and stops it: the scene starts tipped, for
+// the demo.
+void Level(const Simulation& sim, std::size_t row) {
+  auto view = sim.Context().ViewFor<ABAAlgorithm>();
+  view.Store<ABAField::kJointPosition, ScalarOperationT>(
+      row, achilles::domain::spatial::Transform<ScalarOperationT>::Identity()
   );
   view.Store<ABAField::kJointVelocity, ScalarOperationT>(row, {});
 }
@@ -100,23 +109,19 @@ struct Rig {
 
 Rig AttachRig(const Simulation& sim, std::size_t instance) {
   return {
-      Row(sim, {"plate_rig", "post", instance}),
-      Row(sim, {"plate_rig", "gimbal", instance}),
-      Row(sim, {"plate_rig", "plate", instance}),
-      Row(sim, {"ball", "ball", instance}),
-      sim.AttachActuator<AngularActuator>(
-          {"plate_rig", "gimbal", instance}, {1, 0, 0}
-      ),
-      sim.AttachActuator<AngularActuator>(
-          {"plate_rig", "plate", instance}, {0, 0, 1}
-      ),
+      JointRow(sim, {"plate_rig", "post", instance}),
+      JointRow(sim, {"plate_rig", "gimbal", instance}),
+      JointRow(sim, {"plate_rig", "plate", instance}),
+      JointRow(sim, {"ball", "ball", instance}),
+      sim.Actuator<AngularActuator>("gimbal_motor", instance),
+      sim.Actuator<AngularActuator>("plate_motor", instance),
   };
 }
 
 // The ball's center relative to its plate's pivot, in the scene's axes -- the
 // same reading ball_balance.cpp's Plate::BallOnPlate makes.
 std::array<float, 3> BallOnPlate(const Simulation& sim, const Rig& rig) {
-  auto view = sim.ViewFor<ABAAlgorithm>();
+  auto view = sim.Context().ViewFor<ABAAlgorithm>();
   auto ball = view.Load<ABAField::kWorldTransform, ScalarOperationT>(rig.ball);
   auto pivot = view.Load<ABAField::kWorldTransform, ScalarOperationT>(rig.plate)
                    .Translation();
@@ -143,7 +148,7 @@ void HoldPivot(
     float target,
     bool use_z
 ) {
-  auto view = sim.ViewFor<ABAAlgorithm>();
+  auto view = sim.Context().ViewFor<ABAAlgorithm>();
   const auto& q =
       view.Load<ABAField::kJointPosition, ScalarOperationT>(row).Rotation();
   float angle = 2.0F * std::atan2(use_z ? q.Z() : q.X(), q.W());
@@ -157,10 +162,16 @@ class BallBalanceScene : public ::testing::Test {
  protected:
   void SetUp() override {
     // The real scene, copied whole, with only the copies raised.
-    dir_.Write("plate_rig.arow", RaiseCopies("plate_rig.arow"));
-    dir_.Write("ball.arow", RaiseCopies("ball.arow"));
+    std::filesystem::copy(
+        SharedDir(),
+        dir_.Path() / "shared",
+        std::filesystem::copy_options::recursive
+    );
+    dir_.Write("shared/robots/plate_rig.arow", RaiseCopies("plate_rig.arow"));
+    dir_.Write("shared/robots/ball.arow", RaiseCopies("ball.arow"));
+    std::filesystem::create_directory(dir_.Path() / "scene");
     std::filesystem::path arow = dir_.Write(
-        "ball_balance.arow", ReadFile(ExampleDir() / "ball_balance.arow")
+        "scene/ball_balance.arow", ReadFile(ExampleDir() / "ball_balance.arow")
     );
 
     ASSERT_TRUE(sim_.LoadArowFile(arow.string()));
@@ -172,6 +183,8 @@ class BallBalanceScene : public ::testing::Test {
     for (std::size_t i = 0; i < kPlateCount; ++i) {
       rigs_.push_back(AttachRig(sim_, i));
       Place(sim_, rigs_.back().post, PlateX(i), 0.0F, 0.0F);
+      Level(sim_, rigs_.back().gimbal);
+      Level(sim_, rigs_.back().plate);
     }
   }
 

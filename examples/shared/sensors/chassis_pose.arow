@@ -1,0 +1,4 @@
+# Where the chassis really is.
+sensor: chassis_pose
+kind: world_transform
+attach: {archetype: wheeled_robot, joint: chassis}

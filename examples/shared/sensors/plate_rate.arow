@@ -1,0 +1,4 @@
+# The plate pivot's rate, exactly.
+sensor: plate_rate
+kind: joint_velocity
+attach: {archetype: plate_rig, joint: plate}

@@ -1,0 +1,4 @@
+# Where the plate's pivot really is, for placing the ball on it.
+sensor: plate_pose
+kind: world_transform
+attach: {archetype: plate_rig, joint: plate}

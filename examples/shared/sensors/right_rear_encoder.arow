@@ -2,7 +2,7 @@
 # velocity estimate with some noise on it.
 sensor: right_rear_encoder
 kind: encoder
-attach: {archetype: robot, joint: right_rear}
+attach: {archetype: wheeled_robot, joint: right_rear}
 config:
   position_resolution: 0.0061359
   velocity_noise_density: 0.005

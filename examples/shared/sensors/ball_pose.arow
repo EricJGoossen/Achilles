@@ -1,0 +1,4 @@
+# Where the ball really is -- what the simulated camera looks at.
+sensor: ball_pose
+kind: world_transform
+attach: {archetype: ball, joint: ball}

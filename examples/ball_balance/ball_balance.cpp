@@ -42,41 +42,31 @@
 #include <string>
 #include <string_view>
 
-#include "algorithms/aba/aba_data.hpp"
-#include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
-#include "domain/archetype.hpp"
-#include "engine/topology/orderings.hpp"
-#include "interface/actuator.hpp"
+#include "interface/actuator_handle.hpp"
+#include "interface/sensor_handle.hpp"
 #include "interface/simulation.hpp"
-#include "util/tmp.hpp"
 
 namespace {
 
 using achilles::algorithms::ScalarOperationT;
-using achilles::algorithms::aba::ABAAlgorithm;
-using achilles::algorithms::aba::ABAField;
-using achilles::algorithms::aba::ABAStep;
-using achilles::engine::topology::TopologicalOrdering;
 using achilles::interface::AngularActuator;
-using achilles::interface::JointAddress;
+using achilles::interface::SensorHandle;
 using achilles::interface::Simulation;
+namespace truth = achilles::interface::truth;
 
 constexpr float kPi = std::numbers::pi_v<float>;
 constexpr float kRadToDeg = 180.0F / kPi;
 
 // Geometry, matching plate_rig.arow and ball.arow.
-constexpr float kPivotHeight = 0.5F;
-constexpr float kPlateThickness = 0.02F;
 constexpr float kBallRadius = 0.08F;
 
-// The start: the plate tipped kStartTilt (about X, about Z) -- its -z, +x
-// corner high -- with the ball at rest at kStartSpot (x, z) on it, near
-// that corner. The plate is held there until kHoldTime, so the ball is
+// The start, set in plate_rig.arow and ball.arow: the plate tipped kStartTilt
+// (about X, about Z) -- its -z, +x corner high -- with the ball at rest on it,
+// near that corner. The plate is held there until kHoldTime, so the ball is
 // already rolling fast toward the far corner when the controller takes
 // over.
 constexpr std::array<float, 2> kStartTilt = {0.12F, 0.09F};
-constexpr std::array<float, 2> kStartSpot = {0.14F, -0.14F};
 constexpr float kHoldTime = 0.5F;
 
 // The sensor: a camera looking down at the plate, reporting the ball's
@@ -121,24 +111,7 @@ constexpr float kPathPeriod = 4.0F;
 
 constexpr ScalarOperationT kDt = 0.004F;
 
-// The row each joint lives at in ABA's Views, which TopologicalOrdering
-// orders.
-std::size_t Row(const Simulation& sim, const JointAddress& joint) {
-  return sim.RowFor<TopologicalOrdering>(joint);
-}
-
 using Vec3 = std::array<float, 3>;
-
-// The plate's rotation, the gimbal's about X after the plate's own about
-// Z, applied to `v`.
-Vec3 PlateRotate(const std::array<float, 2>& tilt, const Vec3& v) {
-  float cz = std::cos(tilt[1]);
-  float sz = std::sin(tilt[1]);
-  Vec3 u = {(v[0] * cz) - (v[1] * sz), (v[0] * sz) + (v[1] * cz), v[2]};
-  float cx = std::cos(tilt[0]);
-  float sx = std::sin(tilt[0]);
-  return {u[0], (u[1] * cx) - (u[2] * sx), (u[1] * sx) + (u[2] * cx)};
-}
 
 // Where the plate is steering its ball: position, velocity and acceleration
 // on the plate, along x and z.
@@ -212,62 +185,25 @@ class Camera {
   std::normal_distribution<float> noise_{0.0F, kSensorNoise};
 };
 
-// The plate: its rows, its two pivot motors, the camera watching its ball,
-// and the two loops.
+// The plate: its sensors, its two pivot motors, the camera watching its
+// ball, and the two loops.
 class Plate {
  public:
   explicit Plate(const Simulation& sim)
-      : gimbal_(Row(sim, {"plate_rig", "gimbal"})),
-        plate_(Row(sim, {"plate_rig", "plate"})),
-        ball_(Row(sim, {"ball", "ball"})),
-        tilt_x_(sim.AttachActuator<AngularActuator>(
-            {"plate_rig", "gimbal"}, {1, 0, 0}
-        )),
-        tilt_z_(sim.AttachActuator<AngularActuator>(
-            {"plate_rig", "plate"}, {0, 0, 1}
-        )) {}
-
-  // Tips the plate to kStartTilt and sets the ball down at rest at
-  // kStartSpot on it. Call once, before the first Step.
-  void SetUp(Simulation& sim) {
-    SetPivot(sim, gimbal_, kXAxis, kStartTilt[0]);
-    SetPivot(sim, plate_, kZAxis, kStartTilt[1]);
-    command_ = kStartTilt;
-    // The ball touches the plate's top face at kStartSpot, its center r
-    // along the plate's normal from there; its frame (an unrotated one) is
-    // r below its center.
-    Vec3 contact = PlateRotate(
-        kStartTilt, {kStartSpot[0], kPlateThickness, kStartSpot[1]}
-    );
-    Vec3 normal = PlateRotate(kStartTilt, {0.0F, 1.0F, 0.0F});
-    auto view = sim.ViewFor<ABAAlgorithm>();
-    auto pose = view.Load<ABAField::kJointPosition, ScalarOperationT>(ball_);
-    view.Store<ABAField::kJointPosition, ScalarOperationT>(
-        ball_,
-        decltype(pose)(
-            contact[0] + (kBallRadius * normal[0]),
-            kPivotHeight + contact[1] + (kBallRadius * normal[1]) - kBallRadius,
-            contact[2] + (kBallRadius * normal[2]),
-            1.0F,
-            0.0F,
-            0.0F,
-            0.0F
-        )
-    );
-    view.Store<ABAField::kJointVelocity, ScalarOperationT>(ball_, {});
-    // World transforms only follow joint positions when the dynamics run;
-    // run them once, without advancing time, so the first look at the
-    // ball sees where it now is.
-    sim.StepWith<achilles::util::TypeList<ABAStep>>(0.0F);
-  }
+      : gimbal_angle_(sim.Sensor<truth::JointPosition>("gimbal_angle")),
+        gimbal_rate_(sim.Sensor<truth::JointVelocity>("gimbal_rate")),
+        plate_angle_(sim.Sensor<truth::JointPosition>("plate_angle")),
+        plate_rate_(sim.Sensor<truth::JointVelocity>("plate_rate")),
+        plate_pose_(sim.Sensor<truth::WorldTransform>("plate_pose")),
+        ball_pose_(sim.Sensor<truth::WorldTransform>("ball_pose")),
+        tilt_x_(sim.Actuator<AngularActuator>("gimbal_motor")),
+        tilt_z_(sim.Actuator<AngularActuator>("plate_motor")) {}
 
   // The ball's center relative to the plate's pivot, in the scene's axes: (x,
   // y, z). Close enough to the plate's own axes at these tilts.
-  Vec3 BallOnPlate(const Simulation& sim) const {
-    auto view = sim.ViewFor<ABAAlgorithm>();
-    auto ball = view.Load<ABAField::kWorldTransform, ScalarOperationT>(ball_);
-    auto pivot = view.Load<ABAField::kWorldTransform, ScalarOperationT>(plate_)
-                     .Translation();
+  Vec3 BallOnPlate() const {
+    auto ball = ball_pose_.Read().value;
+    auto pivot = plate_pose_.Read().value.Translation();
     // The ball's frame is at its bottom; its center is r along the frame's
     // own +y, R * (0, r, 0), wherever rolling has turned it.
     const auto& q = ball.Rotation();
@@ -287,16 +223,18 @@ class Plate {
   std::array<float, 2> Measured() const { return {measured_x_, measured_z_}; }
 
   // The two pivots' angles, radians: (about X, about Z).
-  std::array<float, 2> Tilts(const Simulation& sim) const {
-    return {PivotAngle(sim, gimbal_, kXAxis), PivotAngle(sim, plate_, kZAxis)};
+  std::array<float, 2> Tilts() const {
+    return {
+        PivotAngle(gimbal_angle_, kXAxis), PivotAngle(plate_angle_, kZAxis)
+    };
   }
 
   // One control tick at `time`: let the camera look, update the outer loop
   // on each sample it hands over, slew the commanded tilt toward what the
   // outer loop wants, and drive the pivots to it. Until kHoldTime, the
   // plate is just held at kStartTilt.
-  void Control(const Simulation& sim, float time) {
-    Vec3 ball = BallOnPlate(sim);
+  void Control(float time) {
+    Vec3 ball = BallOnPlate();
     camera_.Observe(time, ball[0], ball[2]);
     Camera::Sample sample{};
     while (camera_.Next(time, sample)) {
@@ -311,11 +249,14 @@ class Plate {
     for (std::size_t axis = 0; axis < 2; ++axis) {
       command_[axis] += std::clamp(wanted[axis] - command_[axis], -step, step);
     }
-    Drive(sim, tilt_x_, gimbal_, command_[0], kXAxis);
-    Drive(sim, tilt_z_, plate_, command_[1], kZAxis);
+    Drive(tilt_x_, gimbal_angle_, gimbal_rate_, command_[0], kXAxis);
+    Drive(tilt_z_, plate_angle_, plate_rate_, command_[1], kZAxis);
   }
 
  private:
+  using Angle = SensorHandle<truth::JointPosition>;
+  using Rate = SensorHandle<truth::JointVelocity>;
+  using Pose = SensorHandle<truth::WorldTransform>;
   enum Axis : std::uint8_t { kXAxis, kZAxis };
 
   // Folds one camera sample into the position and velocity estimate.
@@ -359,58 +300,40 @@ class Plate {
 
   // A pivot joint's angle about its one axis. A rotation by angle a about
   // one axis is the quaternion (cos a/2, sin a/2 * axis).
-  static float PivotAngle(const Simulation& sim, std::size_t row, Axis axis) {
-    const auto& q = sim.ViewFor<ABAAlgorithm>()
-                        .Load<ABAField::kJointPosition, ScalarOperationT>(row)
-                        .Rotation();
+  static float PivotAngle(const Angle& sensor, Axis axis) {
+    const auto pose = sensor.Read().value;
+    const auto& q = pose.Rotation();
     return 2.0F * std::atan2(axis == kXAxis ? q.X() : q.Z(), q.W());
-  }
-
-  // Turns a pivot joint to `angle` about its one axis, at rest.
-  static void SetPivot(
-      const Simulation& sim, std::size_t row, Axis axis, float angle
-  ) {
-    auto view = sim.ViewFor<ABAAlgorithm>();
-    auto pose = view.Load<ABAField::kJointPosition, ScalarOperationT>(row);
-    float c = std::cos(angle / 2.0F);
-    float s = std::sin(angle / 2.0F);
-    view.Store<ABAField::kJointPosition, ScalarOperationT>(
-        row,
-        axis == kXAxis ? decltype(pose)(0, 0, 0, c, s, 0, 0)
-                       : decltype(pose)(0, 0, 0, c, 0, 0, s)
-    );
-    view.Store<ABAField::kJointVelocity, ScalarOperationT>(row, {});
   }
 
   // A pivot's motor: PD from its joint's angle to `target`, clamped.
   static void Drive(
-      const Simulation& sim,
       const AngularActuator& motor,
-      std::size_t row,
+      const Angle& angle_sensor,
+      const Rate& rate_sensor,
       float target,
       Axis axis
   ) {
-    // kJointVelocity holds generalized velocities, one per column of the
+    // A joint velocity holds generalized velocities, one per column of the
     // joint's motion subspace -- so a one-axis pivot's rate is always the
     // first, whichever axis it turns about.
-    float angle_rate =
-        sim.ViewFor<ABAAlgorithm>()
-            .Load<ABAField::kJointVelocity, ScalarOperationT>(row)
-            .Angular()
-            .X();
-    float angle = PivotAngle(sim, row, axis);
+    float angle_rate = rate_sensor.Read().value.Angular().X();
+    float angle = PivotAngle(angle_sensor, axis);
     float torque =
         (kPivotGain * (target - angle)) - (kPivotRateGain * angle_rate);
     motor.Apply(std::clamp(torque, -kPivotTorqueLimit, kPivotTorqueLimit));
   }
 
-  std::size_t gimbal_;
-  std::size_t plate_;
-  std::size_t ball_;
+  Angle gimbal_angle_;
+  Rate gimbal_rate_;
+  Angle plate_angle_;
+  Rate plate_rate_;
+  Pose plate_pose_;
+  Pose ball_pose_;
   AngularActuator tilt_x_;
   AngularActuator tilt_z_;
   Camera camera_;
-  std::array<float, 2> command_ = {0.0F, 0.0F};
+  std::array<float, 2> command_ = kStartTilt;
   bool has_measurement_ = false;
   float measured_x_ = 0.0F;
   float measured_z_ = 0.0F;
@@ -465,7 +388,6 @@ int Run(const Args& args) {
   sim.SetIntegrator(Simulation::Integrator::kSemiImplicitEuler);
 
   Plate plate(sim);
-  plate.SetUp(sim);
 
   std::ofstream csv;
   if (!args.csv_path.empty()) {
@@ -480,21 +402,21 @@ int Run(const Args& args) {
   float next_report = 0.0F;
   float next_sample = 0.0F;
   auto tick = [&] {
-    plate.Control(sim, sim_time);
+    plate.Control(sim_time);
     if (csv.is_open() && sim_time >= next_sample) {
-      Vec3 ball = plate.BallOnPlate(sim);
+      Vec3 ball = plate.BallOnPlate();
       auto measured = plate.Measured();
       BallTarget target = Target(sim_time);
-      auto tilts = plate.Tilts(sim);
+      auto tilts = plate.Tilts();
       csv << sim_time << ',' << ball[0] << ',' << ball[2] << ',' << measured[0]
           << ',' << measured[1] << ',' << target.x << ',' << target.z << ','
           << tilts[0] << ',' << tilts[1] << '\n';
       next_sample += 0.01F;
     }
     if (args.headless && sim_time >= next_report) {
-      Vec3 ball = plate.BallOnPlate(sim);
+      Vec3 ball = plate.BallOnPlate();
       BallTarget target = Target(sim_time);
-      auto tilts = plate.Tilts(sim);
+      auto tilts = plate.Tilts();
       std::cout << std::fixed << std::setprecision(1) << "t=" << std::setw(5)
                 << sim_time << "s  ball (cm): " << std::setw(6)
                 << 100.0F * ball[0] << std::setw(6) << 100.0F * ball[2]

@@ -22,25 +22,20 @@
 #include <string_view>
 #include <utility>
 
-#include "algorithms/aba/aba_data.hpp"
-#include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
-#include "domain/archetype.hpp"
-#include "engine/topology/orderings.hpp"
-#include "interface/actuator.hpp"
+#include "interface/actuator_handle.hpp"
+#include "interface/sensor_handle.hpp"
 #include "interface/simulation.hpp"
 
 namespace {
 
 using achilles::algorithms::ScalarOperationT;
-using achilles::algorithms::aba::ABAAlgorithm;
-using achilles::algorithms::aba::ABAField;
-using achilles::engine::topology::TopologicalOrdering;
 using achilles::interface::AngularActuator;
-using achilles::interface::JointAddress;
+using achilles::interface::SensorHandle;
 using achilles::interface::Simulation;
+namespace truth = achilles::interface::truth;
 
-// Geometry, matching box_robot.arow.
+// Geometry, matching shared/robots/wheeled_robot.arow.
 constexpr float kWheelRadius = 0.1F;
 constexpr float kHalfTrack = 0.27F;  // axle center to each side's wheels
 
@@ -72,10 +67,12 @@ constexpr std::array<std::array<float, 2>, 8> kWaypoints = {{
 // built on the AngularActuator the sim hands out.
 class WheelMotor : public AngularActuator {
  public:
-  WheelMotor(AngularActuator base, std::size_t row)
-      : AngularActuator(std::move(base)), row_(row) {}
+  WheelMotor(AngularActuator base, SensorHandle<truth::JointVelocity> speed)
+      : AngularActuator(std::move(base)), speed_(speed) {}
 
-  std::size_t Row() const { return row_; }
+  // The wheel's spin rate about its axle: its joint velocity's one
+  // coordinate.
+  float Speed() const { return speed_.Read().value.Angular().X(); }
 
   // One control tick: torque toward `target_speed` (rad/s) given the
   // wheel's `measured_speed`. Integrates only while unsaturated, so a long
@@ -90,7 +87,7 @@ class WheelMotor : public AngularActuator {
   }
 
  private:
-  std::size_t row_;
+  SensorHandle<truth::JointVelocity> speed_;
   float integral_ = 0.0F;
 };
 
@@ -100,9 +97,8 @@ struct Pose {
   float heading;  // yaw about +y; 0 faces +z
 };
 
-Pose ChassisPose(const Simulation& sim, std::size_t row) {
-  auto world = sim.ViewFor<ABAAlgorithm>()
-                   .Load<ABAField::kWorldTransform, ScalarOperationT>(row);
+Pose ChassisPose(const SensorHandle<truth::WorldTransform>& sensor) {
+  auto world = sensor.Read().value;
   const auto& q = world.Rotation();
   // The chassis's local +z (its forward) in the world: R * z.
   float forward_x = 2.0F * ((q.X() * q.Z()) + (q.W() * q.Y()));
@@ -112,14 +108,6 @@ Pose ChassisPose(const Simulation& sim, std::size_t row) {
       world.Translation().Z(),
       std::atan2(forward_x, forward_z)
   };
-}
-
-// A wheel's spin rate about its axle: its joint velocity's one coordinate.
-float WheelSpeed(const Simulation& sim, std::size_t row) {
-  return sim.ViewFor<ABAAlgorithm>()
-      .Load<ABAField::kJointVelocity, ScalarOperationT>(row)
-      .Angular()
-      .X();
 }
 
 float WrapAngle(float angle) {
@@ -172,16 +160,9 @@ struct Wheels {
   WheelMotor right_rear;
 };
 
-// The row each joint lives at in ABA's Views, which TopologicalOrdering
-// orders.
-std::size_t Row(const Simulation& sim, const JointAddress& joint) {
-  return sim.RowFor<TopologicalOrdering>(joint);
-}
-
-WheelMotor AttachWheel(const Simulation& sim, std::string name) {
-  JointAddress joint{"box_robot", std::move(name)};
-  // Each wheel turns about its own axle, local X.
-  return sim.AttachActuator<WheelMotor>(joint, {1, 0, 0}, Row(sim, joint));
+WheelMotor AttachWheel(const Simulation& sim, const std::string& name) {
+  auto speed = sim.Sensor<truth::JointVelocity>(name + "_speed");
+  return sim.Actuator<WheelMotor>(name + "_motor", 0, speed);
 }
 
 // Skid steering: a yaw rate w about +y moves a wheel at lateral offset x
@@ -189,19 +170,16 @@ WheelMotor AttachWheel(const Simulation& sim, std::string name) {
 // Rolling without slip, a wheel spinning at +s about its axle moves its
 // axle forward (+z) at s * kWheelRadius.
 void DriveWheels(
-    Wheels& wheels,
-    const Simulation& sim,
-    const WaypointFollower::Command& command,
-    float dt
+    Wheels& wheels, const WaypointFollower::Command& command, float dt
 ) {
-  float left = (command.speed + (command.yaw_rate * kHalfTrack)) / kWheelRadius;
+  float left = (command.speed - (command.yaw_rate * kHalfTrack)) / kWheelRadius;
   float right =
-      (command.speed - (command.yaw_rate * kHalfTrack)) / kWheelRadius;
+      (command.speed + (command.yaw_rate * kHalfTrack)) / kWheelRadius;
   for (WheelMotor* wheel : {&wheels.left_front, &wheels.left_rear}) {
-    wheel->Drive(left, WheelSpeed(sim, wheel->Row()), dt);
+    wheel->Drive(left, wheel->Speed(), dt);
   }
   for (WheelMotor* wheel : {&wheels.right_front, &wheels.right_rear}) {
-    wheel->Drive(right, WheelSpeed(sim, wheel->Row()), dt);
+    wheel->Drive(right, wheel->Speed(), dt);
   }
 }
 
@@ -247,7 +225,7 @@ int Run(const Args& args) {
   // Semi-implicit Euler: the integrator with collision.
   sim.SetIntegrator(Simulation::Integrator::kSemiImplicitEuler);
 
-  const std::size_t chassis = Row(sim, {"box_robot", "chassis"});
+  const auto chassis = sim.Sensor<truth::WorldTransform>("chassis_pose");
   Wheels wheels{
       AttachWheel(sim, "left_front"),
       AttachWheel(sim, "left_rear"),
@@ -262,8 +240,8 @@ int Run(const Args& args) {
   float sim_time = 0.0F;
   float next_report = 0.0F;
   auto tick = [&] {
-    Pose pose = ChassisPose(sim, chassis);
-    DriveWheels(wheels, sim, follower.Update(pose), kDt);
+    Pose pose = ChassisPose(chassis);
+    DriveWheels(wheels, follower.Update(pose), kDt);
     bool ok = sim.Step(kDt);
     sim_time += kDt;
     if (args.headless && sim_time >= next_report) {

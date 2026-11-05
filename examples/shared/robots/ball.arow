@@ -15,7 +15,7 @@
 archetype: ball
 copies: 1
 attach:
-  archetype: world
+  archetype: scene
   joint: world
 joints:
   - name: ball
@@ -25,7 +25,9 @@ joints:
       joint_activation_mask: [63]
       fixed_joint_transform: {translation: [0, 0, 0], rotation: [0.70710678, 0.70710678, 0, 0]}
       rigid_body_inertia: [0.5, 0, 0.04, 0, 0.00448, 0.00128, 0.00448, 0, 0, 0]
-      joint_position: {translation: [0, 2, -2.5], rotation: [1, 0, 0, 0]}
+      # At rest on the tipped plate, 0.14 along x and -0.14 along z from its
+      # center (see plate_rig.arow): its frame is one radius below its center.
+      joint_position: {translation: [0.13044553, 0.54813126, -0.12556410], rotation: [1, 0, 0, 0]}
       joint_velocity: [0, 0, 0, 0, 0, 0]
       visual_extents: [0.08, 0.08, 0.08]
       visual_color: [0.9, 0.55, 0.1]

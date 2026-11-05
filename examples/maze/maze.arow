@@ -5,8 +5,10 @@
 # the map fills in. Run with scripts/run-maze.sh.
 #
 # This root file is the world: a massless "world" root carrying the welded
-# ground slab and the maze's walls, with the robot (robot.arow, which pulls
-# in its sensors) attached to it. The world is Z-up: the ground's top face
+# ground slab and the maze's walls, with the robot
+# (shared/robots/wheeled_robot.arow) attached at robot_mount, whose fixed
+# transform places it in the start cell, stands it up (a quarter turn about
+# x, so its +y is the world's +z) and turns it to face the world's +y. The world is Z-up: the ground's top face
 # is the z = 0 plane and sim_config.yaml's gravity is along -z. Every body
 # is authored +y up, as in box_robot.arow (the viewer draws a box outward
 # along its body's local +y), so each root here gets a quarter turn about
@@ -36,9 +38,16 @@
 #
 # Collision groups: the ground and the walls are group 1 and collide with
 # group 2, the robot's bodies are group 2 and collide with group 1.
-archetype: maze
+archetype: scene
 includes:
-  - robot.arow
+  - ../shared/sensors/lidar.arow
+  - ../shared/sensors/chassis_pose.arow
+  - ../shared/sensors/gyroscope.arow
+  - ../shared/sensors/left_front_encoder.arow
+  - ../shared/sensors/left_rear_encoder.arow
+  - ../shared/sensors/right_front_encoder.arow
+  - ../shared/sensors/right_rear_encoder.arow
+  - ../shared/robots/wheeled_robot.arow
 joints:
   - name: world
     parent: null
@@ -397,3 +406,21 @@ joints:
       collision_margin: [0.005]
       collision_group: [1]
       collision_mask: [2]
+  # Where the robot (shared/robots/wheeled_robot.arow) starts.
+  - name: robot_mount
+    parent: world
+    fields:
+      joint_subspace: *welded
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [-3.75, -3.75, 0], rotation: [0, 0, 0.70710678, 0.70710678]}
+      rigid_body_inertia: *inert
+      joint_position: *rest
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0, 0, 0]
+      visual_color: [0, 0, 0]
+      collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0, 0, 0]
+      collision_radius: [0]
+      collision_margin: [0]
+      collision_group: [0]
+      collision_mask: [0]

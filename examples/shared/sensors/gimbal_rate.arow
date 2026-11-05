@@ -1,0 +1,4 @@
+# The gimbal pivot's rate, exactly.
+sensor: gimbal_rate
+kind: joint_velocity
+attach: {archetype: plate_rig, joint: gimbal}

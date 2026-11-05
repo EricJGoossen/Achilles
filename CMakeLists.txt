@@ -138,7 +138,7 @@ if (ACHILLES_BUILD_EXAMPLES)
 
     # Examples that bring their own program (a controller, a custom loop) --
     # each is its own executable on the library, like achilles itself.
-    foreach (_example box_robot balancers ball_balance maze)
+    foreach (_example box_robot ball_balance maze)
         add_executable(${_example}
             "${CMAKE_CURRENT_SOURCE_DIR}/examples/${_example}/${_example}.cpp"
         )

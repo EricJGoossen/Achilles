@@ -2,15 +2,18 @@
 # on a two-axis pivot -- a gimbal joint turning about X, and the plate on
 # it turning about the gimbal's Z -- so the plate can tip any way. Both
 # pivots are driven by ball_balance.cpp's actuators; with no torque the
-# plate just flops. ball_balance.cpp sets the plate's starting tilt after
-# Init(). One copy (tests/examples_ball_balance.cpp raises it to two).
+# plate just flops. It starts tipped (see its joints). One copy
+# (tests/examples_ball_balance.cpp raises it to two).
 # The post's quarter turn about x stands the rig up in the Z-up world
 # (see ball_balance.arow).
 archetype: plate_rig
 copies: 1
 attach:
-  archetype: world
+  archetype: scene
   joint: world
+includes:
+  - ../actuators/gimbal_motor.arow
+  - ../actuators/plate_motor.arow
 joints:
   # The post: welded, purely visual (it collides with nothing), drawn from
   # the ground up to the pivot 0.5 above it.
@@ -42,7 +45,8 @@ joints:
       joint_activation_mask: [1]
       fixed_joint_transform: {translation: [0, 0.5, 0], rotation: [1, 0, 0, 0]}
       rigid_body_inertia: [0.1, 0, 0, 0, 0.01, 0.01, 0.01, 0, 0, 0]
-      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      # Starts tipped 0.12 rad about X (ball_balance.cpp's kStartTilt).
+      joint_position: {translation: [0, 0, 0], rotation: [0.99820054, 0.05996401, 0, 0]}
       joint_velocity: [0, 0, 0, 0, 0, 0]
       visual_extents: [0, 0, 0]
       visual_color: [0, 0, 0]
@@ -64,7 +68,8 @@ joints:
       joint_activation_mask: [1]
       fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
       rigid_body_inertia: [1, 0, 0.01, 0, 0.013467, 0.026667, 0.013467, 0, 0, 0]
-      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      # Starts tipped 0.09 rad about Z (ball_balance.cpp's kStartTilt).
+      joint_position: {translation: [0, 0, 0], rotation: [0.99898767, 0, 0, 0.04498481]}
       joint_velocity: [0, 0, 0, 0, 0, 0]
       visual_extents: [0.2, 0.01, 0.2]
       visual_color: [0.75, 0.75, 0.78]
