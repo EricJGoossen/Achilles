@@ -25,14 +25,9 @@ struct ReadOpImpl<S, util::TypeList<Inputs...>> {
 
   explicit ReadOpImpl(ScalarOperationT dt) : dt_(dt) {}
 
-  // Input's own field: SensorInputs' entries follow kFirstInput.
-  template <typename Input>
-  static constexpr SensingField kInputField = static_cast<
-      SensingField>(static_cast<std::size_t>(SensingField::kFirstInput) + util::kIndexOfV<Input, SensorInputs>);
-
   static constexpr std::array<ArgData, sizeof...(Inputs) + 2> kInputs = {
       ArgData{SensingField::kConfig, ArgIndex::kTarget},
-      ArgData{kInputField<Inputs>, ArgIndex::kLink}...,
+      ArgData{kInputFieldOf<Inputs>, ArgIndex::kLink}...,
       ArgData{SensingField::kPublished, ArgIndex::kTarget},
   };
   static constexpr std::array<ArgData, 3> kOutputs = {
@@ -85,19 +80,13 @@ struct ObserveOpImpl<
 
   explicit ObserveOpImpl(ScalarOperationT dt) : dt_(dt) {}
 
-  // Input's own field: SensorInputs' entries follow kFirstInput (scene
-  // inputs included -- the index, not the field, says where it's read).
-  template <typename Input>
-  static constexpr SensingField kInputField = static_cast<
-      SensingField>(static_cast<std::size_t>(SensingField::kFirstInput) + util::kIndexOfV<Input, SensorInputs>);
-
   static constexpr std::
       array<ArgData, sizeof...(Inputs) + sizeof...(SceneIns) + 2>
           kInputs = {
               ArgData{SensingField::kConfig, ArgIndex::kTarget},
               ArgData{SensingField::kClock, ArgIndex::kTarget},
-              ArgData{kInputField<Inputs>, ArgIndex::kLink}...,
-              ArgData{kInputField<SceneIns>, ArgIndex::kScene}...,
+              ArgData{kInputFieldOf<Inputs>, ArgIndex::kLink}...,
+              ArgData{kInputFieldOf<SceneIns>, ArgIndex::kScene}...,
           };
   static constexpr std::array<ArgData, 1> kOutputs = {
       ArgData{SensingField::kState, ArgIndex::kTarget},
@@ -122,6 +111,46 @@ struct ObserveOpImpl<
 
  private:
   ScalarOperationT dt_;
+};
+
+template <typename S, typename Inputs>
+struct InitOpImpl;
+
+template <typename S, typename... Inputs>
+struct InitOpImpl<S, util::TypeList<Inputs...>> {
+  using FieldEnum = SensingField;
+  using ArgData = engine::ArgData<FieldEnum>;
+  using ArgIndex = engine::ArgIndex;
+
+  static constexpr std::array<ArgData, sizeof...(Inputs) + 1> kInputs = {
+      ArgData{SensingField::kConfig, ArgIndex::kTarget},
+      ArgData{kInputFieldOf<Inputs>, ArgIndex::kLink}...,
+  };
+  static constexpr std::array<ArgData, 3> kOutputs = {
+      ArgData{SensingField::kClock, ArgIndex::kTarget},
+      ArgData{SensingField::kState, ArgIndex::kTarget},
+      ArgData{SensingField::kOutput, ArgIndex::kTarget},
+  };
+
+  void operator()(
+      const S& sensor,
+      const InputValueT<Inputs>&... inputs,
+      SensorClock* clock,
+      KindState<S>* state,
+      KindOutput<S>* out
+  ) const {
+    *clock = SensorClock{};
+    *state = KindState<S>{};
+    InitializeState(sensor, &state->value);
+    *out = KindOutput<S>{};
+    if constexpr (SensorHasOutputInit<S>) {
+      sensor.InitializeOutput(
+          SensorTick{0.0F, 0.0F, 0, sensor.Stream()},
+          inputs...,
+          &out->value.value
+      );
+    }
+  }
 };
 
 }  // namespace detail
@@ -170,27 +199,11 @@ using ObserveOp =
 template <SensorLike S>
 using ReadOp = detail::ReadOpImpl<S, typename S::InputList>;
 
-// Resets one kind's instances' clocks and seeds their state.
+// Starts one kind's instances: resets their clocks, seeds their state, and
+// fills their first reading, so one is valid before any sample is taken. Its
+// sequence stays 0, so the first tick still samples. Reads the kind's inputs
+// at its mount row, like ReadOp.
 template <SensorLike S>
-struct InitOp {
-  using FieldEnum = SensingField;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
-
-  static constexpr std::array<ArgData, 1> kInputs = {
-      ArgData{SensingField::kConfig, ArgIndex::kTarget},
-  };
-  static constexpr std::array<ArgData, 2> kOutputs = {
-      ArgData{SensingField::kClock, ArgIndex::kTarget},
-      ArgData{SensingField::kState, ArgIndex::kTarget},
-  };
-
-  void operator()(const S& sensor, SensorClock* clock, KindState<S>* state)
-      const {
-    *clock = SensorClock{};
-    *state = KindState<S>{};
-    InitializeState(sensor, &state->value);
-  }
-};
+using InitOp = detail::InitOpImpl<S, typename S::InputList>;
 
 }  // namespace achilles::algorithms::sensing

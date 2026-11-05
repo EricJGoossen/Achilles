@@ -58,7 +58,10 @@ struct ReadStep {
   }
 };
 
-// Once, at Init: resets every sensor's clock and seeds its state.
+// Once, at Init: starts every sensor (InitOp), then publishes the readings
+// that fills, so a reading is valid from the moment Init returns. Runs after
+// the physics' setup, so a sensor filling its reading from its inputs sees
+// the initial pose.
 struct InitStep {
   using FieldEnum = SensingField;
 
@@ -69,12 +72,14 @@ struct InitStep {
       ScalarOperationT /*dt*/
   ) {
     engine::pass::Step(
-        engine::pass::
-            SegmentOps<InitOp, SensorKinds, engine::pass::SelfSegmentTraversal>(
-            ),
+        engine::pass::SegmentOps<
+            InitOp,
+            SensorKinds,
+            engine::pass::LinkedSegmentTraversal>(),
         sim_state.template ViewFor<SensingView>(),
         sim_state.template TopologyFor<SensingOrdering>()
     );
+    sim_state.template FlipParity<SensingOutputSlot>();
   }
 };
 

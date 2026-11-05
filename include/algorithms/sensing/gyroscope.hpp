@@ -42,8 +42,8 @@ class Gyroscope
       : Sensor(options), params_(params) {}
 
   // Settings: period, mount (a pose in the body's frame, identity when
-  // absent), and the error model's (see SensorConfig::ErrorModel).
-  static Gyroscope FromConfig(SensorConfig& config) {
+  // absent), and the error model's (see AttachmentConfig::ErrorModel).
+  static Gyroscope FromConfig(AttachmentConfig& config) {
     const SensorOptions options = config.Options();
     return Gyroscope(
         options,

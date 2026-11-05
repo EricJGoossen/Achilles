@@ -105,21 +105,38 @@ std::string MakeRevoluteZArow(float q0, float qd0 = 0.0F, int mask = 1) {
   return out.str();
 }
 
+// MakeRevoluteZArow with a `yaw` actuator about the joint's own Z axis -- the
+// only way torque reaches the joint -- written beside it.
+std::filesystem::path WriteRevoluteZWithYaw(
+    const TempDir& dir,
+    float q0,
+    float qd0 = 0.0F,
+    const std::string& extra_fields = ""
+) {
+  dir.Write(
+      "yaw.arow",
+      "actuator: yaw\nkind: angular\n"
+      "attach: {archetype: base, joint: joint}\n"
+      "config:\n  axis: [0, 0, 1]\n"
+  );
+  return dir.Write(
+      "base.arow",
+      "includes: [yaw.arow]\n" + MakeRevoluteZArow(q0, qd0) + extra_fields
+  );
+}
+
 // A Simulation loaded and initialized from a single real revolute-Z .arow
 // file -- the common setup every test below starts from.
 Simulation MakeInitializedSim(const TempDir& dir, float q0, float qd0 = 0.0F) {
-  std::filesystem::path file =
-      dir.Write("base.arow", MakeRevoluteZArow(q0, qd0));
+  std::filesystem::path file = WriteRevoluteZWithYaw(dir, q0, qd0);
   Simulation sim;
   [[maybe_unused]] bool loaded = sim.LoadArowFile(file.string());
   [[maybe_unused]] bool initialized = sim.Init();
   return sim;
 }
 
-// An actuator about the joint's own Z axis -- the only way torque reaches
-// the joint (the .arow carries none).
-AngularActuator AttachYaw(const Simulation& sim) {
-  return sim.AttachActuator<AngularActuator>({"base", "joint"}, {0, 0, 1});
+AngularActuator Yaw(const Simulation& sim) {
+  return sim.Actuator<AngularActuator>("yaw");
 }
 
 Transform WorldTransform(Simulation& sim) {
@@ -445,7 +462,7 @@ TEST(Simulation, TorqueChangesAcceleration) {
 
   TempDir torque_dir;
   Simulation with_torque = MakeInitializedSim(torque_dir, 0.0F);
-  AttachYaw(with_torque).Apply(5.0F);
+  Yaw(with_torque).Apply(5.0F);
   ASSERT_TRUE(with_torque.Step(0.0F));
 
   EXPECT_FALSE(achilles::util::AllTrue(
@@ -478,7 +495,7 @@ TEST(
   TempDir dir;
   constexpr float kTau0 = 5.0F;
   Simulation sim = MakeInitializedSim(dir, 0.0F);
-  AngularActuator actuator = AttachYaw(sim);
+  AngularActuator actuator = Yaw(sim);
 
   Matrix6x6 s = RevoluteZSubspace();
   auto velocity =
@@ -724,7 +741,7 @@ constexpr float kExactOneTickAngle = 0.5F * kOneTickDt * kOneTickDt;
 TEST(Simulation, DefaultIntegratorIsSemiImplicitEuler) {
   TempDir dir;
   Simulation sim = MakeInitializedSim(dir, 0.0F);
-  AttachYaw(sim).Apply(4.0F);
+  Yaw(sim).Apply(4.0F);
 
   ASSERT_TRUE(sim.Step(kOneTickDt));
 
@@ -735,12 +752,12 @@ TEST(Simulation, DefaultIntegratorIsSemiImplicitEuler) {
 // state, and the selection mustn't be part of what it throws away.
 TEST(Simulation, SetIntegratorBeforeInitIsUsedByStep) {
   TempDir dir;
-  std::filesystem::path file = dir.Write("base.arow", MakeRevoluteZArow(0.0F));
+  std::filesystem::path file = WriteRevoluteZWithYaw(dir, 0.0F);
   Simulation sim;
   sim.SetIntegrator(Simulation::Integrator::kRungeKutta4);
   ASSERT_TRUE(sim.LoadArowFile(file.string()));
   ASSERT_TRUE(sim.Init());
-  AttachYaw(sim).Apply(4.0F);
+  Yaw(sim).Apply(4.0F);
 
   ASSERT_TRUE(sim.Step(kOneTickDt));
 
@@ -752,7 +769,7 @@ TEST(Simulation, SetIntegratorAfterInitTakesEffectOnTheNextStep) {
   TempDir dir;
   Simulation sim = MakeInitializedSim(dir, 0.0F);
   sim.SetIntegrator(Simulation::Integrator::kRungeKutta4);
-  AttachYaw(sim).Apply(4.0F);
+  Yaw(sim).Apply(4.0F);
 
   ASSERT_TRUE(sim.Step(kOneTickDt));
 
@@ -785,19 +802,20 @@ TEST(Simulation, InitRunsTheSetupListBeforeAnyStep) {
 // of 0.5 stops it there, through Simulation::Step's default tick.
 TEST(Simulation, JointLimitFromArowStopsTheJoint) {
   TempDir dir;
-  std::filesystem::path file = dir.Write(
-      "base.arow",
-      MakeRevoluteZArow(0.0F) +
-          "      joint_limited: [1]\n"
-          "      joint_range_lower: [-0.5, 0,0,0,0,0]\n"
-          "      joint_range_upper: [0.5, 0,0,0,0,0]\n"
-          "      joint_limit_margin: [0]\n"
+  std::filesystem::path file = WriteRevoluteZWithYaw(
+      dir,
+      0.0F,
+      0.0F,
+      "      joint_limited: [1]\n"
+      "      joint_range_lower: [-0.5, 0,0,0,0,0]\n"
+      "      joint_range_upper: [0.5, 0,0,0,0,0]\n"
+      "      joint_limit_margin: [0]\n"
   );
   Simulation sim;
   ASSERT_TRUE(sim.LoadArowFile(file.string()));
   ASSERT_TRUE(sim.Init());
 
-  AngularActuator actuator = AttachYaw(sim);
+  AngularActuator actuator = Yaw(sim);
   for (int tick = 0; tick < 1000; ++tick) {
     actuator.Apply(4.0F);
     ASSERT_TRUE(sim.Step(0.002F));
@@ -815,7 +833,7 @@ float JointAccelerationZ(Simulation& sim) {
       .Load<ABAField::kJointAcceleration, float>(0)[0];
 }
 
-// A user's actuator model, returned by AttachActuator as its own type.
+// A user's actuator model, returned by Actuator as its own type.
 class GearedMotor : public AngularActuator {
  public:
   GearedMotor(AngularActuator base, float ratio)
@@ -826,7 +844,7 @@ class GearedMotor : public AngularActuator {
   float ratio_;
 };
 
-// Exactly what ActuatorLike and AttachActuator require: derived from a base
+// Exactly what ActuatorLike and Actuator require: derived from a base
 // handle, built from it alone -- no members, no extra arguments.
 class ActuatorArchetype : public AngularActuator {
  public:
@@ -842,7 +860,7 @@ static_assert(ActuatorLike<ActuatorArchetype>);
 TEST(SimulationActuator, EffortDrivesTheNextStep) {
   TempDir dir;
   Simulation sim = MakeInitializedSim(dir, 0.0F);
-  AttachYaw(sim).Apply(5.0F);
+  Yaw(sim).Apply(5.0F);
   ASSERT_TRUE(sim.Step(0.0F));
   EXPECT_FLOAT_EQ(JointAccelerationZ(sim), 5.0F / 4.0F);
 }
@@ -852,7 +870,7 @@ TEST(SimulationActuator, EffortDrivesTheNextStep) {
 TEST(SimulationActuator, EffortLastsExactlyOneStep) {
   TempDir dir;
   Simulation sim = MakeInitializedSim(dir, 0.0F);
-  AngularActuator actuator = AttachYaw(sim);
+  AngularActuator actuator = Yaw(sim);
   actuator.Apply(4.0F);
   ASSERT_TRUE(sim.Step(0.0F));
   EXPECT_FLOAT_EQ(JointAccelerationZ(sim), 1.0F);
@@ -867,54 +885,50 @@ TEST(SimulationActuator, EveryAbaEvaluationInATickSeesTheSameEffort) {
   TempDir dir;
   Simulation sim = MakeInitializedSim(dir, 0.0F);
   sim.SetIntegrator(Simulation::Integrator::kRungeKutta4);
-  AttachYaw(sim).Apply(4.0F);
+  Yaw(sim).Apply(4.0F);
   ASSERT_TRUE(sim.Step(kOneTickDt));
   EXPECT_NEAR(JointAngleZ(sim), kExactOneTickAngle, 1e-6F);
 }
 
-// AttachActuator<T> hands back the caller's own model, built from the base
+// Actuator<T> hands back the caller's own model, built from the base
 // handle plus its own arguments -- no cast.
-TEST(SimulationActuator, AttachActuatorReturnsTheCallersOwnType) {
+TEST(SimulationActuator, ActuatorReturnsTheCallersOwnType) {
   TempDir dir;
   Simulation sim = MakeInitializedSim(dir, 0.0F);
-  auto motor =
-      sim.AttachActuator<GearedMotor>({"base", "joint"}, {0, 0, 1}, 8.0F);
+  auto motor = sim.Actuator<GearedMotor>("yaw", 0, 8.0F);
   motor.Command(0.5F);
   ASSERT_TRUE(sim.Step(0.0F));
   EXPECT_FLOAT_EQ(JointAccelerationZ(sim), 1.0F);
 }
 
-// AttachActuator relies only on what ActuatorLike promises: a derived type
+// Actuator relies only on what ActuatorLike promises: a derived type
 // with nothing but a constructor from its base handle (an empty Args pack).
-TEST(SimulationActuator, AttachActuatorBuildsTheMinimalActuatorLikeType) {
+TEST(SimulationActuator, ActuatorBuildsTheMinimalActuatorLikeType) {
   TempDir dir;
   Simulation sim = MakeInitializedSim(dir, 0.0F);
-  auto actuator =
-      sim.AttachActuator<ActuatorArchetype>({"base", "joint"}, {0, 0, 1});
+  auto actuator = sim.Actuator<ActuatorArchetype>("yaw");
   actuator.Apply(4.0F);
   ASSERT_TRUE(sim.Step(0.0F));
   EXPECT_FLOAT_EQ(JointAccelerationZ(sim), 1.0F);
 }
 
-// Attaching needs the built sim (its layout and its torque buffers), so
+// Finding one needs the built sim (its layout and its torque buffers), so
 // doing it first is a catchable error, like ViewFor's.
-TEST(SimulationActuator, AttachActuatorThrowsBeforeInit) {
+TEST(SimulationActuator, ActuatorThrowsBeforeInit) {
   Simulation sim;
-  EXPECT_THROW(AttachYaw(sim), std::runtime_error);
+  EXPECT_THROW(Yaw(sim), std::runtime_error);
 }
 
-// Bad user input -- an unknown joint, or an axis the joint can't move
-// along -- surfaces as std::invalid_argument through Simulation.
-TEST(SimulationActuator, AttachActuatorThrowsOnBadInput) {
+// Bad user input -- an unknown name, or asking for the wrong kind -- surfaces
+// as std::invalid_argument through Simulation.
+TEST(SimulationActuator, ActuatorThrowsOnBadInput) {
   TempDir dir;
   Simulation sim = MakeInitializedSim(dir, 0.0F);
   EXPECT_THROW(
-      sim.AttachActuator<AngularActuator>({"base", "nope"}, {0, 0, 1}),
-      std::invalid_argument
+      (void)sim.Actuator<AngularActuator>("nope"), std::invalid_argument
   );
   EXPECT_THROW(
-      sim.AttachActuator<LinearActuator>({"base", "joint"}, {0, 0, 1}),
-      std::invalid_argument
+      (void)sim.Actuator<LinearActuator>("yaw"), std::invalid_argument
   );
 }
 

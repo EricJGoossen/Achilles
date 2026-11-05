@@ -23,8 +23,9 @@
 #include "algorithms/registry.hpp"
 #include "algorithms/sensing/sensing_step.hpp"
 #include "algorithms/sim_config.hpp"
+#include "domain/archetype/archetype_set.hpp"
 #include "engine/memory/sim_allocator.hpp"
-#include "interface/actuator.hpp"
+#include "interface/actuator_handle.hpp"
 #include "interface/archetype_loader.hpp"
 #include "support/registered_sim.hpp"
 #include "support/temp_dir.hpp"
@@ -131,7 +132,15 @@ Sim MakeSim(
 ) {
   std::filesystem::path file =
       dir.Write("joint.arow", RevoluteZArow(inertia, q0, qd0));
-  return {Allocator::Build(LoadArchetypes(file.string())), config, tau0};
+  return {
+      Allocator::Build(
+          achilles::domain::archetype::ArchetypeSet(
+              LoadArchetypes(file.string())
+          )
+      ),
+      config,
+      tau0
+  };
 }
 
 SimConfig PendulumConfig() {
@@ -150,8 +159,11 @@ Sim MakePendulum(
 }
 
 void ApplyTorque(const Sim& sim) {
-  AngularActuator::Attach(sim.state.context, {0, 0}, {0, 0, 1})
-      .Apply(sim.torque);
+  const std::size_t row =
+      sim.state.context
+          .LayoutFor<achilles::engine::topology::TopologicalOrdering>()
+          .ToSorted(0, 0);
+  AngularActuator::Find(sim.state.context, row, {0, 0, 1}).Apply(sim.torque);
 }
 
 void StepTicks(

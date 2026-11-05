@@ -433,8 +433,7 @@ std::vector<domain::JointRef> CollectAttachments(
   for (const Archetype& archetype : tree) {
     const std::size_t instances = archetype.root_parents.size();
     for (std::size_t i = 0; i < instances; ++i) {
-      for (const domain::JointAttachment& attachment :
-           archetype.attachments) {
+      for (const domain::JointAttachment& attachment : archetype.attachments) {
         if (attachment.list == list) {
           links.push_back({first_instance + i, attachment.joint});
         }

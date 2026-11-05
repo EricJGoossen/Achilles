@@ -11,6 +11,7 @@
 
 #include "algorithms/integrators.hpp"
 #include "algorithms/registry.hpp"
+#include "algorithms/sensing/truth_sensor.hpp"
 #include "algorithms/sim_config.hpp"
 #include "algorithms/viz/viz_step.hpp"
 #include "domain/archetype/archetype_set.hpp"
@@ -22,15 +23,18 @@
 #include "engine/topology/orderings.hpp"
 #include "interface/actuator_handle.hpp"
 #include "interface/archetype_loader.hpp"
+#include "interface/attachments.hpp"
 #include "interface/sensor_handle.hpp"
 #include "interface/sim_config_loader.hpp"
-#include "interface/truth.hpp"
 #include "render/scene_renderer.hpp"
 #include "util/io.hpp"
 
 namespace achilles::interface {
 
 using domain::JointAddress;
+
+// The truth sensors, by what they read: sim.Sensor<truth::WorldTransform>(...).
+namespace truth = algorithms::sensing::truth;
 
 class Simulation {
   using Allocator =
@@ -81,7 +85,7 @@ class Simulation {
     step_count_ = 0;
     try {
       state_ = Allocator::Build(archetypes_);
-      WriteSensorConfigs(state_->context, archetypes_, seed_);
+      ConfigureAttachments(state_->context, archetypes_, seed_);
     } catch (const std::exception& e) {
       state_.reset();
       return util::Warning("Simulation allocation failed", e.what());
@@ -154,12 +158,12 @@ class Simulation {
     return true;
   }
 
-  // Attaches an actuator to `joint`, driving it along `axis` -- any
-  // direction in the joint's own frame (see ActuatorHandle::Attach) -- and
-  // returns it as T: LinearActuator/AngularActuator itself,
-  // or a class deriving from one, built as T(base, args...) where `base` is
-  // the attached LinearActuator/AngularActuator -- so a user's actuator
-  // model comes back as its own type, no cast. e.g.
+  // Instance `instance` of the actuator named `name`, as T: its kind's
+  // LinearActuator/AngularActuator itself, or a class deriving from one,
+  // built as T(base, args...) where `base` is that handle -- so a user's
+  // actuator model comes back as its own type, no cast. Instance i is the one
+  // on instance i of the archetype it's attached to, and its axis comes from
+  // its .arow. e.g.
   //
   //   class DcMotor : public AngularActuator {
   //    public:
@@ -169,27 +173,28 @@ class Simulation {
   //    private:
   //     float kt_;
   //   };
-  //   DcMotor elbow = sim.AttachActuator<DcMotor>({"arm", "elbow"},
-  //                                               {1, 0, 0}, 0.05F);
+  //   DcMotor elbow = sim.Actuator<DcMotor>("elbow_motor", 0, 0.05F);
   //
-  // Only after a successful Init(), against the archetypes it was built
-  // from; the actuator is valid until this Simulation is re-Init()ed or
-  // destroyed. Throws std::invalid_argument for an unknown archetype or
-  // joint, an out-of-range instance, or an axis the joint can't move along.
+  // The actuator is valid until this Simulation is re-Init()ed or destroyed.
+  // Throws std::runtime_error before Init(), std::invalid_argument for an
+  // unknown actuator or instance, or one that isn't T's kind.
   template <ActuatorLike T, typename... Args>
-  T AttachActuator(
-      const JointAddress& joint, const ActuatorAxis& axis, Args&&... args
-  ) const {
-    const auto& context = Context("AttachActuator");
+  T Actuator(std::string_view name, std::size_t instance = 0, Args&&... args)
+      const {
+    const auto& context = Context("Actuator");
     return T(
-        ActuatorHandle<T::kKind>::Attach(
+        ActuatorHandle<T::kKind>::Find(
             context,
-            archetypes_.RowOf(
-                joint,
+            archetypes_.AttachmentRow(
+                name,
+                instance,
+                T::kListName,
                 context
                     .template LayoutFor<engine::topology::TopologicalOrdering>()
             ),
-            axis
+            ActuatorHandle<T::kKind>::AxisOf(
+                archetypes_.Attachment(name, T::kListName)
+            )
         ),
         std::forward<Args>(args)...
     );
@@ -199,7 +204,7 @@ class Simulation {
   // caller that really means to go around the handles (and a test checking
   // what they're built on). Nothing here keeps a write consistent with the
   // rest of the sim, and rows and fields can change: reads go through
-  // Sensor() and effort through AttachActuator() everywhere else. Context()
+  // Sensor() and effort through Actuator() everywhere else. Context()
   // throws std::runtime_error before Init().
   const algorithms::RegisteredSimContext& Context() const {
     return Context("Context");

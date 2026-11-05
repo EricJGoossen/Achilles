@@ -44,8 +44,8 @@ class Magnetometer
 
   // Settings: period, mount (a pose in the body's frame, identity when
   // absent), world_field, and the error model's (see
-  // SensorConfig::ErrorModel).
-  static Magnetometer FromConfig(SensorConfig& config) {
+  // AttachmentConfig::ErrorModel).
+  static Magnetometer FromConfig(AttachmentConfig& config) {
     const SensorOptions options = config.Options();
     Params params;
     params.sensor_from_body = config.Pose("mount", {}).Inverse();

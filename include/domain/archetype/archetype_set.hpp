@@ -78,34 +78,19 @@ class ArchetypeSet {
   std::size_t AttachmentEntry(
       std::string_view name, std::size_t instance, std::string_view list
   ) const {
-    const std::string quoted = "'" + std::string(name) + "'";
-    const auto named = [&](const JointAttachment& a) { return a.name == name; };
-    const std::optional<Located> found = Find([&](const Archetype& archetype) {
-      return std::ranges::any_of(archetype.attachments, named);
-    });
-    if (!found.has_value()) {
-      throw std::invalid_argument(
-          "nothing is attached under the name " + quoted + "."
-      );
-    }
-    const Archetype& archetype = archetypes_[found->index];
-    CheckInstance(archetype, instance, quoted);
+    const Located found = LocateAttachment(name);
+    const Archetype& archetype = archetypes_[found.index];
+    CheckInstance(archetype, instance, "'" + std::string(name) + "'");
 
     const std::span<const JointAttachment> own = archetype.attachments;
-    const auto target = std::ranges::find_if(own, named);
-    if (target->list != list) {
-      throw std::invalid_argument(
-          quoted + " is a '" + target->list + "', not a '" + std::string(list) +
-          "'."
-      );
-    }
+    const JointAttachment* target = &Named(archetype, name, list);
     const auto in_list = [&](const JointAttachment& a) {
-      return a.list == target->list;
+      return a.list == list;
     };
     // Entries of this list before this archetype, then before this instance
     // of it, then before this attachment within the instance.
     std::size_t entry = 0;
-    for (std::size_t i = 0; i < found->index; ++i) {
+    for (std::size_t i = 0; i < found.index; ++i) {
       entry += archetypes_[i].root_parents.size() *
                static_cast<std::size_t>(
                    std::ranges::count_if(archetypes_[i].attachments, in_list)
@@ -114,8 +99,34 @@ class ArchetypeSet {
     entry += instance *
              static_cast<std::size_t>(std::ranges::count_if(own, in_list));
     entry +=
-        static_cast<std::size_t>(std::count_if(own.begin(), target, in_list));
+        static_cast<std::size_t>(std::count_if(own.data(), target, in_list));
     return entry;
+  }
+
+  // The attachment named `name`, checked to be of `list`. Throws
+  // std::invalid_argument as AttachmentEntry does.
+  const JointAttachment& Attachment(
+      std::string_view name, std::string_view list
+  ) const {
+    return Named(archetypes_[LocateAttachment(name).index], name, list);
+  }
+
+  // The row in `layout` of the joint instance `instance` of the attachment
+  // named `name` is on: instance i is on instance i of its archetype. Throws
+  // std::invalid_argument as AttachmentEntry does.
+  template <typename Layout>
+  std::size_t AttachmentRow(
+      std::string_view name,
+      std::size_t instance,
+      std::string_view list,
+      const Layout& layout
+  ) const {
+    const Located found = LocateAttachment(name);
+    const Archetype& archetype = archetypes_[found.index];
+    CheckInstance(archetype, instance, "'" + std::string(name) + "'");
+    return layout.ToSorted(
+        found.first_instance + instance, Named(archetype, name, list).joint
+    );
   }
 
   // Calls fn(field, first_instance, instance_count, joint_count) for each
@@ -134,23 +145,26 @@ class ArchetypeSet {
     });
   }
 
-  // Calls fn(attachment, entry, stream) for every attachment of every
-  // instance: `entry` is where it sits in its list (see AttachmentEntry) and
-  // `stream` is its own random stream, drawn from `seed` and its place among
-  // every attachment, whatever its list.
+  // Calls fn(attachment, instance, entry, stream) for every attachment of
+  // every instance: `instance` is the global index of the archetype instance
+  // carrying it, `entry` is where it sits in its list (see AttachmentEntry)
+  // and `stream` is its own random stream, drawn from `seed` and its place
+  // among every attachment, whatever its list.
   template <typename Fn>
   void ForEachAttachment(std::uint64_t seed, const Fn& fn) const {
     std::unordered_map<std::string_view, std::size_t> entries;
     std::uint64_t index = 0;
-    for (const Archetype& archetype : archetypes_) {
+    ForEachWithFirstInstance([&](const Archetype& archetype,
+                                 std::size_t first_instance) {
       for (std::size_t i = 0; i < archetype.root_parents.size(); ++i) {
         for (const JointAttachment& attachment : archetype.attachments) {
           fn(attachment,
+             first_instance + i,
              entries[attachment.list]++,
              random::StreamKey(seed, index++));
         }
       }
-    }
+    });
   }
 
   // The address of every named joint of every instance, archetype by
@@ -224,6 +238,41 @@ class ArchetypeSet {
       ++index;
     });
     return found;
+  }
+
+  // The archetype carrying the attachment named `name`; throws
+  // std::invalid_argument if none does.
+  Located LocateAttachment(std::string_view name) const {
+    const std::optional<Located> found = Find([&](const Archetype& archetype) {
+      return std::ranges::any_of(
+          archetype.attachments,
+          [&](const JointAttachment& a) { return a.name == name; }
+      );
+    });
+    if (!found.has_value()) {
+      throw std::invalid_argument(
+          "nothing is attached under the name '" + std::string(name) + "'."
+      );
+    }
+    return *found;
+  }
+
+  // `archetype`'s attachment named `name`, which it must carry; throws
+  // std::invalid_argument if it isn't of `list`.
+  static const JointAttachment& Named(
+      const Archetype& archetype, std::string_view name, std::string_view list
+  ) {
+    const JointAttachment& attachment = *std::ranges::find_if(
+        archetype.attachments,
+        [&](const JointAttachment& a) { return a.name == name; }
+    );
+    if (attachment.list != list) {
+      throw std::invalid_argument(
+          "'" + std::string(name) + "' is a '" + attachment.list +
+          "', not a '" + std::string(list) + "'."
+      );
+    }
+    return attachment;
   }
 
   // Throws std::invalid_argument unless `instance` is one of `archetype`'s

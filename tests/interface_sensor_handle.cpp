@@ -86,37 +86,29 @@ TEST_F(Arms, EveryCopyOfAnArchetypeCarriesItsOwnInstanceOfASensor) {
   ASSERT_TRUE(Load(sim));
   Steps(sim, 5);
   for (std::size_t copy = 0; copy < 3; ++copy) {
-    const auto reading = sim.Read(sim.FindSensor<Gyroscope>({"gyro", copy}));
+    const auto reading = sim.Sensor<Gyroscope>("gyro", copy).Read();
     EXPECT_NEAR(reading.value.Z(), 1.0F, 1e-4F) << "copy " << copy;
   }
 }
 
-TEST_F(Arms, FindSensorRejectsAnUnknownNameOrInstance) {
+TEST_F(Arms, SensorRejectsAnUnknownNameOrInstance) {
   Write();
   Simulation sim;
   ASSERT_TRUE(Load(sim));
-  EXPECT_THROW(
-      (void)sim.FindSensor<Gyroscope>({"nope", 0}), std::invalid_argument
-  );
-  EXPECT_THROW(
-      (void)sim.FindSensor<Gyroscope>({"gyro", 3}), std::invalid_argument
-  );
+  EXPECT_THROW((void)sim.Sensor<Gyroscope>("nope"), std::invalid_argument);
+  EXPECT_THROW((void)sim.Sensor<Gyroscope>("gyro", 3), std::invalid_argument);
 }
 
-TEST_F(Arms, FindSensorRejectsTheWrongKind) {
+TEST_F(Arms, SensorRejectsTheWrongKind) {
   Write();
   Simulation sim;
   ASSERT_TRUE(Load(sim));
-  EXPECT_THROW(
-      (void)sim.FindSensor<Encoder>({"gyro", 0}), std::invalid_argument
-  );
+  EXPECT_THROW((void)sim.Sensor<Encoder>("gyro"), std::invalid_argument);
 }
 
-TEST(SensorHandleBeforeInit, FindSensorThrows) {
+TEST(SensorHandleBeforeInit, SensorThrows) {
   Simulation sim;
-  EXPECT_THROW(
-      (void)sim.FindSensor<Gyroscope>({"gyro", 0}), std::runtime_error
-  );
+  EXPECT_THROW((void)sim.Sensor<Gyroscope>("gyro"), std::runtime_error);
 }
 
 // ---------------------------------------------------------------------------
@@ -127,31 +119,29 @@ TEST_F(Arms, APeriodSamplesOnlyThatOften) {
   Write({"period: 0.01"});  // every 5 ticks of kDt
   Simulation sim;
   ASSERT_TRUE(Load(sim));
-  const auto handle = sim.FindSensor<Gyroscope>({"gyro", 0});
+  const auto handle = sim.Sensor<Gyroscope>("gyro");
   Steps(sim, 1);
-  const auto first = sim.Read(handle);
+  const auto first = handle.Read();
   Steps(sim, 4);
-  EXPECT_EQ(sim.Read(handle).sequence, first.sequence);
-  EXPECT_EQ(sim.Read(handle).sample_time, first.sample_time);
+  EXPECT_EQ(handle.Read().sequence, first.sequence);
+  EXPECT_EQ(handle.Read().sample_time, first.sample_time);
   Steps(sim, 1);
-  EXPECT_EQ(sim.Read(handle).sequence, first.sequence + 1);
+  EXPECT_EQ(handle.Read().sequence, first.sequence + 1);
 }
 
-TEST_F(Arms, SetSensorConfigReplacesASensorsSettings) {
+TEST_F(Arms, SetConfigReplacesASensorsSettings) {
   Write({"bias: [0, 0, 0.5]"});
   Simulation sim;
   ASSERT_TRUE(Load(sim));
-  const auto handle = sim.FindSensor<Gyroscope>({"gyro", 1});
+  const auto handle = sim.Sensor<Gyroscope>("gyro", 1);
   Steps(sim, 2);
-  EXPECT_NEAR(sim.Read(handle).value.Z(), 1.5F, 1e-4F);
+  EXPECT_NEAR(handle.Read().value.Z(), 1.5F, 1e-4F);
 
-  sim.SetSensorConfig(handle, Gyroscope(SensorOptions{}, Gyroscope::Params{}));
+  handle.SetConfig(Gyroscope(SensorOptions{}, Gyroscope::Params{}));
   Steps(sim, 2);
-  EXPECT_NEAR(sim.Read(handle).value.Z(), 1.0F, 1e-4F);
+  EXPECT_NEAR(handle.Read().value.Z(), 1.0F, 1e-4F);
   // Only that instance.
-  EXPECT_NEAR(
-      sim.Read(sim.FindSensor<Gyroscope>({"gyro", 0})).value.Z(), 1.5F, 1e-4F
-  );
+  EXPECT_NEAR(sim.Sensor<Gyroscope>("gyro").Read().value.Z(), 1.5F, 1e-4F);
 }
 
 TEST_F(Arms, InitRemembersItsSeed) {
@@ -169,12 +159,12 @@ TEST_F(Arms, TheSameSeedGivesTheSameNoise) {
   ASSERT_TRUE(Load(again, 3));
   Steps(first, 3);
   Steps(again, 3);
-  const auto a = first.Read(first.FindSensor<Gyroscope>({"gyro", 2})).value;
-  const auto b = again.Read(again.FindSensor<Gyroscope>({"gyro", 2})).value;
+  const auto a = first.Sensor<Gyroscope>("gyro", 2).Read().value;
+  const auto b = again.Sensor<Gyroscope>("gyro", 2).Read().value;
   EXPECT_EQ(a.X(), b.X());
   EXPECT_NE(a.X(), 0.0F);
   // Each instance has its own stream.
-  const auto other = first.Read(first.FindSensor<Gyroscope>({"gyro", 0})).value;
+  const auto other = first.Sensor<Gyroscope>("gyro").Read().value;
   EXPECT_NE(a.X(), other.X());
 }
 

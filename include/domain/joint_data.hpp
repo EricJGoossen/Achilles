@@ -3,7 +3,9 @@
 #include <cassert>
 #include <cstddef>
 #include <limits>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -76,19 +78,36 @@ inline double JointFieldAt(
 }
 
 // Something an archetype carries on one of its joints that isn't a joint
-// itself -- a sensor, say: every instance of the archetype gets one, linked
-// to that instance's copy of `joint`. `list` names which list it belongs
-// to; an ordering planning that list (engine::topology::ListOrdering) gives
-// each one a row. `name` is what it goes by, and
-// `config` is its own settings as named lists of numbers, the same shape a
-// joint's fields take -- read by whatever the list's entries are. What an entry
-// *is* stays out of here: the archetype only records names and numbers, so
-// new kinds never change this type.
+// itself -- a sensor or an actuator, say: every instance of the archetype gets
+// one, linked to that instance's copy of `joint`. `list` names which list it
+// belongs to; an ordering planning that list (engine::topology::ListOrdering)
+// gives each one a row. `name` is what it goes by, and `config` is its own
+// settings as named lists of numbers, the same shape a joint's fields take --
+// read by whatever the list's entries are. What an entry *is* stays out of
+// here: the archetype only records names and numbers, so new kinds never change
+// this type.
 struct JointAttachment {
   std::string list;
   std::size_t joint = 0;
   std::string name;
   std::vector<std::pair<std::string, std::vector<double>>> config;
+  // What its file declared it as, the key naming it: "sensor" or "actuator".
+  // Its kind has to agree (RequireKey).
+  std::string key;
 };
+
+// Throws std::invalid_argument unless `attachment` was declared as `key` --
+// so a `sensor:` file can't name an actuator's kind, or the reverse.
+inline void RequireKey(
+    const JointAttachment& attachment, std::string_view key
+) {
+  if (attachment.key != key) {
+    throw std::invalid_argument(
+        attachment.key + " '" + attachment.name + "': kind '" +
+        attachment.list + "' needs a file declaring '" + std::string(key) +
+        ":'."
+    );
+  }
+}
 
 }  // namespace achilles::domain

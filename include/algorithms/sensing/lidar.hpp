@@ -120,7 +120,7 @@ class Lidar
   // Settings: period, mount (a pose in the body's frame, identity when
   // absent), horizontal_samples, channels, horizontal_fov, vertical_fov,
   // min_range, max_range, range_bias, range_noise, resolution.
-  static Lidar FromConfig(SensorConfig& config) {
+  static Lidar FromConfig(AttachmentConfig& config) {
     const SensorOptions options = config.Options();
     Params params;
     params.body_from_sensor = config.Pose("mount", {});

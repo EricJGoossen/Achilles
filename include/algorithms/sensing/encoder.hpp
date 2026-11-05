@@ -81,8 +81,8 @@ class Encoder
 
   // Settings: period, axis, linear (false: rotary), multi_turn, and two
   // error models, prefixed position_ and velocity_ (see
-  // SensorConfig::ErrorModel).
-  static Encoder FromConfig(SensorConfig& config) {
+  // AttachmentConfig::ErrorModel).
+  static Encoder FromConfig(AttachmentConfig& config) {
     const SensorOptions options = config.Options();
     Params params;
     params.axis = config.Vector("axis", params.axis);

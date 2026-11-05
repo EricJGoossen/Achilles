@@ -160,7 +160,7 @@ enum class Integrator : std::uint8_t {
 // What runs once, when a sim is built (interface::Simulation::Init), before
 // its first tick -- MuJoCo's mj_setConst: ABA at the initial pose, then the
 // contact solver's body_invweight0 from its factors, then every sensor's
-// clock and locals.
+// clock, locals and first reading.
 using Setup = util::ConcatT<
     util::TypeList<aba::ABAStep, contact_solver::InvWeightStep>,
     sensing::SensingSetup>;

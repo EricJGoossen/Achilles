@@ -123,17 +123,18 @@ struct SensorTick {
   std::uint64_t stream = 0;
 };
 
-// A sensor's settings, as its .arow file gives them (`config:`), read by
-// its kind's FromConfig: each by name, with a default for when it's absent.
+// An attachment's settings, as its .arow file gives them (`config:`), read
+// by whatever defines it -- a sensor kind's FromConfig, say: each by name,
+// with a default for when it's absent unless it's required.
 // Every setting given must be read -- Finish throws std::invalid_argument
 // for any left over -- so a misspelled setting is an error rather than
 // silently doing nothing.
-class SensorConfig {
+class AttachmentConfig {
  public:
   using Entries = std::span<const std::pair<std::string, std::vector<double>>>;
 
-  SensorConfig(std::string sensor, Entries entries)
-      : sensor_(std::move(sensor)),
+  AttachmentConfig(std::string name, Entries entries)
+      : name_(std::move(name)),
         entries_(entries),
         read_(entries.size(), false) {}
 
@@ -163,12 +164,16 @@ class SensorConfig {
       std::string_view key, const domain::math::Vector3<float>& fallback
   ) {
     const std::vector<double>* values = Take(key, 3);
-    return values == nullptr ? fallback
-                             : domain::math::Vector3<float>(
-                                   static_cast<float>((*values)[0]),
-                                   static_cast<float>((*values)[1]),
-                                   static_cast<float>((*values)[2])
-                               );
+    return values == nullptr ? fallback : ToVector(*values);
+  }
+
+  // The same, for a setting that has no default.
+  domain::math::Vector3<float> RequiredVector(std::string_view key) {
+    const std::vector<double>* values = Take(key, 3);
+    if (values == nullptr) {
+      Fail(key, "is required");
+    }
+    return ToVector(*values);
   }
 
   // A pose, given like a joint's fixed_joint_transform: {translation:
@@ -228,8 +233,7 @@ class SensorConfig {
     for (std::size_t i = 0; i < entries_.size(); ++i) {
       if (!read_[i]) {
         throw std::invalid_argument(
-            "sensor '" + sensor_ + "': unknown setting '" + entries_[i].first +
-            "'."
+            "'" + name_ + "': unknown setting '" + entries_[i].first + "'."
         );
       }
     }
@@ -243,6 +247,15 @@ class SensorConfig {
       std::string_view key, const domain::math::Vector3<float>& fallback
   ) {
     return Vector(key, fallback);
+  }
+
+  static domain::math::Vector3<float> ToVector(const std::vector<double>& values
+  ) {
+    return {
+        static_cast<float>(values[0]),
+        static_cast<float>(values[1]),
+        static_cast<float>(values[2])
+    };
   }
 
   static std::string Key(std::string_view prefix, std::string_view name) {
@@ -266,12 +279,11 @@ class SensorConfig {
 
   [[noreturn]] void Fail(std::string_view key, const std::string& why) const {
     throw std::invalid_argument(
-        "sensor '" + sensor_ + "': setting '" + std::string(key) + "' " + why +
-        "."
+        "'" + name_ + "': setting '" + std::string(key) + "' " + why + "."
     );
   }
 
-  std::string sensor_;
+  std::string name_;
   Entries entries_;
   std::vector<bool> read_;
 };
@@ -287,10 +299,12 @@ class SensorConfig {
 // default-constructible. It provides
 //
 //   static constexpr std::string_view kListName = "...";  // its .arow name
-//   static Self FromConfig(SensorConfig& config);          // its settings
+//   static Self FromConfig(AttachmentConfig& config);          // its settings
 //   void Read(const SensorTick&, const InputValueT<Inputs>&...,
 //             StateT*, OutputT*) const;
 //   void Initialize(const SensorTick&, StateT*) const;   // optional
+//   void InitializeOutput(const SensorTick&, const InputValueT<Inputs>&...,
+//                         OutputT*) const;               // optional
 //
 // A scanning kind -- one that looks at every body, not just its own -- also
 // declares
@@ -304,15 +318,16 @@ class SensorConfig {
 // reading.
 //
 // kListName is the list an archetype's attachments name to mount one (see
-// domain::ArchetypeAttachment): every attachment under it is one instance.
+// domain::JointAttachment): every attachment under it is one instance.
 //
 // Read and Initialize are shaped like an Op (engine/op_contract.hpp):
 // inputs by const reference, then everything written by pointer. Read runs
 // only when a sample is due (see Due); Initialize once, at Init, to seed
-// the state. Everything else -- storage, the passes that run it, the output
-// buffer -- is generated from these declarations (sensing_data.hpp,
-// sensing_ops.hpp, sensing_step.hpp). No virtuals: a sensor is only ever
-// called through its own concrete type.
+// the state; InitializeOutput once, at Init, to fill the reading seen before
+// the first sample (a default OutputT without it). Everything else --
+// storage, the passes that run it, the output buffer -- is generated from
+// these declarations (sensing_data.hpp, sensing_ops.hpp, sensing_step.hpp).
+// No virtuals: a sensor is only ever called through its own concrete type.
 template <typename Derived, typename Inputs, typename StateT, typename OutputT>
 class Sensor;
 
@@ -367,6 +382,9 @@ struct SensorSignatures<S, util::TypeList<Inputs...>> {
       void (S::*)(const SensorTick&, const InputValueT<Inputs>&..., typename S::State*, typename S::Output*)
           const;
   using InitializeFn = void (S::*)(const SensorTick&, typename S::State*) const;
+  using InitializeOutputFn =
+      void (S::*)(const SensorTick&, const InputValueT<Inputs>&..., typename S::Output*)
+          const;
 
   static constexpr bool kOnJoints =
       ((InputSource<Inputs>::kShared &&
@@ -424,7 +442,7 @@ concept SensorLike =
     detail::Storable<typename S::Output> && (S::kInputCount > 0) &&
     detail::SignaturesOf<S>::kOnJoints && requires {
       static_cast<typename detail::SignaturesOf<S>::ReadFn>(&S::Read);
-    } && requires(SensorConfig& config) {
+    } && requires(AttachmentConfig& config) {
       { S::FromConfig(config) } -> std::same_as<S>;
     };
 
@@ -441,6 +459,14 @@ struct KindRecord {
 template <typename S>
 concept SensorHasInit = SensorLike<S> && requires {
   static_cast<typename detail::SignaturesOf<S>::InitializeFn>(&S::Initialize);
+};
+
+// The optional InitializeOutput, matched the same exact way.
+template <typename S>
+concept SensorHasOutputInit = SensorLike<S> && requires {
+  static_cast<typename detail::SignaturesOf<S>::InitializeOutputFn>(
+      &S::InitializeOutput
+  );
 };
 
 // A scanning sensor kind: a SensorLike that declares a Scene of shared,

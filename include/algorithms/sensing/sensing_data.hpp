@@ -103,4 +103,10 @@ static_assert(engine::view::ViewLike<SensingView, SensingField>);
 using SensingTopology = domain::JointTopology;
 static_assert(domain::TopologyLike<SensingTopology>);
 
+// Input's own field: SensorInputs' entries follow kFirstInput (scene inputs
+// included -- the index, not the field, says where it's read).
+template <typename Input>
+inline constexpr SensingField kInputFieldOf = static_cast<
+    SensingField>(static_cast<std::size_t>(SensingField::kFirstInput) + util::kIndexOfV<Input, SensorInputs>);
+
 }  // namespace achilles::algorithms::sensing

@@ -53,7 +53,7 @@
 // way an archetype is, and pulled in through `includes` like any other
 // file -- so a sensor can live in its own file and be dropped into a robot:
 //
-//   sensor: body_pose        # its name, unique across every sensor
+//   sensor: body_pose        # its name, unique across sensors and actuators
 //   kind: world_transform     # a registered sensor kind's name
 //   attach:
 //     archetype: balancer      # the archetype it's mounted on
@@ -66,6 +66,21 @@
 // and which settings each takes, isn't the loader's business: it records
 // them on the archetype (domain::JointAttachment) for whatever hosts
 // the sensors to check.
+//
+// An actuator is declared the same way, and its `axis` says which direction
+// it acts along, in the joint's own frame:
+//
+//   actuator: elbow_motor     # its name, unique like a sensor's
+//   kind: angular              # angular (a torque) or linear (a force)
+//   attach:
+//     archetype: arm
+//     joint: elbow
+//   config:
+//     axis: [1, 0, 0]
+//
+// Every instance of the archetype gets one here too, and checking the kind
+// and the axis is likewise left to whatever hosts them (see
+// interface/attachments.hpp).
 //
 // A field must be given on either every joint of an archetype or none of
 // them (no partial coverage -- see BuildField below), and every instance
@@ -92,13 +107,15 @@ struct ParsedJoint {
   std::vector<std::pair<std::string, std::vector<double>>> fields;
 };
 
-struct ParsedSensor {
+// A sensor or an actuator: the two are declared the same way.
+struct ParsedAttachment {
   std::string name;
   std::string kind;
   std::string attach_archetype;
   std::string attach_joint;
   std::vector<std::pair<std::string, std::vector<double>>> config;
   std::string source_file;  // for error messages only
+  std::string key;          // "sensor" or "actuator"
 };
 
 struct ParsedArchetype {
@@ -251,7 +268,7 @@ std::vector<ParsedJoint> ParseJoints(
 void ParseArchetypeFile(
     const std::filesystem::path& path,
     std::unordered_map<std::string, ParsedArchetype>& archetypes,
-    std::vector<ParsedSensor>& sensors,
+    std::vector<ParsedAttachment>& attachments,
     std::unordered_set<std::string>& in_progress_files
 );
 
@@ -259,7 +276,7 @@ void ProcessIncludes(
     const YAML::Node& doc,
     const std::filesystem::path& path,
     std::unordered_map<std::string, ParsedArchetype>& archetypes,
-    std::vector<ParsedSensor>& sensors,
+    std::vector<ParsedAttachment>& attachments,
     std::unordered_set<std::string>& in_progress_files
 ) {
   YAML::Node includes = doc["includes"];
@@ -270,53 +287,79 @@ void ProcessIncludes(
     ParseArchetypeFile(
         ResolveInclude(path, include.as<std::string>()),
         archetypes,
-        sensors,
+        attachments,
         in_progress_files
     );
   }
 }
 
-// A sensor file's body: its name, kind, attach target and settings.
-ParsedSensor ParseSensor(
-    const YAML::Node& doc, const std::filesystem::path& path
+// A sensor or actuator file's body: its name, kind, attach target and
+// settings. `what` is the key that declares it.
+ParsedAttachment ParseAttachment(
+    const YAML::Node& doc,
+    const std::filesystem::path& path,
+    const std::string& what
 ) {
-  ParsedSensor sensor;
-  sensor.name = doc["sensor"].as<std::string>();
-  sensor.source_file = path.string();
+  ParsedAttachment parsed;
+  parsed.key = what;
+  parsed.name = doc[what].as<std::string>();
+  parsed.source_file = path.string();
   YAML::Node kind = doc["kind"];
   if (!kind || !kind.IsScalar()) {
     Fail(
-        sensor.source_file,
-        "sensor '" + sensor.name + "': missing required 'kind: <name>'."
+        parsed.source_file,
+        what + " '" + parsed.name + "': missing required 'kind: <name>'."
     );
   }
-  sensor.kind = kind.as<std::string>();
+  parsed.kind = kind.as<std::string>();
   YAML::Node attach = doc["attach"];
   if (!attach || !attach["archetype"] || !attach["joint"]) {
     Fail(
-        sensor.source_file,
-        "sensor '" + sensor.name +
+        parsed.source_file,
+        what + " '" + parsed.name +
             "': attach with both 'archetype' and 'joint' is required."
     );
   }
-  sensor.attach_archetype = attach["archetype"].as<std::string>();
-  sensor.attach_joint = attach["joint"].as<std::string>();
+  parsed.attach_archetype = attach["archetype"].as<std::string>();
+  parsed.attach_joint = attach["joint"].as<std::string>();
   if (YAML::Node config = doc["config"]; config && config.IsMap()) {
     for (const auto& entry : config) {
       std::vector<double> values;
-      FlattenNode(entry.second, sensor.source_file, values);
-      sensor.config.emplace_back(
+      FlattenNode(entry.second, parsed.source_file, values);
+      parsed.config.emplace_back(
           entry.first.as<std::string>(), std::move(values)
       );
     }
   }
-  return sensor;
+  return parsed;
+}
+
+// Parses a sensor or actuator file onto `attachments`, whose names must stay
+// unique.
+void AddAttachment(
+    const YAML::Node& doc,
+    const std::filesystem::path& path,
+    const std::string& what,
+    std::vector<ParsedAttachment>& attachments
+) {
+  ParsedAttachment parsed = ParseAttachment(doc, path, what);
+  for (const ParsedAttachment& other : attachments) {
+    if (other.name == parsed.name) {
+      Fail(
+          parsed.source_file,
+          what + " name '" + parsed.name + "' also declared in " +
+              other.source_file +
+              " -- sensor and actuator names must be unique."
+      );
+    }
+  }
+  attachments.push_back(std::move(parsed));
 }
 
 void ParseArchetypeFile(
     const std::filesystem::path& path,
     std::unordered_map<std::string, ParsedArchetype>& archetypes,
-    std::vector<ParsedSensor>& sensors,
+    std::vector<ParsedAttachment>& attachments,
     std::unordered_set<std::string>& in_progress_files
 ) {
   std::string canonical = std::filesystem::weakly_canonical(path).string();
@@ -328,20 +371,15 @@ void ParseArchetypeFile(
   }
 
   YAML::Node doc = LoadYamlFile(path);
-  ProcessIncludes(doc, path, archetypes, sensors, in_progress_files);
+  ProcessIncludes(doc, path, archetypes, attachments, in_progress_files);
 
   if (doc["sensor"]) {
-    ParsedSensor sensor = ParseSensor(doc, path);
-    for (const ParsedSensor& other : sensors) {
-      if (other.name == sensor.name) {
-        Fail(
-            sensor.source_file,
-            "sensor name '" + sensor.name + "' also declared in " +
-                other.source_file + " -- sensor names must be unique."
-        );
-      }
-    }
-    sensors.push_back(std::move(sensor));
+    AddAttachment(doc, path, "sensor", attachments);
+    in_progress_files.erase(canonical);
+    return;
+  }
+  if (doc["actuator"]) {
+    AddAttachment(doc, path, "actuator", attachments);
     in_progress_files.erase(canonical);
     return;
   }
@@ -602,33 +640,42 @@ std::vector<std::string> DepthFirstOrder(
 
 namespace {
 
-std::vector<Archetype> LoadArchetypesImpl(const std::filesystem::path& root_file
+// Every attachment, on the archetype it's attached to, in load order.
+std::unordered_map<std::string, std::vector<domain::JointAttachment>>
+ByArchetype(
+    const std::unordered_map<std::string, ParsedArchetype>& parsed,
+    const std::vector<ParsedAttachment>& attachments
 ) {
-  std::unordered_map<std::string, ParsedArchetype> parsed;
-  std::vector<ParsedSensor> sensors;
-  std::unordered_set<std::string> in_progress_files;
-  ParseArchetypeFile(root_file, parsed, sensors, in_progress_files);
-
-  // Every sensor, on the archetype it's attached to, in load order.
-  std::unordered_map<std::string, std::vector<domain::JointAttachment>>
-      attachments;
-  for (const ParsedSensor& sensor : sensors) {
-    auto target = parsed.find(sensor.attach_archetype);
+  std::unordered_map<std::string, std::vector<domain::JointAttachment>> result;
+  for (const ParsedAttachment& entry : attachments) {
+    auto target = parsed.find(entry.attach_archetype);
     if (target == parsed.end()) {
       Fail(
-          sensor.source_file,
-          "sensor '" + sensor.name + "': attach.archetype '" +
-              sensor.attach_archetype +
+          entry.source_file,
+          entry.key + " '" + entry.name + "': attach.archetype '" +
+              entry.attach_archetype +
               "' was never declared (missing an 'includes' entry?)."
       );
     }
-    attachments[sensor.attach_archetype].push_back(domain::JointAttachment{
-        sensor.kind,
-        LocalJointIndex(target->second, sensor.attach_joint),
-        sensor.name,
-        sensor.config
+    result[entry.attach_archetype].push_back(domain::JointAttachment{
+        entry.kind,
+        LocalJointIndex(target->second, entry.attach_joint),
+        entry.name,
+        entry.config,
+        entry.key
     });
   }
+  return result;
+}
+
+std::vector<Archetype> LoadArchetypesImpl(const std::filesystem::path& root_file
+) {
+  std::unordered_map<std::string, ParsedArchetype> parsed;
+  std::vector<ParsedAttachment> attachments;
+  std::unordered_set<std::string> in_progress_files;
+  ParseArchetypeFile(root_file, parsed, attachments, in_progress_files);
+
+  auto by_archetype = ByArchetype(parsed, attachments);
 
   std::vector<std::string> order = DepthFirstOrder(parsed);
 
@@ -694,7 +741,7 @@ std::vector<Archetype> LoadArchetypesImpl(const std::filesystem::path& root_file
         is_root,
         std::move(fields),
         std::move(joint_names),
-        std::move(attachments[archetype.name])
+        std::move(by_archetype[archetype.name])
     );
   }
   return result;

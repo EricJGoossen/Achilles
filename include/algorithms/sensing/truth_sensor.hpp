@@ -5,6 +5,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "algorithms/aba/aba_data.hpp"
 #include "algorithms/sensing/sensor.hpp"
 #include "engine/algorithm_contract.hpp"
 #include "engine/memory/binding.hpp"
@@ -37,7 +38,7 @@ class TruthSensor : public Sensor<
   explicit TruthSensor(SensorOptions options) : Base(options) {}
 
   // Takes only the options every sensor has.
-  static TruthSensor FromConfig(SensorConfig& config) {
+  static TruthSensor FromConfig(AttachmentConfig& config) {
     return TruthSensor(config.Options());
   }
 
@@ -46,6 +47,13 @@ class TruthSensor : public Sensor<
       const Value& truth,
       NoState* /*state*/,
       Value* out
+  ) const {
+    *out = truth;
+  }
+
+  // Starts from the field's own initial value.
+  void InitializeOutput(
+      const SensorTick& /*tick*/, const Value& truth, Value* out
   ) const {
     *out = truth;
   }
@@ -145,5 +153,18 @@ using TruthSensorsOf = util::TransformT<
         util::ApplyT<
             util::ConcatT,
             util::TransformT<detail::TruthInputsOf, Algorithms>>>::Type>;
+
+// The truth sensors, by what they read, so a caller needn't name the
+// algorithm a field lives in.
+namespace truth {
+
+using WorldTransform =
+    TruthOf<aba::ABAAlgorithm, aba::ABAField::kWorldTransform>;
+using SpatialVelocity =
+    TruthOf<aba::ABAAlgorithm, aba::ABAField::kSpatialVelocity>;
+using JointPosition = TruthOf<aba::ABAAlgorithm, aba::ABAField::kJointPosition>;
+using JointVelocity = TruthOf<aba::ABAAlgorithm, aba::ABAField::kJointVelocity>;
+
+}  // namespace truth
 
 }  // namespace achilles::algorithms::sensing

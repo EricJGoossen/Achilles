@@ -19,7 +19,7 @@ namespace achilles::engine::memory {
 // its View like any other field.
 //
 // A double-buffered field exists so one side can write a value while the
-// other reads the previous one -- an actuator (interface/actuator.hpp)
+// other reads the previous one -- an actuator (interface/actuator_handle.hpp)
 // writing next tick's torque while ABA reads this tick's. A swap happens
 // in the owning Algorithm's Step: it flips the group's parity
 // (pass::SimContext::FlipParity), and its passes decide what the new write
