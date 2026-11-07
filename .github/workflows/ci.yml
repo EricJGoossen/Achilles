@@ -100,8 +100,10 @@ jobs:
       - name: Build
         run: cmake --build build
 
+      # The consumer_* cases build Achilles as a library in a nested
+      # project; they're left out here for now.
       - name: Run tests
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --output-on-failure -LE consumer
   consumer:
     name: build as a library (headless)
     needs: setup
