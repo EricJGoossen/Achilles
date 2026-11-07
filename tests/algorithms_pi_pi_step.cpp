@@ -10,7 +10,9 @@
 #include "algorithms/pi/pi_data.hpp"
 #include "algorithms/pi/pi_step.hpp"
 #include "algorithms/sim_config.hpp"
-#include "domain/archetype.hpp"
+#include "domain/archetype/archetype.hpp"
+#include "domain/archetype/archetype_set.hpp"
+#include "domain/joint_data.hpp"
 #include "domain/joint_layout.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/orderings.hpp"
@@ -25,9 +27,8 @@
 
 using namespace achilles::algorithms;
 using namespace achilles::algorithms::pi;
-using achilles::domain::Archetype;
-using achilles::domain::ArchetypeJointHandle;
-using achilles::domain::ArchetypeTreeStructure;
+using achilles::domain::JointRef;
+using achilles::domain::archetype::Archetype;
 using achilles::engine::memory::SimAllocator;
 using achilles::engine::topology::TopologicalOrdering;
 
@@ -61,23 +62,19 @@ Matrix6x6 PrismaticXSubspace() {
 }
 
 SimAllocator<PIAlgorithm> MakeSim(std::size_t instance_count) {
-  std::vector<ArchetypeJointHandle> root_parents(
-      instance_count, ArchetypeJointHandle{0, 0}
-  );
+  std::vector<JointRef> root_parents(instance_count, JointRef{0, 0});
   std::array<Archetype, 1> archetypes = {Archetype(
-      "joints",
-      {ArchetypeTreeStructure::kNoParent},
-      std::move(root_parents),
-      true,
-      {}
+      "joints", {achilles::domain::kNoParent}, std::move(root_parents), true, {}
   )};
-  return SimAllocator<PIAlgorithm>(archetypes);
+  return SimAllocator<PIAlgorithm>(
+      achilles::domain::archetype::ArchetypeSet(archetypes)
+  );
 }
 
 std::size_t BatchGroup(
     const achilles::domain::JointLayout& layout, std::size_t instance
 ) {
-  return layout.ToSorted({instance, 0}) / Lane();
+  return layout.ToSorted(instance, 0) / Lane();
 }
 
 void PopulateJoint(
@@ -178,9 +175,9 @@ TEST(PIStep, RepeatedStepsComposeOntoPreviousPosition) {
 
 // A prismatic joint through the real Step/View path -- kJointPosition's
 // TransformAssembler stores translation and rotation as separate leaves
-// (see domain/archetype.hpp's comment on a Transform field's flattening
-// order), so this proves the translation half round-trips through a real
-// PlanarLayout block correctly, not just the rotation half every other
+// (see domain/archetype/archetype.hpp's comment on a Transform field's
+// flattening order), so this proves the translation half round-trips through a
+// real PlanarLayout block correctly, not just the rotation half every other
 // test in this file exercises.
 TEST(PIStep, PrismaticJointIntegratesTranslationThroughRealView) {
   SimAllocator<PIAlgorithm> sim = MakeSim(1);

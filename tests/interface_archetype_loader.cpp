@@ -5,12 +5,14 @@
 #include <string_view>
 #include <vector>
 
-#include "domain/archetype.hpp"
+#include "domain/archetype/archetype.hpp"
+#include "domain/archetype/archetype_set.hpp"
+#include "domain/joint_data.hpp"
 #include "interface/archetype_loader.hpp"
 #include "support/temp_dir.hpp"
 
-using achilles::domain::Archetype;
-using achilles::domain::ArchetypeTreeStructure;
+using achilles::domain::archetype::Archetype;
+using achilles::domain::archetype::ArchetypeSet;
 using achilles::interface::ArchetypeLoadError;
 using achilles::interface::LoadArchetypes;
 using achilles::test_support::TempDir;
@@ -21,7 +23,7 @@ const Archetype& FindByName(
     const std::vector<Archetype>& archetypes, std::string_view name
 ) {
   for (const Archetype& archetype : archetypes) {
-    if (archetype.Name() == name) {
+    if (archetype.name == name) {
       return archetype;
     }
   }
@@ -45,15 +47,15 @@ joints:
 
   ASSERT_EQ(archetypes.size(), 1U);
   const Archetype& base = archetypes.front();
-  EXPECT_EQ(base.Name(), "base");
-  EXPECT_TRUE(base.IsRootArchetype());
-  EXPECT_EQ(base.JointCount(), 1U);
-  EXPECT_EQ(base.InstanceCount(), 1U);
+  EXPECT_EQ(base.name, "base");
+  EXPECT_TRUE(base.is_root_archetype);
+  EXPECT_EQ(base.tree_structure.size(), 1U);
+  EXPECT_EQ(base.root_parents.size(), 1U);
 
-  const auto* subspace = base.FindField("subspace");
+  const auto* subspace = ArchetypeSet::FindField(base, "subspace");
   ASSERT_NE(subspace, nullptr);
   EXPECT_EQ(subspace->scalars_per_leaf, 6U);
-  EXPECT_DOUBLE_EQ(ArchetypeFieldAt(*subspace, 0, 0, 2, 1), 1.0);
+  EXPECT_DOUBLE_EQ(JointFieldAt(*subspace, 0, 0, 2, 1), 1.0);
 }
 
 TEST(LoadArchetypes, TwoJointLocalTreeResolvesParentByName) {
@@ -71,15 +73,15 @@ joints:
   std::vector<Archetype> archetypes = LoadArchetypes(file);
 
   ASSERT_EQ(archetypes.size(), 1U);
-  auto tree = archetypes.front().TreeStructure();
+  const auto& tree = archetypes.front();
   ASSERT_EQ(tree.tree_structure.size(), 2U);
-  EXPECT_EQ(tree.tree_structure[0], ArchetypeTreeStructure::kNoParent);
+  EXPECT_EQ(tree.tree_structure[0], achilles::domain::kNoParent);
   EXPECT_EQ(tree.tree_structure[1], 0U);
 }
 
 // Joints keep their .arow names, at the same local index their parent links
 // use -- what lets an actuator be attached by name after loading
-// (domain::ResolveJoint).
+// (domain::archetype::ArchetypeSet::RowOf).
 TEST(LoadArchetypes, KeepsJointNamesAtTheirLocalIndex) {
   TempDir dir;
   auto file = dir.Write("root.arow", R"(
@@ -95,9 +97,10 @@ joints:
   std::vector<Archetype> archetypes = LoadArchetypes(file);
 
   ASSERT_EQ(archetypes.size(), 1U);
-  EXPECT_EQ(archetypes.front().JointIndex("shoulder"), 0U);
-  EXPECT_EQ(archetypes.front().JointIndex("elbow"), 1U);
-  EXPECT_FALSE(archetypes.front().JointIndex("wrist").has_value());
+  EXPECT_EQ(ArchetypeSet::JointIndex(archetypes.front(), "shoulder"), 0U);
+  EXPECT_EQ(ArchetypeSet::JointIndex(archetypes.front(), "elbow"), 1U);
+  EXPECT_FALSE(ArchetypeSet::JointIndex(archetypes.front(), "wrist").has_value()
+  );
 }
 
 // A field value can be an arbitrarily nested mapping/sequence of scalars
@@ -114,13 +117,13 @@ joints:
 )");
 
   std::vector<Archetype> archetypes = LoadArchetypes(file);
-  const auto* transform = archetypes.front().FindField("transform");
+  const auto* transform =
+      ArchetypeSet::FindField(archetypes.front(), "transform");
   ASSERT_NE(transform, nullptr);
   EXPECT_EQ(transform->scalars_per_leaf, 7U);
   for (std::size_t leaf = 0; leaf < 7; ++leaf) {
     EXPECT_DOUBLE_EQ(
-        ArchetypeFieldAt(*transform, 0, 0, leaf, 1),
-        static_cast<double>(leaf + 1)
+        JointFieldAt(*transform, 0, 0, leaf, 1), static_cast<double>(leaf + 1)
     );
   }
 }
@@ -136,11 +139,11 @@ joints:
 )");
 
   std::vector<Archetype> archetypes = LoadArchetypes(file);
-  const auto* mask = archetypes.front().FindField("mask");
+  const auto* mask = ArchetypeSet::FindField(archetypes.front(), "mask");
   ASSERT_NE(mask, nullptr);
-  EXPECT_DOUBLE_EQ(ArchetypeFieldAt(*mask, 0, 0, 0, 1), 1.0);
-  EXPECT_DOUBLE_EQ(ArchetypeFieldAt(*mask, 0, 0, 1, 1), 0.0);
-  EXPECT_DOUBLE_EQ(ArchetypeFieldAt(*mask, 0, 0, 2, 1), 1.0);
+  EXPECT_DOUBLE_EQ(JointFieldAt(*mask, 0, 0, 0, 1), 1.0);
+  EXPECT_DOUBLE_EQ(JointFieldAt(*mask, 0, 0, 1, 1), 0.0);
+  EXPECT_DOUBLE_EQ(JointFieldAt(*mask, 0, 0, 2, 1), 1.0);
 }
 
 // The chassis (root, 1 copy) is pulled in via `includes`; every one of the
@@ -170,12 +173,12 @@ joints:
   ASSERT_EQ(archetypes.size(), 2U);
   // Root (chassis) must come first -- InstanceOffsets/DecodeInstance
   // (orderings.cpp) number global instances in `archetypes` order.
-  EXPECT_EQ(archetypes[0].Name(), "chassis");
-  EXPECT_EQ(archetypes[1].Name(), "wheel");
+  EXPECT_EQ(archetypes[0].name, "chassis");
+  EXPECT_EQ(archetypes[1].name, "wheel");
 
   const Archetype& wheel = FindByName(archetypes, "wheel");
-  EXPECT_EQ(wheel.InstanceCount(), 4U);
-  auto tree = wheel.TreeStructure();
+  EXPECT_EQ(wheel.root_parents.size(), 4U);
+  const auto& tree = wheel;
   ASSERT_EQ(tree.root_parents.size(), 4U);
   for (const auto& parent : tree.root_parents) {
     EXPECT_EQ(parent.instance_index, 0U);  // chassis's one instance
@@ -217,7 +220,7 @@ joints:
   std::vector<Archetype> archetypes = LoadArchetypes(root);
   const Archetype& segment = FindByName(archetypes, "segment");
   std::size_t segment_offset = 1;  // world's single instance comes first
-  auto segment_tree = segment.TreeStructure();
+  const auto& segment_tree = segment;
   ASSERT_EQ(segment_tree.root_parents.size(), 3U);
   for (std::size_t i = 0; i < 3; ++i) {
     EXPECT_EQ(
@@ -226,7 +229,7 @@ joints:
   }
 
   const Archetype& wheel = FindByName(archetypes, "wheel");
-  auto wheel_tree = wheel.TreeStructure();
+  const auto& wheel_tree = wheel;
   ASSERT_EQ(wheel_tree.root_parents.size(), 3U);
   for (std::size_t i = 0; i < 3; ++i) {
     EXPECT_EQ(wheel_tree.root_parents[i].instance_index, segment_offset + i);

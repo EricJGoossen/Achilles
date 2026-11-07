@@ -8,7 +8,8 @@
 #include <vector>
 #include <xsimd/xsimd.hpp>
 
-#include "domain/archetype.hpp"
+#include "domain/archetype/archetype.hpp"
+#include "domain/joint_data.hpp"
 #include "domain/joint_layout.hpp"
 #include "domain/joint_topology.hpp"
 #include "engine/memory/arena.hpp"
@@ -16,10 +17,11 @@
 #include "engine/topology/orderings.hpp"
 #include "util/tmp.hpp"
 
-using achilles::domain::ArchetypeJointHandle;
-using achilles::domain::ArchetypeTreeStructure;
+using achilles::domain::JointAttachment;
 using achilles::domain::JointLayout;
+using achilles::domain::JointRef;
 using achilles::domain::JointTopology;
+using achilles::domain::archetype::Archetype;
 using achilles::engine::memory::Arena;
 using achilles::engine::topology::LinearOrdering;
 using achilles::engine::topology::OrderingPlan;
@@ -28,24 +30,20 @@ using achilles::engine::topology::TopologicalOrdering;
 
 namespace {
 
-constexpr std::size_t kNoParent = ArchetypeTreeStructure::kNoParent;
+constexpr std::size_t kNoParent = achilles::domain::kNoParent;
 
-ArchetypeTreeStructure MakeArchetype(
+Archetype MakeArchetype(
     bool is_root,
     const std::vector<std::size_t>& tree_structure,
-    const std::vector<ArchetypeJointHandle>& root_parents
+    const std::vector<JointRef>& root_parents
 ) {
-  return ArchetypeTreeStructure{
-      is_root,
-      std::span<const std::size_t>(tree_structure),
-      std::span<const ArchetypeJointHandle>(root_parents)
-  };
+  return {"archetype", tree_structure, root_parents, is_root, {}};
 }
 
 // Exactly what OrderingPolicyLike requires. Nothing else.
 struct OrderingPolicyArchetype {
   static OrderingPlan Build(
-      std::span<ArchetypeTreeStructure> tree, std::size_t lane_size
+      std::span<const Archetype> tree, std::size_t lane_size
   );
 };
 static_assert(OrderingPolicyLike<OrderingPolicyArchetype>);
@@ -64,10 +62,8 @@ static_assert(OrderingPolicyLike<LinearOrdering>);
 // reserved base row.
 TEST(TopologicalOrderingSingleArchetype, RootInstancesResolveToBaseRow) {
   std::vector<std::size_t> tree_structure = {kNoParent};
-  std::vector<ArchetypeJointHandle> root_parents(
-      3, ArchetypeJointHandle{kNoParent, kNoParent}
-  );
-  std::vector<ArchetypeTreeStructure> tree = {
+  std::vector<JointRef> root_parents(3, JointRef{kNoParent, kNoParent});
+  std::vector<Archetype> tree = {
       MakeArchetype(true, tree_structure, root_parents)
   };
 
@@ -76,7 +72,7 @@ TEST(TopologicalOrderingSingleArchetype, RootInstancesResolveToBaseRow) {
   JointTopology topology = plan.Topology();
 
   for (std::size_t i = 0; i < 3; ++i) {
-    std::size_t row = layout.ToSorted({i, 0});
+    std::size_t row = layout.ToSorted(i, 0);
     EXPECT_EQ(topology[row], layout.BaseRowIndex());
   }
   // 3 instances padded to a lane multiple of 4 leaves one padding slot,
@@ -92,19 +88,17 @@ TEST(TopologicalOrderingSingleArchetype, RootInstancesResolveToBaseRow) {
 // (joint1 -> joint2 -> joint0), not the raw index order.
 TEST(TopologicalOrderingSingleArchetype, LinearizesAScrambledChain) {
   std::vector<std::size_t> tree_structure = {2, kNoParent, 1};
-  std::vector<ArchetypeJointHandle> root_parents = {
-      ArchetypeJointHandle{kNoParent, kNoParent}
-  };
-  std::vector<ArchetypeTreeStructure> tree = {
+  std::vector<JointRef> root_parents = {JointRef{kNoParent, kNoParent}};
+  std::vector<Archetype> tree = {
       MakeArchetype(true, tree_structure, root_parents)
   };
 
   OrderingPlan plan = TopologicalOrdering::Build(tree, 1);
   JointLayout layout = plan.Layout();
 
-  EXPECT_EQ(layout.ToSorted({0, 1}), 0U);  // joint1: the root, sorted first
-  EXPECT_EQ(layout.ToSorted({0, 2}), 1U);  // joint2: joint1's child
-  EXPECT_EQ(layout.ToSorted({0, 0}), 2U);  // joint0: joint2's child
+  EXPECT_EQ(layout.ToSorted(0, 1), 0U);  // joint1: the root, sorted first
+  EXPECT_EQ(layout.ToSorted(0, 2), 1U);  // joint2: joint1's child
+  EXPECT_EQ(layout.ToSorted(0, 0), 2U);  // joint0: joint2's child
   EXPECT_TRUE(plan.Topology().IsForwardSafe());
 }
 
@@ -116,19 +110,17 @@ TEST(
     BranchingTreeOrdersSiblingsByPhysicalIndex
 ) {
   std::vector<std::size_t> tree_structure = {kNoParent, 0, 0};
-  std::vector<ArchetypeJointHandle> root_parents = {
-      ArchetypeJointHandle{kNoParent, kNoParent}
-  };
-  std::vector<ArchetypeTreeStructure> tree = {
+  std::vector<JointRef> root_parents = {JointRef{kNoParent, kNoParent}};
+  std::vector<Archetype> tree = {
       MakeArchetype(true, tree_structure, root_parents)
   };
 
   OrderingPlan plan = TopologicalOrdering::Build(tree, 1);
   JointLayout layout = plan.Layout();
 
-  EXPECT_EQ(layout.ToSorted({0, 0}), 0U);
-  EXPECT_EQ(layout.ToSorted({0, 1}), 1U);
-  EXPECT_EQ(layout.ToSorted({0, 2}), 2U);
+  EXPECT_EQ(layout.ToSorted(0, 0), 0U);
+  EXPECT_EQ(layout.ToSorted(0, 1), 1U);
+  EXPECT_EQ(layout.ToSorted(0, 2), 2U);
   EXPECT_TRUE(plan.Topology().IsForwardSafe());
 }
 
@@ -138,12 +130,12 @@ TEST(
 // once at the end.
 TEST(TopologicalOrderingSingleArchetype, PadsEveryJointPositionToLaneMultiple) {
   std::vector<std::size_t> tree_structure = {kNoParent, 0};
-  std::vector<ArchetypeJointHandle> root_parents = {
-      ArchetypeJointHandle{kNoParent, kNoParent},
-      ArchetypeJointHandle{kNoParent, kNoParent},
-      ArchetypeJointHandle{kNoParent, kNoParent}
+  std::vector<JointRef> root_parents = {
+      JointRef{kNoParent, kNoParent},
+      JointRef{kNoParent, kNoParent},
+      JointRef{kNoParent, kNoParent}
   };
-  std::vector<ArchetypeTreeStructure> tree = {
+  std::vector<Archetype> tree = {
       MakeArchetype(true, tree_structure, root_parents)
   };
 
@@ -169,10 +161,8 @@ TEST(TopologicalOrderingSingleArchetype, PadsEveryJointPositionToLaneMultiple) {
 // least) 4, 8, and 32 be exercised, not just whatever's native here.
 TEST(TopologicalOrderingSingleArchetype, PadsToLaneMultipleOfThirtyTwo) {
   std::vector<std::size_t> tree_structure = {kNoParent, 0};
-  std::vector<ArchetypeJointHandle> root_parents(
-      5, ArchetypeJointHandle{kNoParent, kNoParent}
-  );
-  std::vector<ArchetypeTreeStructure> tree = {
+  std::vector<JointRef> root_parents(5, JointRef{kNoParent, kNoParent});
+  std::vector<Archetype> tree = {
       MakeArchetype(true, tree_structure, root_parents)
   };
 
@@ -202,17 +192,13 @@ TEST(TopologicalOrderingSingleArchetype, PadsToLaneMultipleOfThirtyTwo) {
 // per archetype.
 TEST(TopologicalOrderingMultipleArchetypes, EachInstanceResolvesItsOwnTarget) {
   std::vector<std::size_t> root_tree = {kNoParent};
-  std::vector<ArchetypeJointHandle> root_roots(
-      2, ArchetypeJointHandle{kNoParent, kNoParent}
-  );
+  std::vector<JointRef> root_roots(2, JointRef{kNoParent, kNoParent});
 
   std::vector<std::size_t> dependent_tree = {kNoParent};
   // Global instance numbering: archetype 0's instances are 0 and 1.
-  std::vector<ArchetypeJointHandle> dependent_roots = {
-      ArchetypeJointHandle{0, 0}, ArchetypeJointHandle{1, 0}
-  };
+  std::vector<JointRef> dependent_roots = {JointRef{0, 0}, JointRef{1, 0}};
 
-  std::vector<ArchetypeTreeStructure> tree = {
+  std::vector<Archetype> tree = {
       MakeArchetype(true, root_tree, root_roots),
       MakeArchetype(false, dependent_tree, dependent_roots)
   };
@@ -231,8 +217,8 @@ TEST(TopologicalOrderingMultipleArchetypes, EachInstanceResolvesItsOwnTarget) {
   JointTopology topology = plan.Topology();
 
   // Global instances: the root's are 0 and 1, the dependent's 2 and 3.
-  EXPECT_EQ(topology[layout.ToSorted({2, 0})], layout.ToSorted({0, 0}));
-  EXPECT_EQ(topology[layout.ToSorted({3, 0})], layout.ToSorted({1, 0}));
+  EXPECT_EQ(topology[layout.ToSorted(2, 0)], layout.ToSorted(0, 0));
+  EXPECT_EQ(topology[layout.ToSorted(3, 0)], layout.ToSorted(1, 0));
 }
 
 // The dependent archetype (index 0 in `tree`) is placed AFTER the root
@@ -242,18 +228,14 @@ TEST(
     TopologicalOrderingMultipleArchetypes, PlacesShallowerDepthArchetypesFirst
 ) {
   std::vector<std::size_t> dependent_tree = {kNoParent};
-  std::vector<ArchetypeJointHandle> dependent_roots = {
-      ArchetypeJointHandle{
-          1, 0
-      }  // global instance 1: the root archetype's only instance
+  std::vector<JointRef> dependent_roots = {
+      JointRef{1, 0}  // global instance 1: the root archetype's only instance
   };
 
   std::vector<std::size_t> root_tree = {kNoParent};
-  std::vector<ArchetypeJointHandle> root_roots = {
-      ArchetypeJointHandle{kNoParent, kNoParent}
-  };
+  std::vector<JointRef> root_roots = {JointRef{kNoParent, kNoParent}};
 
-  std::vector<ArchetypeTreeStructure> tree = {
+  std::vector<Archetype> tree = {
       MakeArchetype(false, dependent_tree, dependent_roots),
       MakeArchetype(true, root_tree, root_roots)
   };
@@ -261,7 +243,7 @@ TEST(
   OrderingPlan plan = TopologicalOrdering::Build(tree, 1);
   JointLayout layout = plan.Layout();
 
-  EXPECT_LT(layout.ToSorted({1, 0}), layout.ToSorted({0, 0}));
+  EXPECT_LT(layout.ToSorted(1, 0), layout.ToSorted(0, 0));
   EXPECT_TRUE(plan.Topology().IsForwardSafe());
 }
 
@@ -276,28 +258,26 @@ TEST(
     ThreeArchetypeChainIsBatchSafeAndCorrect
 ) {
   std::vector<std::size_t> root_tree = {kNoParent};
-  std::vector<ArchetypeJointHandle> root_roots(
-      5, ArchetypeJointHandle{kNoParent, kNoParent}
-  );
+  std::vector<JointRef> root_roots(5, JointRef{kNoParent, kNoParent});
 
   std::vector<std::size_t> mid_tree = {kNoParent, 0, 1};
-  std::vector<ArchetypeJointHandle> mid_roots = {
-      ArchetypeJointHandle{0, 0},
-      ArchetypeJointHandle{1, 0},
-      ArchetypeJointHandle{2, 0},
-      ArchetypeJointHandle{3, 0},
-      ArchetypeJointHandle{4, 0},
-      ArchetypeJointHandle{0, 0}
+  std::vector<JointRef> mid_roots = {
+      JointRef{0, 0},
+      JointRef{1, 0},
+      JointRef{2, 0},
+      JointRef{3, 0},
+      JointRef{4, 0},
+      JointRef{0, 0}
   };
 
   std::vector<std::size_t> leaf_tree = {kNoParent, 0};
-  std::vector<ArchetypeJointHandle> leaf_roots;
+  std::vector<JointRef> leaf_roots;
   for (std::size_t i = 0; i < 10; ++i) {
     // Global instance numbering: mid's instances start at 5.
-    leaf_roots.push_back(ArchetypeJointHandle{5 + (i * 3) % 6, i % 3});
+    leaf_roots.push_back(JointRef{5 + (i * 3) % 6, i % 3});
   }
 
-  std::vector<ArchetypeTreeStructure> tree = {
+  std::vector<Archetype> tree = {
       MakeArchetype(true, root_tree, root_roots),
       MakeArchetype(false, mid_tree, mid_roots),
       MakeArchetype(false, leaf_tree, leaf_roots)
@@ -315,14 +295,14 @@ TEST(
   // computed instance mapping above. Global instances: root 0-4, mid 5-10,
   // leaf 11-20.
   EXPECT_EQ(
-      topology[layout.ToSorted({5, 0})], layout.ToSorted({0, 0})
+      topology[layout.ToSorted(5, 0)], layout.ToSorted(0, 0)
   );  // mid instance0 -> root instance0
   EXPECT_EQ(
-      topology[layout.ToSorted({6, 0})], layout.ToSorted({1, 0})
+      topology[layout.ToSorted(6, 0)], layout.ToSorted(1, 0)
   );  // mid instance1 -> root instance1
   // leaf instance0's target global instance is 5 + (0*3)%6 == 5: mid's
   // first instance.
-  EXPECT_EQ(topology[layout.ToSorted({11, 0})], layout.ToSorted({5, 0}));
+  EXPECT_EQ(topology[layout.ToSorted(11, 0)], layout.ToSorted(5, 0));
 }
 
 // ---------------------------------------------------------------------------
@@ -335,19 +315,17 @@ TEST(
 // hasn't been assigned a row yet. IsForwardSafe() catches exactly this.
 TEST(LinearOrderingSingleArchetype, LeavesJointOrderUntouched) {
   std::vector<std::size_t> tree_structure = {2, kNoParent, 1};
-  std::vector<ArchetypeJointHandle> root_parents = {
-      ArchetypeJointHandle{kNoParent, kNoParent}
-  };
-  std::vector<ArchetypeTreeStructure> tree = {
+  std::vector<JointRef> root_parents = {JointRef{kNoParent, kNoParent}};
+  std::vector<Archetype> tree = {
       MakeArchetype(true, tree_structure, root_parents)
   };
 
   OrderingPlan plan = LinearOrdering::Build(tree, 1);
   JointLayout layout = plan.Layout();
 
-  EXPECT_EQ(layout.ToSorted({0, 0}), 0U);
-  EXPECT_EQ(layout.ToSorted({0, 1}), 1U);
-  EXPECT_EQ(layout.ToSorted({0, 2}), 2U);
+  EXPECT_EQ(layout.ToSorted(0, 0), 0U);
+  EXPECT_EQ(layout.ToSorted(0, 1), 1U);
+  EXPECT_EQ(layout.ToSorted(0, 2), 2U);
   EXPECT_FALSE(plan.Topology().IsForwardSafe());
 }
 
@@ -358,16 +336,12 @@ TEST(LinearOrderingSingleArchetype, LeavesJointOrderUntouched) {
 // placed after it.
 TEST(LinearOrderingMultipleArchetypes, KeepsTreeOrderRegardlessOfDependency) {
   std::vector<std::size_t> dependent_tree = {kNoParent};
-  std::vector<ArchetypeJointHandle> dependent_roots = {
-      ArchetypeJointHandle{1, 0}
-  };
+  std::vector<JointRef> dependent_roots = {JointRef{1, 0}};
 
   std::vector<std::size_t> root_tree = {kNoParent};
-  std::vector<ArchetypeJointHandle> root_roots = {
-      ArchetypeJointHandle{kNoParent, kNoParent}
-  };
+  std::vector<JointRef> root_roots = {JointRef{kNoParent, kNoParent}};
 
-  std::vector<ArchetypeTreeStructure> tree = {
+  std::vector<Archetype> tree = {
       MakeArchetype(false, dependent_tree, dependent_roots),
       MakeArchetype(true, root_tree, root_roots)
   };
@@ -375,7 +349,7 @@ TEST(LinearOrderingMultipleArchetypes, KeepsTreeOrderRegardlessOfDependency) {
   OrderingPlan plan = LinearOrdering::Build(tree, 1);
   JointLayout layout = plan.Layout();
 
-  EXPECT_LT(layout.ToSorted({0, 0}), layout.ToSorted({1, 0}));
+  EXPECT_LT(layout.ToSorted(0, 0), layout.ToSorted(1, 0));
   EXPECT_FALSE(plan.Topology().IsForwardSafe());
 }
 
@@ -383,10 +357,8 @@ TEST(LinearOrderingMultipleArchetypes, KeepsTreeOrderRegardlessOfDependency) {
 // TopologicalOrdering -- Consolidate's lane-rounding is policy-agnostic.
 TEST(LinearOrderingSingleArchetype, StillPadsToLaneMultiple) {
   std::vector<std::size_t> tree_structure = {kNoParent};
-  std::vector<ArchetypeJointHandle> root_parents(
-      3, ArchetypeJointHandle{kNoParent, kNoParent}
-  );
-  std::vector<ArchetypeTreeStructure> tree = {
+  std::vector<JointRef> root_parents(3, JointRef{kNoParent, kNoParent});
+  std::vector<Archetype> tree = {
       MakeArchetype(true, tree_structure, root_parents)
   };
 
@@ -402,10 +374,8 @@ TEST(LinearOrderingSingleArchetype, StillPadsToLaneMultiple) {
 // (TESTING.md 9.4: lane sizes 4, 8, and 32 must all be exercised).
 TEST(LinearOrderingSingleArchetype, PadsToLaneMultipleOfThirtyTwo) {
   std::vector<std::size_t> tree_structure = {kNoParent};
-  std::vector<ArchetypeJointHandle> root_parents(
-      5, ArchetypeJointHandle{kNoParent, kNoParent}
-  );
-  std::vector<ArchetypeTreeStructure> tree = {
+  std::vector<JointRef> root_parents(5, JointRef{kNoParent, kNoParent});
+  std::vector<Archetype> tree = {
       MakeArchetype(true, tree_structure, root_parents)
   };
 
@@ -433,10 +403,10 @@ namespace {
 // real + 1 padding): PaddedSize() == 12.
 OrderingPlan BuildThreeInstancePlan() {
   static const std::vector<std::size_t> kTreeStructure = {kNoParent, 0, 0};
-  static const std::vector<ArchetypeJointHandle> kRootParents(
-      3, ArchetypeJointHandle{kNoParent, kNoParent}
+  static const std::vector<JointRef> kRootParents(
+      3, JointRef{kNoParent, kNoParent}
   );
-  std::vector<ArchetypeTreeStructure> tree = {
+  std::vector<Archetype> tree = {
       MakeArchetype(true, kTreeStructure, kRootParents)
   };
   return TopologicalOrdering::Build(tree, 2);
@@ -479,7 +449,7 @@ TEST(OrderingPlan, AllocateMatchesThePlansOwnViews) {
   }
   for (std::size_t i = 0; i < 3; ++i) {
     for (std::size_t j = 0; j < 3; ++j) {
-      EXPECT_EQ(allocated.layout.ToSorted({i, j}), expected.ToSorted({i, j}));
+      EXPECT_EQ(allocated.layout.ToSorted(i, j), expected.ToSorted(i, j));
     }
   }
 }
@@ -491,7 +461,14 @@ TEST(OrderingPlan, ToSortedInvertsToPhysical) {
 
   for (std::size_t row = 0; row < layout.PaddedSize(); ++row) {
     if (!layout.IsPadding(row)) {
-      EXPECT_EQ(layout.ToSorted(layout.ToPhysical(row)), row) << "row " << row;
+      EXPECT_EQ(
+          layout.ToSorted(
+              layout.ToPhysical(row).instance_index,
+              layout.ToPhysical(row).joint_index
+          ),
+          row
+      ) << "row "
+        << row;
     }
   }
 }
@@ -507,10 +484,8 @@ TEST(OrderingPlan, ToSortedInvertsToPhysical) {
 
 TEST(TopologicalOrderingBuildPrecondition, DiesOnZeroLaneSize) {
   std::vector<std::size_t> tree_structure = {kNoParent};
-  std::vector<ArchetypeJointHandle> root_parents = {
-      ArchetypeJointHandle{kNoParent, kNoParent}
-  };
-  std::vector<ArchetypeTreeStructure> tree = {
+  std::vector<JointRef> root_parents = {JointRef{kNoParent, kNoParent}};
+  std::vector<Archetype> tree = {
       MakeArchetype(true, tree_structure, root_parents)
   };
 
@@ -521,10 +496,8 @@ TEST(TopologicalOrderingBuildPrecondition, DiesOnZeroLaneSize) {
 
 TEST(LinearOrderingBuildPrecondition, DiesOnZeroLaneSize) {
   std::vector<std::size_t> tree_structure = {kNoParent};
-  std::vector<ArchetypeJointHandle> root_parents = {
-      ArchetypeJointHandle{kNoParent, kNoParent}
-  };
-  std::vector<ArchetypeTreeStructure> tree = {
+  std::vector<JointRef> root_parents = {JointRef{kNoParent, kNoParent}};
+  std::vector<Archetype> tree = {
       MakeArchetype(true, tree_structure, root_parents)
   };
 
@@ -534,10 +507,8 @@ TEST(LinearOrderingBuildPrecondition, DiesOnZeroLaneSize) {
 // tree_structure[0] names parent index 5, but n == 1 -- out of range.
 TEST(TopologicalOrderingBuildPrecondition, DiesOnOutOfRangeParentIndex) {
   std::vector<std::size_t> tree_structure = {5};
-  std::vector<ArchetypeJointHandle> root_parents = {
-      ArchetypeJointHandle{kNoParent, kNoParent}
-  };
-  std::vector<ArchetypeTreeStructure> tree = {
+  std::vector<JointRef> root_parents = {JointRef{kNoParent, kNoParent}};
+  std::vector<Archetype> tree = {
       MakeArchetype(true, tree_structure, root_parents)
   };
 
@@ -550,10 +521,8 @@ TEST(TopologicalOrderingBuildPrecondition, DiesOnOutOfRangeParentIndex) {
 // still in range, isolating the root-count check from the out-of-range one.
 TEST(TopologicalOrderingBuildPrecondition, DiesOnMoreThanOneLocalRoot) {
   std::vector<std::size_t> tree_structure = {kNoParent, kNoParent};
-  std::vector<ArchetypeJointHandle> root_parents = {
-      ArchetypeJointHandle{kNoParent, kNoParent}
-  };
-  std::vector<ArchetypeTreeStructure> tree = {
+  std::vector<JointRef> root_parents = {JointRef{kNoParent, kNoParent}};
+  std::vector<Archetype> tree = {
       MakeArchetype(true, tree_structure, root_parents)
   };
 
@@ -568,10 +537,8 @@ TEST(TopologicalOrderingBuildPrecondition, DiesOnMoreThanOneLocalRoot) {
 // range and there's exactly one root, isolating the reachability check.
 TEST(TopologicalOrderingBuildPrecondition, DiesOnUnreachableCycle) {
   std::vector<std::size_t> tree_structure = {kNoParent, 0, 3, 2};
-  std::vector<ArchetypeJointHandle> root_parents = {
-      ArchetypeJointHandle{kNoParent, kNoParent}
-  };
-  std::vector<ArchetypeTreeStructure> tree = {
+  std::vector<JointRef> root_parents = {JointRef{kNoParent, kNoParent}};
+  std::vector<Archetype> tree = {
       MakeArchetype(true, tree_structure, root_parents)
   };
 
@@ -585,10 +552,8 @@ TEST(TopologicalOrderingBuildPrecondition, DiesOnUnreachableCycle) {
 // reachable with otherwise-trivial archetypes.
 TEST(TopologicalOrderingBuildPrecondition, DiesOnMoreThanOneRootArchetype) {
   std::vector<std::size_t> tree_structure = {kNoParent};
-  std::vector<ArchetypeJointHandle> root_parents = {
-      ArchetypeJointHandle{kNoParent, kNoParent}
-  };
-  std::vector<ArchetypeTreeStructure> tree = {
+  std::vector<JointRef> root_parents = {JointRef{kNoParent, kNoParent}};
+  std::vector<Archetype> tree = {
       MakeArchetype(true, tree_structure, root_parents),
       MakeArchetype(true, tree_structure, root_parents)
   };
@@ -602,23 +567,17 @@ TEST(TopologicalOrderingBuildPrecondition, DiesOnMoreThanOneRootArchetype) {
 // depth to.
 TEST(TopologicalOrderingBuildPrecondition, DiesOnArchetypeSelfDependency) {
   std::vector<std::size_t> root_tree = {kNoParent};
-  std::vector<ArchetypeJointHandle> root_roots = {
-      ArchetypeJointHandle{kNoParent, kNoParent}
-  };
+  std::vector<JointRef> root_roots = {JointRef{kNoParent, kNoParent}};
 
   std::vector<std::size_t> self_dep_tree = {kNoParent};
   // Global instance numbering: archetype 0 (root) is instance 0; this
   // archetype's own two instances are global 1 and 2.
-  std::vector<ArchetypeJointHandle> self_dep_roots = {
-      ArchetypeJointHandle{
-          0, 0
-      },  // instance 0: valid, attaches to the real root
-      ArchetypeJointHandle{
-          1, 0
-      }  // instance 1: attaches to this archetype's own instance 0
+  std::vector<JointRef> self_dep_roots = {
+      JointRef{0, 0},  // instance 0: valid, attaches to the real root
+      JointRef{1, 0}  // instance 1: attaches to this archetype's own instance 0
   };
 
-  std::vector<ArchetypeTreeStructure> tree = {
+  std::vector<Archetype> tree = {
       MakeArchetype(true, root_tree, root_roots),
       MakeArchetype(false, self_dep_tree, self_dep_roots)
   };
@@ -638,9 +597,7 @@ using achilles::engine::topology::PairOrdering;
 
 // Admits every pair: only PairOrdering's own structural rules apply.
 struct AdmitAll {
-  static std::size_t Key(
-      const ArchetypeTreeStructure& /*archetype*/, std::size_t joint
-  ) {
+  static std::size_t Key(const Archetype& /*archetype*/, std::size_t joint) {
     return joint;
   }
   static bool Admits(std::size_t /*a*/, std::size_t /*b*/) { return true; }
@@ -649,9 +606,7 @@ static_assert(PairFilterLike<AdmitAll>);
 
 // Admits no pair that has joint 1 in it.
 struct ExcludeJointOne {
-  static std::size_t Key(
-      const ArchetypeTreeStructure& /*archetype*/, std::size_t joint
-  ) {
+  static std::size_t Key(const Archetype& /*archetype*/, std::size_t joint) {
     return joint;
   }
   static bool Admits(std::size_t a, std::size_t b) { return a != 1 && b != 1; }
@@ -661,10 +616,8 @@ struct ExcludeJointOne {
 // against every later child's, never against the root (their parent).
 struct Star {
   std::vector<std::size_t> tree_structure = {kNoParent, 0, 0, 0, 0};
-  std::vector<ArchetypeJointHandle> root_parents = {
-      ArchetypeJointHandle{kNoParent, kNoParent}
-  };
-  std::vector<ArchetypeTreeStructure> tree = {
+  std::vector<JointRef> root_parents = {JointRef{kNoParent, kNoParent}};
+  std::vector<Archetype> tree = {
       MakeArchetype(true, tree_structure, root_parents)
   };
 };
@@ -701,7 +654,7 @@ TEST(PairOrderingBuild, PairsEveryNonParentRowAboveTheSourceOnce) {
   // C(4, 2) child pairs; the root pairs with none of its children.
   ASSERT_EQ(pairs.size(), 6U);
   const JointLayout layout = rows.Layout();
-  const std::size_t root = layout.ToSorted({0, 0});
+  const std::size_t root = layout.ToSorted(0, 0);
   for (const auto& [source, partner] : pairs) {
     EXPECT_LT(source, partner);
     EXPECT_NE(source, root);
@@ -752,7 +705,7 @@ TEST(PairOrderingBuild, DropsEveryPairTheFilterRulesOut) {
   const auto allocated = plan.Allocate(arena);
 
   const auto pairs = PairsOf(plan, allocated.partners);
-  const std::size_t one = rows.Layout().ToSorted({0, 1});
+  const std::size_t one = rows.Layout().ToSorted(0, 1);
   // C(3, 2): the children other than joint 1.
   ASSERT_EQ(pairs.size(), 3U);
   for (const auto& [source, partner] : pairs) {
@@ -763,10 +716,8 @@ TEST(PairOrderingBuild, DropsEveryPairTheFilterRulesOut) {
 
 TEST(PairOrderingBuild, NoPairsGivesAnEmptyPlan) {
   std::vector<std::size_t> tree_structure = {kNoParent, 0};
-  std::vector<ArchetypeJointHandle> root_parents = {
-      ArchetypeJointHandle{kNoParent, kNoParent}
-  };
-  std::vector<ArchetypeTreeStructure> tree = {
+  std::vector<JointRef> root_parents = {JointRef{kNoParent, kNoParent}};
+  std::vector<Archetype> tree = {
       MakeArchetype(true, tree_structure, root_parents)
   };
   // A parent and its child: never a pair.
@@ -782,7 +733,6 @@ TEST(PairOrderingBuild, NoPairsGivesAnEmptyPlan) {
 
 namespace {
 
-using achilles::domain::ArchetypeAttachment;
 using achilles::domain::SegmentedTopology;
 using achilles::engine::topology::ListOrdering;
 using achilles::engine::topology::TopologyOfT;
@@ -801,18 +751,17 @@ using CamerasAndLights = ListOrdering<
 // light on its base and a second camera on its base.
 struct ArmsWithSensors {
   std::vector<std::size_t> tree_structure = {kNoParent, 0};
-  std::vector<ArchetypeJointHandle> root_parents = {
-      ArchetypeJointHandle{kNoParent, kNoParent},
-      ArchetypeJointHandle{kNoParent, kNoParent}
+  std::vector<JointRef> root_parents = {
+      JointRef{kNoParent, kNoParent}, JointRef{kNoParent, kNoParent}
   };
-  std::vector<ArchetypeAttachment> attachments = {
-      ArchetypeAttachment{"camera", 1, "tip_camera", {}},
-      ArchetypeAttachment{"light", 0, "lamp", {}},
-      ArchetypeAttachment{"camera", 0, "base_camera", {}},
+  std::vector<JointAttachment> attachments = {
+      JointAttachment{"camera", 1, "tip_camera", {}},
+      JointAttachment{"light", 0, "lamp", {}},
+      JointAttachment{"camera", 0, "base_camera", {}},
   };
-  std::vector<ArchetypeTreeStructure> tree = {ArchetypeTreeStructure{
-      true, tree_structure, root_parents, attachments, {}
-  }};
+  std::vector<Archetype> tree = {Archetype(
+      "archetype", tree_structure, root_parents, true, {}, {}, attachments
+  )};
 };
 
 }  // namespace
@@ -836,12 +785,12 @@ TEST(
   EXPECT_EQ(layout.InstanceOffsets()[2], 6U);
   // Instance by instance, in declaration order within each list.
   const JointLayout joint_layout = joints.Layout();
-  EXPECT_EQ(links[0], joint_layout.ToSorted({0, 1}));  // tip_camera, arm 0
-  EXPECT_EQ(links[1], joint_layout.ToSorted({0, 0}));  // base_camera, arm 0
-  EXPECT_EQ(links[2], joint_layout.ToSorted({1, 1}));
-  EXPECT_EQ(links[3], joint_layout.ToSorted({1, 0}));
-  EXPECT_EQ(links[4], joint_layout.ToSorted({0, 0}));  // lamp, arm 0
-  EXPECT_EQ(links[5], joint_layout.ToSorted({1, 0}));
+  EXPECT_EQ(links[0], joint_layout.ToSorted(0, 1));  // tip_camera, arm 0
+  EXPECT_EQ(links[1], joint_layout.ToSorted(0, 0));  // base_camera, arm 0
+  EXPECT_EQ(links[2], joint_layout.ToSorted(1, 1));
+  EXPECT_EQ(links[3], joint_layout.ToSorted(1, 0));
+  EXPECT_EQ(links[4], joint_layout.ToSorted(0, 0));  // lamp, arm 0
+  EXPECT_EQ(links[5], joint_layout.ToSorted(1, 0));
   // Padded to the lane width, the padding linked to the base row.
   ASSERT_EQ(links.Size() % kLanes, 0U);
   for (std::size_t row = 6; row < links.Size(); ++row) {
@@ -852,10 +801,8 @@ TEST(
 
 TEST(ListOrderingBuild, NoEntriesGivesNoRows) {
   std::vector<std::size_t> tree_structure = {kNoParent};
-  std::vector<ArchetypeJointHandle> root_parents = {
-      ArchetypeJointHandle{kNoParent, kNoParent}
-  };
-  std::vector<ArchetypeTreeStructure> tree = {
+  std::vector<JointRef> root_parents = {JointRef{kNoParent, kNoParent}};
+  std::vector<Archetype> tree = {
       MakeArchetype(true, tree_structure, root_parents)
   };
   const OrderingPlan plan = CamerasAndLights::Build(tree, 4);

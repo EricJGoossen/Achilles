@@ -36,7 +36,7 @@ class SceneRenderer {
   // cylinder (its kVisualShape) at its kWorldTransform composed with its
   // kVisualPose, sized by those extents and colored by kVisualColor
   // (falling back to a deterministic per-row color when kVisualColor is
-  // exactly zero, so an archetype that sets extents but not color still
+  // exactly zero, so a scene that sets extents but not color still
   // renders as something other than black); a bone line connects each
   // visible row to its own topology parent's world position. Requires
   // `view`'s kWorldTransform to already reflect a real Simulation::Step()

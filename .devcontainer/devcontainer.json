@@ -1,7 +1,8 @@
 {
   "name": "Achilles",
   "build": { "dockerfile": "Dockerfile" },
-  "remoteUser": "root",
+  "remoteUser": "dev",
+  "updateRemoteUserUID": true,
   "workspaceFolder": "/workspaces/Achilles",
   "postCreateCommand": "git config core.hooksPath .githooks",
   "mounts": [

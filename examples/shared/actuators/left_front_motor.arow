@@ -1,0 +1,6 @@
+# The left front wheel's motor, about its axle: local X.
+actuator: left_front_motor
+kind: angular
+attach: {archetype: wheeled_robot, joint: left_front}
+config:
+  axis: [1, 0, 0]

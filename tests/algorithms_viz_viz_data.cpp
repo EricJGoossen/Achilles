@@ -11,7 +11,9 @@
 #include "algorithms/sim_config.hpp"
 #include "algorithms/viz/viz_data.hpp"
 #include "algorithms/viz/viz_step.hpp"
-#include "domain/archetype.hpp"
+#include "domain/archetype/archetype.hpp"
+#include "domain/archetype/archetype_set.hpp"
+#include "domain/joint_data.hpp"
 #include "domain/joint_layout.hpp"
 #include "domain/math/quaternion.hpp"
 #include "domain/math/vector3.hpp"
@@ -40,10 +42,9 @@
 
 using namespace achilles::algorithms;
 using namespace achilles::algorithms::viz;
-using achilles::domain::Archetype;
-using achilles::domain::ArchetypeField;
-using achilles::domain::ArchetypeJointHandle;
-using achilles::domain::ArchetypeTreeStructure;
+using achilles::domain::JointField;
+using achilles::domain::JointRef;
+using achilles::domain::archetype::Archetype;
 using achilles::engine::memory::SimAllocator;
 using achilles::engine::topology::TopologicalOrdering;
 using achilles::test_support::DOF0ActiveMask;
@@ -70,7 +71,7 @@ std::size_t Lane() { return B::size; }
 std::size_t BatchGroup(
     const achilles::domain::JointLayout& layout, std::size_t instance
 ) {
-  return layout.ToSorted({instance, 0}) / Lane();
+  return layout.ToSorted(instance, 0) / Lane();
 }
 
 // One archetype, one real joint, hosting both ABAAlgorithm and
@@ -78,17 +79,19 @@ std::size_t BatchGroup(
 // actually uses, needed here so kWorldTransform's shared slot has a real
 // writer (ABAStep) to prove VizView reads from.
 SimAllocator<aba::ABAAlgorithm, VizAlgorithm> MakeSharedSim(
-    std::vector<ArchetypeField> fields = {}
+    std::vector<JointField> fields = {}
 ) {
-  std::vector<ArchetypeJointHandle> root_parents = {ArchetypeJointHandle{0, 0}};
+  std::vector<JointRef> root_parents = {JointRef{0, 0}};
   std::array<Archetype, 1> archetypes = {Archetype(
       "joint",
-      {ArchetypeTreeStructure::kNoParent},
+      {achilles::domain::kNoParent},
       std::move(root_parents),
       true,
       std::move(fields)
   )};
-  return SimAllocator<aba::ABAAlgorithm, VizAlgorithm>(archetypes);
+  return SimAllocator<aba::ABAAlgorithm, VizAlgorithm>(
+      achilles::domain::archetype::ArchetypeSet(archetypes)
+  );
 }
 
 void PopulateRevoluteZJoint(aba::ABAView& view, std::size_t group) {
@@ -155,14 +158,14 @@ TEST(VizData, WorldTransformAliasesAbaOwnWorldTransform) {
 // row directly (see view.hpp's comment on Value/Load), which is exactly
 // the one real row this test cares about.
 TEST(VizData, VisualExtentsAndColorPopulateFromArchetypeByName) {
-  std::vector<ArchetypeField> fields = {
-      ArchetypeField{"visual_extents", 3, {0.5, 0.25, 0.1}},
-      ArchetypeField{"visual_color", 3, {1.0, 0.0, 0.0}},
+  std::vector<JointField> fields = {
+      JointField{"visual_extents", 3, {0.5, 0.25, 0.1}},
+      JointField{"visual_color", 3, {1.0, 0.0, 0.0}},
   };
   SimAllocator<aba::ABAAlgorithm, VizAlgorithm> sim =
       MakeSharedSim(std::move(fields));
   VizView view = sim.ViewFor<VizAlgorithm>();
-  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted({0, 0});
+  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted(0, 0);
 
   using ScalarVector3 = achilles::domain::math::Vector3<ScalarOperationT>;
   ScalarVector3 extents =
@@ -194,15 +197,15 @@ TEST(VizData, MissingVisualExtentsDefaultsToZero) {
 // encoding broad_phase's own kCollisionPose uses. Loaded by raw row for the
 // same padding-lane reason as the test above.
 TEST(VizData, VisualPosePopulatesFromArchetypeByName) {
-  std::vector<ArchetypeField> fields = {
-      ArchetypeField{
+  std::vector<JointField> fields = {
+      JointField{
           "visual_pose", 7, {0.1, 0.2, 0.3, 0.70710678, 0.0, 0.0, 0.70710678}
       },
   };
   SimAllocator<aba::ABAAlgorithm, VizAlgorithm> sim =
       MakeSharedSim(std::move(fields));
   VizView view = sim.ViewFor<VizAlgorithm>();
-  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted({0, 0});
+  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted(0, 0);
 
   using ScalarTransform =
       achilles::domain::spatial::Transform<ScalarOperationT>;
@@ -223,7 +226,7 @@ TEST(VizData, VisualPosePopulatesFromArchetypeByName) {
 TEST(VizData, MissingVisualPoseReadsAsIdentity) {
   SimAllocator<aba::ABAAlgorithm, VizAlgorithm> sim = MakeSharedSim();
   VizView view = sim.ViewFor<VizAlgorithm>();
-  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted({0, 0});
+  std::size_t row = sim.LayoutFor<TopologicalOrdering>().ToSorted(0, 0);
 
   using ScalarTransform =
       achilles::domain::spatial::Transform<ScalarOperationT>;

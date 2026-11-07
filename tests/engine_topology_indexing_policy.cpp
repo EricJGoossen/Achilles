@@ -6,7 +6,7 @@
 #include <type_traits>
 #include <vector>
 
-#include "domain/archetype.hpp"
+#include "domain/joint_data.hpp"
 #include "domain/joint_layout.hpp"
 #include "engine/topology/indexing_policy.hpp"
 
@@ -120,7 +120,7 @@ TEST(LaneGroupIndexingResolve, ResolvesToTheNamedSlotsGroupAsAScalar) {
 TEST(LaneGroupIndexingSeedPadding, WritesNothing) {
   const std::vector<size_t> offsets = {0, 0};
   const std::vector<size_t> sorted;
-  const std::vector<achilles::domain::ArchetypeJointHandle> joints;
+  const std::vector<achilles::domain::JointRef> joints;
   const achilles::domain::JointLayout layout(offsets, sorted, joints);
   int writes = 0;
   LaneGroupIndexing<4>::SeedPadding(

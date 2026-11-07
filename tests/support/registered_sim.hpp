@@ -11,7 +11,8 @@
 #include "algorithms/conventions.hpp"
 #include "algorithms/registry.hpp"
 #include "algorithms/sim_config.hpp"
-#include "domain/archetype.hpp"
+#include "domain/archetype/archetype.hpp"
+#include "domain/archetype/archetype_set.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "interface/archetype_loader.hpp"
 #include "temp_dir.hpp"
@@ -106,9 +107,9 @@ inline RegisteredSim MakeRegisteredSim(
 ) {
   std::filesystem::path file =
       dir.Write("scene.arow", "archetype: scene\njoints:\n" + joints);
-  std::vector<domain::Archetype> archetypes =
+  std::vector<domain::archetype::Archetype> archetypes =
       interface::LoadArchetypes(file.string());
-  return RegisteredSim(archetypes);
+  return RegisteredSim(domain::archetype::ArchetypeSet(archetypes));
 }
 
 }  // namespace achilles::test_support

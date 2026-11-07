@@ -1,5 +1,5 @@
-// The sensing demo: a four-wheeled robot (robot.arow) finds its way out of
-// a maze it has never seen (maze.arow), using nothing but its own sensors
+// The sensing demo: a four-wheeled robot (wheeled_robot.arow) finds its way out
+// of a maze it has never seen (maze.arow), using nothing but its own sensors
 // -- a lidar, a gyroscope and four wheel encoders, all with noise. The
 // controller never reads the sim's state; it only sees sensor readings and
 // only acts through wheel torques:
@@ -42,36 +42,28 @@
 #include <utility>
 #include <vector>
 
-#include "algorithms/aba/aba_data.hpp"
-#include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
-#include "algorithms/sensing/encoder.hpp"
-#include "algorithms/sensing/gyroscope.hpp"
-#include "algorithms/sensing/lidar.hpp"
-#include "domain/archetype.hpp"
-#include "engine/topology/orderings.hpp"
-#include "interface/actuator.hpp"
-#include "interface/sensor_handle.hpp"
+#include "domain/sensing/encoder.hpp"
+#include "domain/sensing/gyroscope.hpp"
+#include "domain/sensing/lidar.hpp"
+#include "interface/attachment_handle.hpp"
 #include "interface/simulation.hpp"
 
 namespace {
 
 using achilles::algorithms::ScalarOperationT;
-using achilles::algorithms::aba::ABAAlgorithm;
-using achilles::algorithms::aba::ABAField;
-using achilles::algorithms::sensing::Encoder;
-using achilles::algorithms::sensing::Gyroscope;
-using achilles::algorithms::sensing::Lidar;
-using achilles::algorithms::sensing::LidarScan;
-using achilles::engine::topology::TopologicalOrdering;
+using achilles::domain::sensing::Encoder;
+using achilles::domain::sensing::Gyroscope;
+using achilles::domain::sensing::Lidar;
+using achilles::domain::sensing::LidarScan;
 using achilles::interface::AngularActuator;
-using achilles::interface::JointAddress;
 using achilles::interface::SensorHandle;
 using achilles::interface::Simulation;
+namespace truth = achilles::interface::truth;
 
 constexpr float kPi = std::numbers::pi_v<float>;
 
-// Geometry, matching robot.arow and maze.arow.
+// Geometry, matching wheeled_robot.arow and maze.arow.
 constexpr float kWheelRadius = 0.1F;
 constexpr float kHalfTrack = 0.27F;  // axle center to each side's wheels
 constexpr float kStartX = -3.75F;
@@ -143,10 +135,10 @@ struct Pose {
 class Wheel {
  public:
   Wheel(AngularActuator motor, SensorHandle<Encoder> encoder)
-      : motor_(std::move(motor)), encoder_(encoder) {}
+      : motor_(motor), encoder_(encoder) {}
 
   // Reads the encoder; call once per tick, before Drive and Angle.
-  void Sense(const Simulation& sim) { reading_ = sim.Read(encoder_).value; }
+  void Sense() { reading_ = encoder_.Read().value; }
 
   // The wheel's turn about its axle so far (rad).
   float Angle() const { return reading_.position; }
@@ -165,7 +157,7 @@ class Wheel {
  private:
   AngularActuator motor_;
   SensorHandle<Encoder> encoder_;
-  achilles::algorithms::sensing::EncoderReading reading_;
+  achilles::domain::sensing::EncoderReading reading_;
   float integral_ = 0.0F;
 };
 
@@ -453,8 +445,8 @@ Command Follow(const Pose& pose, std::span<const std::array<float, 2>> path) {
 class Navigator {
  public:
   explicit Navigator(const Simulation& sim)
-      : lidar_(sim.FindSensor<Lidar>({"lidar", 0})),
-        gyroscope_(sim.FindSensor<Gyroscope>({"gyroscope", 0})),
+      : lidar_(sim.Sensor<Lidar>("lidar")),
+        gyroscope_(sim.Sensor<Gyroscope>("gyroscope")),
         wheels_{
             AttachWheel(sim, "left_front"),
             AttachWheel(sim, "left_rear"),
@@ -465,15 +457,15 @@ class Navigator {
   // One control tick: read every sensor (as of the last Step), update the
   // pose estimate, and on a new scan the map and plan; then command the
   // wheels for the next Step.
-  void Tick(const Simulation& sim, float time, float dt) {
+  void Tick(float time, float dt) {
     float wheel_angle = 0.0F;
     for (Wheel& wheel : wheels_) {
-      wheel.Sense(sim);
+      wheel.Sense();
       wheel_angle += wheel.Angle() / static_cast<float>(wheels_.size());
     }
-    odometry_.Update(time, sim.Read(gyroscope_).value.Y(), wheel_angle, dt);
+    odometry_.Update(time, gyroscope_.Read().value.Y(), wheel_angle, dt);
 
-    const auto scan = sim.Read(lidar_);
+    const auto scan = lidar_.Read();
     if (odometry_.Calibrated() && scan.sequence != last_scan_) {
       last_scan_ = scan.sequence;
       grid_.Integrate(odometry_.Estimate(), scan.value);
@@ -506,10 +498,9 @@ class Navigator {
 
  private:
   static Wheel AttachWheel(const Simulation& sim, const std::string& name) {
-    // Each wheel turns about its own axle, local X.
     return {
-        sim.AttachActuator<AngularActuator>({"robot", name}, {1, 0, 0}),
-        sim.FindSensor<Encoder>({name + "_encoder", 0})
+        sim.Actuator<truth::Torque>(name + "_motor"),
+        sim.Sensor<Encoder>(name + "_encoder")
     };
   }
 
@@ -534,9 +525,8 @@ class Navigator {
 
 // Where the robot really is -- for the printout only; the controller never
 // sees it.
-Pose TruePose(const Simulation& sim, std::size_t chassis) {
-  auto world = sim.ViewFor<ABAAlgorithm>()
-                   .Load<ABAField::kWorldTransform, ScalarOperationT>(chassis);
+Pose TruePose(const SensorHandle<truth::WorldTransform>& chassis) {
+  auto world = chassis.Read().value;
   // The chassis's forward is its local +z.
   auto forward = world.Rotation().Rotate({0.0F, 0.0F, 1.0F});
   return {
@@ -591,8 +581,7 @@ int Run(const Args& args) {
   // Semi-implicit Euler: the integrator with collision.
   sim.SetIntegrator(Simulation::Integrator::kSemiImplicitEuler);
 
-  const std::size_t chassis =
-      sim.RowFor<TopologicalOrdering>({"robot", "chassis"});
+  const auto chassis = sim.Sensor<truth::WorldTransform>("chassis_pose");
   Navigator navigator(sim);
 
   // One control tick per physics tick: read what the last Step left,
@@ -601,11 +590,11 @@ int Run(const Args& args) {
   float sim_time = 0.0F;
   float next_report = 0.0F;
   auto tick = [&] {
-    navigator.Tick(sim, sim_time, kDt);
+    navigator.Tick(sim_time, kDt);
     bool ok = sim.Step(kDt);
     sim_time += kDt;
     if (args.headless && sim_time >= next_report) {
-      Pose truth = TruePose(sim, chassis);
+      Pose truth = TruePose(chassis);
       const Pose& estimate = navigator.Estimate();
       constexpr float kRadToDeg = 180.0F / kPi;
       std::cout << std::fixed << std::setprecision(2) << "t=" << std::setw(6)
@@ -629,7 +618,7 @@ int Run(const Args& args) {
       }
     }
     if (navigator.AtExit()) {
-      Pose truth = TruePose(sim, chassis);
+      Pose truth = TruePose(chassis);
       std::cout << "reached the exit at t=" << sim_time << "s, truly "
                 << std::hypot(kExitX - truth.x, kExitY - truth.y)
                 << " m from it\n";

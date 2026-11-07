@@ -44,7 +44,7 @@ struct RK4FieldTraits;
 // (aba_data.hpp): every stage state this algorithm writes into
 // kJointPosition/kJointVelocity is exactly what ABA's next evaluation
 // reads. The scratch fields are private and unnamed -- neither loaded from
-// an archetype nor meaningful between ticks.
+// a scene nor meaningful between ticks.
 template <>
 struct RK4FieldTraits<RK4Field::kJointSubspace> {
   using Assembler = math::Matrix6x6Assembler<ScalarOperationT>;

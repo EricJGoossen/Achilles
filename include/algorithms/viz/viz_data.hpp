@@ -20,14 +20,14 @@ namespace achilles::algorithms::viz {
 // The visual-representation half of a joint's per-tick state: where it is
 // (kWorldTransform, read-only here -- ABA's own Propagate*VelocityOp is
 // still the only thing that ever writes it) and how to draw it
-// (kVisualPose/kVisualExtents/kVisualColor/kVisualShape, static per-archetype
+// (kVisualPose/kVisualExtents/kVisualColor/kVisualShape, static scene
 // appearance data, set once at load time and never mutated at runtime). Like
 // VIField/PIField, this has nothing to do with *simulating* the system -- see
 // VizAlgorithm in viz_step.hpp, which has no Step at all for exactly that
 // reason: there is no per-tick computation of its own to run, only state other
-// algorithms (ABA) or the archetype loader populate.
+// algorithms (ABA) or the scene loader populate.
 //
-// A joint with no "visual_extents" given in its archetype gets
+// A joint with no "visual_extents" given in the scene gets
 // PlanarLayout's/Vector3's own zero-fill default (Vector3::Zero()), which a
 // renderer is expected to treat as "draw nothing for this joint" -- the
 // same "absent data reads as an inert default" convention every other
@@ -48,7 +48,7 @@ enum class VizField : uint8_t {
   kCount
 };
 
-// What kVisualShape's code means. Stored as a plain scalar, since archetype
+// What kVisualShape's code means. Stored as a plain scalar, since scene
 // data is read as doubles (see SimAllocator's Populate pass) and no integer
 // scalar field exists to read it into; a reader rounds it (ShapeOf). Every
 // shape is scaled by kVisualExtents and drawn from kVisualPose's frame outward

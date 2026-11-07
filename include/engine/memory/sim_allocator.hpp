@@ -16,7 +16,8 @@
 #include <utility>
 #include <vector>
 
-#include "domain/archetype.hpp"
+#include "domain/archetype/archetype.hpp"
+#include "domain/archetype/archetype_set.hpp"
 #include "domain/joint_layout.hpp"
 #include "domain/joint_topology.hpp"
 #include "engine/algorithm_contract.hpp"
@@ -34,10 +35,8 @@
 
 namespace achilles::engine::memory {
 
-using domain::Archetype;
-using domain::ArchetypeField;
-using domain::ArchetypeFieldAt;
-using domain::ArchetypeTreeStructure;
+using domain::JointFieldAt;
+using domain::archetype::Archetype;
 
 namespace detail {
 
@@ -302,16 +301,16 @@ struct FieldVisitor {
   // through FieldAssembler::Write: doing so would require materializing a
   // real domain value (Transform, Inertia, ...) from the archetype's flat
   // per-leaf doubles first, and there's no generic way to do that -- a
-  // domain type's own constructor shape varies per type. ArchetypeField's
-  // own contract (see archetype.hpp) is that its leaves are already given
-  // in the bound field's Assembler's own flattening order, which is
-  // exactly what makes writing each one straight to the leaf the field's
-  // Layout puts it at (FieldLayout::LeafAt) correct.
+  // domain type's own constructor shape varies per type.
+  // domain::JointField's own contract (see archetype.hpp) is that
+  // its leaves are already given in the bound field's Assembler's own
+  // flattening order, which is exactly what makes writing each one straight to
+  // the leaf the field's Layout puts it at (FieldLayout::LeafAt) correct.
   static void Populate(
       std::byte* base,
       std::size_t row_count,
       const domain::JointLayout& rows,
-      std::span<const domain::Archetype> archetypes
+      const domain::archetype::ArchetypeSet& archetypes
   ) {
     if constexpr (FieldHasName<EnumT, Traits, F>) {
       static_assert(
@@ -328,40 +327,37 @@ struct FieldVisitor {
       const std::size_t element_stride =
           FieldLayout::template ElementStrideBytes<FieldAssembler>();
 
-      // Global index of each archetype's first instance -- archetypes'
-      // instances are numbered end to end, in archetype order.
-      std::size_t first_instance = 0;
-      for (const domain::Archetype& archetype : archetypes) {
-        const std::size_t instance_count = archetype.InstanceCount();
-        const domain::ArchetypeField* field = archetype.FindField(kFieldName);
-        if (field == nullptr) {
-          first_instance += instance_count;
-          continue;
-        }
-        assert(
-            field->scalars_per_leaf == kLeafCount &&
-            "SimAllocator: an archetype field's scalar count doesn't match "
-            "the bound Assembler's own leaf count -- the archetype data and "
-            "the Algorithm it's being populated against disagree about "
-            "this field's shape."
-        );
+      archetypes.ForEachField(
+          kFieldName,
+          [&](const domain::JointField& field,
+              std::size_t first_instance,
+              std::size_t instance_count,
+              std::size_t joint_count) {
+            assert(
+                field.scalars_per_leaf == kLeafCount &&
+                "SimAllocator: an archetype field's scalar count doesn't match "
+                "the bound Assembler's own leaf count -- the archetype data "
+                "and "
+                "the Algorithm it's being populated against disagree about "
+                "this field's shape."
+            );
 
-        std::size_t joint_count = archetype.JointCount();
-        for (std::size_t i = 0; i < instance_count; ++i) {
-          for (std::size_t j = 0; j < joint_count; ++j) {
-            std::size_t sorted_row = rows.ToSorted({first_instance + i, j});
-            for (std::size_t leaf = 0; leaf < kLeafCount; ++leaf) {
-              std::byte* leaf_ptr = FieldLayout::LeafAt(
-                  base + (sorted_row * element_stride), leaf, stride
-              );
-              *std::bit_cast<ScalarType*>(leaf_ptr) = static_cast<ScalarType>(
-                  ArchetypeFieldAt(*field, i, j, leaf, joint_count)
-              );
+            for (std::size_t i = 0; i < instance_count; ++i) {
+              for (std::size_t j = 0; j < joint_count; ++j) {
+                std::size_t sorted_row = rows.ToSorted(first_instance + i, j);
+                for (std::size_t leaf = 0; leaf < kLeafCount; ++leaf) {
+                  std::byte* leaf_ptr = FieldLayout::LeafAt(
+                      base + (sorted_row * element_stride), leaf, stride
+                  );
+                  *std::bit_cast<ScalarType*>(leaf_ptr) =
+                      static_cast<ScalarType>(
+                          JointFieldAt(field, i, j, leaf, joint_count)
+                      );
+                }
+              }
             }
           }
-        }
-        first_instance += instance_count;
-      }
+      );
     }
   }
 
@@ -435,7 +431,7 @@ struct BuildPlanMap<util::TypeList<Policies...>> {
   );
 
   static PlanMap Build(
-      std::span<domain::ArchetypeTreeStructure> tree, std::size_t lane_size
+      std::span<const domain::archetype::Archetype> tree, std::size_t lane_size
   ) {
     PlanMap plans;
     (plans.emplace(SlotId<Policies>(), Policies::Build(tree, lane_size)), ...);
@@ -565,7 +561,7 @@ struct AlgorithmVisitor<Algorithm<EnumT, Traits>> {
       Arena& arena,
       SlotMap& slots,
       const PlanMap& plans,
-      std::span<const domain::Archetype> archetypes,
+      const domain::archetype::ArchetypeSet& archetypes,
       const ParityTuple& parities
   ) {
     const std::array<std::size_t, sizeof...(Is)> row_counts{
@@ -632,7 +628,7 @@ struct AlgorithmVisitor<Algorithm<EnumT, Traits>> {
       Arena& arena,
       SlotMap& slots,
       const PlanMap& plans,
-      std::span<const domain::Archetype> archetypes,
+      const domain::archetype::ArchetypeSet& archetypes,
       const ParityTuple& parities
   ) {
     return CarveView(
@@ -669,13 +665,13 @@ class SimAllocator {
 
   // Builds every topology/layout/View from archetypes; archetypes need not
   // outlive this call.
-  explicit SimAllocator(std::span<const domain::Archetype> archetypes)
+  explicit SimAllocator(const domain::archetype::ArchetypeSet& archetypes)
       : plans_(BuildPlans(archetypes)),
         state_({{MeasureBytes(), RequiredAlignment()}, BuildContext(archetypes)}
         ) {}
 
   // Constructs and immediately extracts -- convenience for the common case.
-  static State Build(const std::vector<domain::Archetype>& archetypes) {
+  static State Build(const domain::archetype::ArchetypeSet& archetypes) {
     return SimAllocator(archetypes).Extract();
   }
 
@@ -723,13 +719,11 @@ class SimAllocator {
   // Plans one row order per distinct ordering policy named by any hosted
   // field.
   static detail::PlanMap BuildPlans(
-      std::span<const domain::Archetype> archetypes
+      const domain::archetype::ArchetypeSet& archetypes
   ) {
-    std::vector<domain::ArchetypeTreeStructure> tree(archetypes.size());
-    for (std::size_t i = 0; i < archetypes.size(); ++i) {
-      tree[i] = archetypes[i].TreeStructure();
-    }
-    return detail::BuildPlanMap<UsedOrderings>::Build(tree, RequiredLaneSize());
+    return detail::BuildPlanMap<UsedOrderings>::Build(
+        archetypes.All(), RequiredLaneSize()
+    );
   }
 
   // Exact byte cost per field, deduped across shared slots.
@@ -751,7 +745,7 @@ class SimAllocator {
   // constructor): the topologies, one parity per buffer group, then every
   // View, each handed its fields' groups' parities.
   pass::SimContext<Algorithms...> BuildContext(
-      std::span<const domain::Archetype> archetypes
+      const domain::archetype::ArchetypeSet& archetypes
   ) {
     auto topologies = BuildTopologies();
     auto parities = std::apply(
@@ -790,7 +784,7 @@ class SimAllocator {
   // Pack order is left-to-right: first algorithm naming a SharedAs tag owns it.
   template <std::size_t... Is>
   std::tuple<typename Algorithms::View...> BuildViews(
-      std::span<const domain::Archetype> archetypes,
+      const domain::archetype::ArchetypeSet& archetypes,
       const pass::ParityTupleFor<Algorithms...>& parities,
       std::index_sequence<Is...> /*algorithms*/
   ) {

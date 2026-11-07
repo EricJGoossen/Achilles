@@ -1,0 +1,6 @@
+# The right rear wheel's motor, about its axle: local X.
+actuator: right_rear_motor
+kind: angular
+attach: {archetype: wheeled_robot, joint: right_rear}
+config:
+  axis: [1, 0, 0]

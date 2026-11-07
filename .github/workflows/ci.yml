@@ -100,5 +100,29 @@ jobs:
       - name: Build
         run: cmake --build build
 
+      # The consumer_* cases build Achilles as a library in a nested
+      # project; they're left out here for now.
       - name: Run tests
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --output-on-failure -LE consumer
+  consumer:
+    name: build as a library (headless)
+    needs: setup
+    runs-on: ubuntu-latest
+    container: ${{ needs.setup.outputs.image }}
+    steps:
+      - uses: actions/checkout@v5
+
+      # tests/consumer includes Achilles the way another repo does, with
+      # the viewer off: catches duplicate symbols across translation units
+      # and settings that leak into the including project.
+      - name: Configure
+        env:
+          CC: clang
+          CXX: clang++
+        run: cmake -S tests/consumer -B build-consumer -G Ninja
+
+      - name: Build
+        run: cmake --build build-consumer
+
+      - name: Run
+        run: ./build-consumer/consumer

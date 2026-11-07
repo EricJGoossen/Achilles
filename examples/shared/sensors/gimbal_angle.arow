@@ -1,0 +1,4 @@
+# The gimbal pivot's angle, exactly: what its motor's encoder would report.
+sensor: gimbal_angle
+kind: joint_position
+attach: {archetype: plate_rig, joint: gimbal}

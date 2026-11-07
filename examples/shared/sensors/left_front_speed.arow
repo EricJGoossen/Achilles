@@ -1,0 +1,4 @@
+# The left front wheel's spin rate, exactly.
+sensor: left_front_speed
+kind: joint_velocity
+attach: {archetype: wheeled_robot, joint: left_front}

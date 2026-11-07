@@ -1,0 +1,6 @@
+# Tilts the plate about X, through the gimbal pivot.
+actuator: gimbal_motor
+kind: angular
+attach: {archetype: plate_rig, joint: gimbal}
+config:
+  axis: [1, 0, 0]

@@ -23,6 +23,7 @@
 #include "algorithms/conventions.hpp"
 #include "algorithms/integrators.hpp"
 #include "algorithms/sim_config.hpp"
+#include "domain/archetype/archetype_set.hpp"
 #include "engine/topology/orderings.hpp"
 #include "interface/archetype_loader.hpp"
 #include "interface/sim_config_loader.hpp"
@@ -53,8 +54,10 @@ struct RobotOnPlane {
   SimConfig config;
 
   RobotOnPlane()
-      : sim(achilles::interface::LoadArchetypes(
-            (kExampleDir / "robot_on_plane.arow").string()
+      : sim(achilles::domain::archetype::ArchetypeSet(
+            achilles::interface::LoadArchetypes(
+                (kExampleDir / "robot_on_plane.arow").string()
+            )
         )),
         config(
             achilles::interface::LoadSimConfig(kExampleDir / "sim_config.yaml")
@@ -63,7 +66,7 @@ struct RobotOnPlane {
   }
 
   std::size_t Row(std::size_t joint) const {
-    return sim.LayoutFor<TopologicalOrdering>().ToSorted({0, joint});
+    return sim.LayoutFor<TopologicalOrdering>().ToSorted(0, joint);
   }
   F Height(std::size_t joint) const {
     return sim.ViewFor<aba::ABAAlgorithm>()

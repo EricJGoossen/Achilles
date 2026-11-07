@@ -9,20 +9,18 @@
 # and a massless "world" root carries the welded ground slab and the robot
 # as siblings so their pairs aren't skipped as parent/child.
 #
-# The chassis floats on a free joint with its frame at axle height; its box
-# rises from there. Each wheel is a revolute joint about its own local X
-# (the axle, along the chassis's width), collides as a sphere of radius
-# 0.1, and is drawn as a cylinder (visual_shape 2) of radius 0.1 and width
-# 0.05, whose stripe shows it turn. The cylinder's axis is its frame's +y,
-# so its visual_pose turns that onto the axle (a quarter turn about z,
-# taking +y to +x) and steps back half its width, centering the disc on the
-# axle. The robot drives toward its local +z. All the driving torque
-# comes from the actuators.
+# The robot is shared/robots/wheeled_robot.arow, attached at robot_mount.
 #
 # Collision groups: the ground is group 1 and collides with group 2, the
-# robot's bodies are group 2 and collide with group 1 -- the robot never
-# collides with itself.
-archetype: box_robot
+# robot's bodies.
+archetype: scene
+includes:
+  - ../shared/sensors/chassis_pose.arow
+  - ../shared/sensors/left_front_speed.arow
+  - ../shared/sensors/left_rear_speed.arow
+  - ../shared/sensors/right_front_speed.arow
+  - ../shared/sensors/right_rear_speed.arow
+  - ../shared/robots/wheeled_robot.arow
 joints:
   - name: world
     parent: null
@@ -58,103 +56,21 @@ joints:
       collision_margin: [0.005]
       collision_group: [1]
       collision_mask: [2]
-  # 5 kg box, half-extents (0.2, 0.06, 0.3), its center 0.06 above the
-  # frame: h = m * c = (0, 0.3, 0), and the box's own inertia about its
-  # center (m/3 (b^2 + c^2), ...) raised to the frame by the parallel axis
-  # theorem.
-  - name: chassis
+  # Where the robot (shared/robots/wheeled_robot.arow) starts.
+  - name: robot_mount
     parent: world
     fields:
-      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]
-      joint_activation_mask: [63]
+      joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [0]
       fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
-      rigid_body_inertia: [5, 0, 0.3, 0, 0.174, 0.216667, 0.090667, 0, 0, 0]
-      joint_position: {translation: [0, 0.102, 0], rotation: [1, 0, 0, 0]}
-      joint_velocity: [0, 0, 0, 0, 0, 0]
-      visual_extents: [0.2, 0.06, 0.3]
-      visual_color: [0.85, 0.45, 0.15]
-      collision_pose: {translation: [0, 0.06, 0], rotation: [1, 0, 0, 0]}
-      collision_extents: [0.18, 0.04, 0.28]
-      collision_radius: [0.02]
-      collision_margin: [0.005]
-      collision_group: [2]
-      collision_mask: [1]
-  # Wheels: 0.5 kg solid spheres of radius 0.1 (I = 2/5 m r^2 = 0.002),
-  # centered on their frames, free to turn only about their axle (column 0
-  # of the subspace: roll, about local X).
-  - name: left_front
-    parent: chassis
-    fields:
-      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-      joint_activation_mask: [1]
-      fixed_joint_transform: {translation: [-0.27, 0, 0.2], rotation: [1, 0, 0, 0]}
-      rigid_body_inertia: [0.5, 0, 0, 0, 0.002, 0.002, 0.002, 0, 0, 0]
+      rigid_body_inertia: [1, 0, 0, 0, 0.1, 0.1, 0.1, 0, 0, 0]
       joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
       joint_velocity: [0, 0, 0, 0, 0, 0]
-      visual_pose: {translation: [-0.025, 0, 0], rotation: [0.70710678, 0, 0, -0.70710678]}
-      visual_extents: [0.1, 0.025, 0.1]
-      visual_shape: [2]
-      visual_color: [0.15, 0.15, 0.17]
+      visual_extents: [0, 0, 0]
+      visual_color: [0, 0, 0]
       collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
       collision_extents: [0, 0, 0]
-      collision_radius: [0.1]
-      collision_margin: [0.005]
-      collision_group: [2]
-      collision_mask: [1]
-  - name: left_rear
-    parent: chassis
-    fields:
-      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-      joint_activation_mask: [1]
-      fixed_joint_transform: {translation: [-0.27, 0, -0.2], rotation: [1, 0, 0, 0]}
-      rigid_body_inertia: [0.5, 0, 0, 0, 0.002, 0.002, 0.002, 0, 0, 0]
-      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
-      joint_velocity: [0, 0, 0, 0, 0, 0]
-      visual_pose: {translation: [-0.025, 0, 0], rotation: [0.70710678, 0, 0, -0.70710678]}
-      visual_extents: [0.1, 0.025, 0.1]
-      visual_shape: [2]
-      visual_color: [0.15, 0.15, 0.17]
-      collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
-      collision_extents: [0, 0, 0]
-      collision_radius: [0.1]
-      collision_margin: [0.005]
-      collision_group: [2]
-      collision_mask: [1]
-  - name: right_front
-    parent: chassis
-    fields:
-      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-      joint_activation_mask: [1]
-      fixed_joint_transform: {translation: [0.27, 0, 0.2], rotation: [1, 0, 0, 0]}
-      rigid_body_inertia: [0.5, 0, 0, 0, 0.002, 0.002, 0.002, 0, 0, 0]
-      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
-      joint_velocity: [0, 0, 0, 0, 0, 0]
-      visual_pose: {translation: [-0.025, 0, 0], rotation: [0.70710678, 0, 0, -0.70710678]}
-      visual_extents: [0.1, 0.025, 0.1]
-      visual_shape: [2]
-      visual_color: [0.15, 0.15, 0.17]
-      collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
-      collision_extents: [0, 0, 0]
-      collision_radius: [0.1]
-      collision_margin: [0.005]
-      collision_group: [2]
-      collision_mask: [1]
-  - name: right_rear
-    parent: chassis
-    fields:
-      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-      joint_activation_mask: [1]
-      fixed_joint_transform: {translation: [0.27, 0, -0.2], rotation: [1, 0, 0, 0]}
-      rigid_body_inertia: [0.5, 0, 0, 0, 0.002, 0.002, 0.002, 0, 0, 0]
-      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
-      joint_velocity: [0, 0, 0, 0, 0, 0]
-      visual_pose: {translation: [-0.025, 0, 0], rotation: [0.70710678, 0, 0, -0.70710678]}
-      visual_extents: [0.1, 0.025, 0.1]
-      visual_shape: [2]
-      visual_color: [0.15, 0.15, 0.17]
-      collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
-      collision_extents: [0, 0, 0]
-      collision_radius: [0.1]
-      collision_margin: [0.005]
-      collision_group: [2]
-      collision_mask: [1]
+      collision_radius: [0]
+      collision_margin: [0]
+      collision_group: [0]
+      collision_mask: [0]

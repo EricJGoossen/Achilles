@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-#include "domain/archetype.hpp"
+#include "domain/joint_data.hpp"
 #include "domain/joint_layout.hpp"
 #include "domain/joint_topology.hpp"
 #include "engine/topology/ordering_plan.hpp"
@@ -19,7 +19,7 @@
 namespace achilles::engine::topology {
 
 namespace {
-constexpr std::size_t kNoParent = ArchetypeTreeStructure::kNoParent;
+constexpr std::size_t kNoParent = domain::kNoParent;
 
 constexpr std::size_t RoundUpToLane(std::size_t count, std::size_t lane_size) {
   return (count + lane_size - 1) / lane_size * lane_size;
@@ -29,7 +29,7 @@ constexpr std::size_t RoundUpToLane(std::size_t count, std::size_t lane_size) {
 // in the same order as `archetypes` -- offsets[a] is the first global
 // instance index belonging to archetype a, offsets.back() is the total
 // instance count. Shared by ArchetypeDepths and Consolidate, since both
-// need to decode an ArchetypeJointHandle::instance_index back into which
+// need to decode an domain::JointRef::instance_index back into which
 // archetype (and which of its instances) it names.
 template <typename T>
 std::vector<std::size_t> InstanceOffsets(std::span<const T> archetypes) {
@@ -97,7 +97,7 @@ ChildrenCsr BuildChildrenCsr(std::span<const std::size_t> tree_structure) {
 }  // namespace
 
 OrderingPlan Ordering::BuildFromLocalOrders(
-    std::span<ArchetypeTreeStructure> tree,
+    std::span<const Archetype> tree,
     std::span<const std::vector<std::size_t>> local_topo_orders,
     std::span<const std::size_t> placement_order,
     std::size_t lane_size
@@ -220,10 +220,7 @@ Ordering::ConsolidatedOrder Ordering::Consolidate(
   out.physical_to_sorted.resize(archetypes.size());
   out.root_parent_rows.resize(archetypes.size());
   out.sorted_to_physical.assign(
-      running_total,
-      ArchetypeJointHandle{
-          domain::JointLayout::kNoInstance, domain::JointLayout::kNoInstance
-      }
+      running_total, domain::JointRef{domain::kNoParent, domain::kNoParent}
   );
 
   for (std::size_t a = 0; a < archetypes.size(); ++a) {
@@ -239,7 +236,7 @@ Ordering::ConsolidatedOrder Ordering::Consolidate(
         std::size_t row = GlobalRow(a, i, j);
         out.physical_to_sorted[a][i * k + j] = row;
         out.sorted_to_physical[row] =
-            ArchetypeJointHandle{instance_offsets[a] + i, j};
+            domain::JointRef{instance_offsets[a] + i, j};
       }
 
       if (local.is_root_archetype) {
@@ -247,7 +244,7 @@ Ordering::ConsolidatedOrder Ordering::Consolidate(
         continue;
       }
 
-      const ArchetypeJointHandle& parent = local.root_parents[i];
+      const domain::JointRef& parent = local.root_parents[i];
       DecodedInstance target =
           DecodeInstance(instance_offsets, parent.instance_index);
       out.root_parent_rows[a][i] = GlobalRow(
@@ -315,13 +312,13 @@ std::vector<std::size_t> TopologicalOrdering::SortTree(
 }
 
 std::vector<std::size_t> TopologicalOrdering::ArchetypeDepths(
-    std::span<const ArchetypeTreeStructure> tree
+    std::span<const Archetype> tree
 ) {
   assert(
       std::count_if(
           tree.begin(),
           tree.end(),
-          [](const ArchetypeTreeStructure& a) { return a.is_root_archetype; }
+          [](const Archetype& a) { return a.is_root_archetype; }
       ) == 1 &&
       "ArchetypeDepths: exactly one archetype must be flagged "
       "is_root_archetype."
@@ -345,7 +342,7 @@ std::vector<std::size_t> TopologicalOrdering::ArchetypeDepths(
     std::size_t result = 0;
     if (!tree[archetype].is_root_archetype) {
       std::size_t deepest_parent = 0;
-      for (const ArchetypeJointHandle& parent : tree[archetype].root_parents) {
+      for (const domain::JointRef& parent : tree[archetype].root_parents) {
         DecodedInstance target =
             DecodeInstance(instance_offsets, parent.instance_index);
         std::size_t parent_depth = self(self, target.archetype);
@@ -371,7 +368,7 @@ std::vector<std::size_t> TopologicalOrdering::ArchetypeDepths(
 }
 
 OrderingPlan TopologicalOrdering::Build(
-    std::span<ArchetypeTreeStructure> tree, std::size_t lane_size
+    std::span<const Archetype> tree, std::size_t lane_size
 ) {
   std::vector<std::size_t> depths = ArchetypeDepths(tree);
   assert(
@@ -409,7 +406,7 @@ OrderingPlan TopologicalOrdering::Build(
 }
 
 OrderingPlan LinearOrdering::Build(
-    std::span<ArchetypeTreeStructure> tree, std::size_t lane_size
+    std::span<const Archetype> tree, std::size_t lane_size
 ) {
   // No sort, no archetype reordering -- every instance stands alone, so
   // there's nothing to push later than anything else for.
@@ -428,16 +425,15 @@ OrderingPlan LinearOrdering::Build(
   );
 }
 
-std::vector<ArchetypeJointHandle> CollectAttachments(
-    std::span<ArchetypeTreeStructure> tree, std::string_view list
+std::vector<domain::JointRef> CollectAttachments(
+    std::span<const Archetype> tree, std::string_view list
 ) {
-  std::vector<ArchetypeJointHandle> links;
+  std::vector<domain::JointRef> links;
   std::size_t first_instance = 0;
-  for (const ArchetypeTreeStructure& archetype : tree) {
+  for (const Archetype& archetype : tree) {
     const std::size_t instances = archetype.root_parents.size();
     for (std::size_t i = 0; i < instances; ++i) {
-      for (const domain::ArchetypeAttachment& attachment :
-           archetype.attachments) {
+      for (const domain::JointAttachment& attachment : archetype.attachments) {
         if (attachment.list == list) {
           links.push_back({first_instance + i, attachment.joint});
         }
@@ -449,7 +445,7 @@ std::vector<ArchetypeJointHandle> CollectAttachments(
 }
 
 OrderingPlan BuildListPlan(
-    std::span<const std::vector<ArchetypeJointHandle>> lists,
+    std::span<const std::vector<domain::JointRef>> lists,
     const domain::JointLayout& link_layout,
     std::size_t lane_size
 ) {
@@ -465,18 +461,17 @@ OrderingPlan BuildListPlan(
   // defaulting a padding row's parent to its own base row.
   std::vector<std::size_t> link_rows(padded, link_layout.BaseRowIndex());
   std::vector<std::size_t> sorted_rows(count);
-  std::vector<ArchetypeJointHandle> entries(
-      padded,
-      ArchetypeJointHandle{
-          domain::JointLayout::kNoInstance, domain::JointLayout::kNoInstance
-      }
+  std::vector<domain::JointRef> entries(
+      padded, domain::JointRef{domain::kNoParent, domain::kNoParent}
   );
   for (std::size_t k = 0; k < lists.size(); ++k) {
     for (std::size_t j = 0; j < lists[k].size(); ++j) {
       const std::size_t row = segments[k] + j;
-      link_rows[row] = link_layout.ToSorted(lists[k][j]);
+      link_rows[row] = link_layout.ToSorted(
+          lists[k][j].instance_index, lists[k][j].joint_index
+      );
       sorted_rows[row] = row;
-      entries[row] = ArchetypeJointHandle{k, j};
+      entries[row] = domain::JointRef{k, j};
     }
   }
   // A list's entries are its JointLayout instance's joints, so the
@@ -508,7 +503,7 @@ OrderingPlan BuildPairPlan(
   std::vector<std::size_t> sources;
   std::vector<std::size_t> partners;
   std::vector<std::size_t> sorted_rows;
-  std::vector<ArchetypeJointHandle> joints;
+  std::vector<domain::JointRef> joints;
   const std::size_t groups = rows.Size() / lane_size;
   for (std::size_t source = 0; source < rows.Size(); ++source) {
     if (layout.IsPadding(source)) {
@@ -532,10 +527,7 @@ OrderingPlan BuildPairPlan(
           sorted_rows.push_back(row);
         } else {
           partners.push_back(domain::PairTopology::kNoPartner);
-          joints.push_back(
-              {domain::JointLayout::kNoInstance,
-               domain::JointLayout::kNoInstance}
-          );
+          joints.push_back({domain::kNoParent, domain::kNoParent});
         }
       }
     }

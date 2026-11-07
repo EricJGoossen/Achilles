@@ -33,8 +33,8 @@ foreach(_test_src ${ACHILLES_TEST_SOURCES})
     add_executable(${target} ${_test_src})
     target_include_directories(${target}
         PRIVATE
-            ${CMAKE_SOURCE_DIR}/src
-            ${CMAKE_SOURCE_DIR}/include
+            ${PROJECT_SOURCE_DIR}/src
+            ${PROJECT_SOURCE_DIR}/include
     )
     target_link_libraries(${target}
         PRIVATE
@@ -45,8 +45,57 @@ foreach(_test_src ${ACHILLES_TEST_SOURCES})
     # Lets a test load the real files under examples/ (examples_*.cpp)
     # rather than a copy of them.
     target_compile_definitions(${target}
-        PRIVATE ACHILLES_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+        PRIVATE ACHILLES_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
     )
 
     gtest_discover_tests(${target})
 endforeach()
+
+# tests/consumer, configured, built and run as its own project -- Achilles
+# included the way another repo includes it -- once headless and once with
+# the viewer. Same generator and compilers as this build; the nested build
+# reuses the dependency sources this one already fetched rather than
+# fetching them again. Each keeps its own build directory, so a rerun is
+# incremental.
+set(_consumer_options
+    -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+    -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+)
+if (CMAKE_CXX_COMPILER_LAUNCHER)
+    list(APPEND _consumer_options
+        -DCMAKE_C_COMPILER_LAUNCHER=${CMAKE_C_COMPILER_LAUNCHER}
+        -DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}
+    )
+endif ()
+foreach (_dep yaml-cpp xsimd glfw)
+    string(TOUPPER ${_dep} _dep_upper)
+    if (${_dep}_SOURCE_DIR)
+        list(APPEND _consumer_options
+            -DFETCHCONTENT_SOURCE_DIR_${_dep_upper}=${${_dep}_SOURCE_DIR}
+        )
+    endif ()
+endforeach ()
+
+set(_consumer_variants headless OFF)
+if (ACHILLES_WITH_VIEWER)
+    list(APPEND _consumer_variants viewer ON)
+endif ()
+while (_consumer_variants)
+    list(POP_FRONT _consumer_variants _name _viewer)
+    set(_dir ${CMAKE_CURRENT_BINARY_DIR}/consumer_${_name})
+    add_test(NAME consumer_${_name}
+        COMMAND ${CMAKE_CTEST_COMMAND}
+            --build-and-test
+                ${CMAKE_CURRENT_SOURCE_DIR}/consumer
+                ${_dir}
+            --build-generator ${CMAKE_GENERATOR}
+            --build-makeprogram ${CMAKE_MAKE_PROGRAM}
+            --build-config $<CONFIG>
+            --build-options ${_consumer_options} -DACHILLES_WITH_VIEWER=${_viewer}
+            --test-command ${_dir}/consumer
+    )
+    set_tests_properties(consumer_${_name} PROPERTIES
+        LABELS consumer
+        TIMEOUT 900
+    )
+endwhile ()

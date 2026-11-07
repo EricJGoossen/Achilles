@@ -14,29 +14,30 @@
 #include "algorithms/aba/aba_data.hpp"
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
-#include "algorithms/sensing/accelerometer.hpp"
-#include "algorithms/sensing/encoder.hpp"
-#include "algorithms/sensing/gyroscope.hpp"
-#include "algorithms/sensing/lidar.hpp"
-#include "algorithms/sensing/magnetometer.hpp"
-#include "algorithms/sensing/truth_sensor.hpp"
+#include "domain/sensing/accelerometer.hpp"
+#include "domain/sensing/encoder.hpp"
+#include "domain/sensing/gyroscope.hpp"
+#include "domain/sensing/lidar.hpp"
+#include "domain/sensing/magnetometer.hpp"
+#include "domain/sensing/truth_sensor.hpp"
 #include "engine/topology/orderings.hpp"
 #include "interface/simulation.hpp"
+#include "support/joint_row.hpp"
 #include "support/sensing_scene.hpp"
 #include "support/temp_dir.hpp"
 
 using achilles::algorithms::ScalarOperationT;
 using achilles::algorithms::aba::ABAAlgorithm;
 using achilles::algorithms::aba::ABAField;
-using achilles::algorithms::sensing::Accelerometer;
-using achilles::algorithms::sensing::Encoder;
-using achilles::algorithms::sensing::Gyroscope;
-using achilles::algorithms::sensing::Lidar;
-using achilles::algorithms::sensing::Magnetometer;
-using achilles::algorithms::sensing::TruthOf;
+using achilles::domain::sensing::Accelerometer;
+using achilles::domain::sensing::Encoder;
+using achilles::domain::sensing::Gyroscope;
+using achilles::domain::sensing::Lidar;
+using achilles::domain::sensing::Magnetometer;
 using achilles::engine::topology::TopologicalOrdering;
 using achilles::interface::Simulation;
 using achilles::test_support::Archetype;
+using achilles::test_support::JointRow;
 using achilles::test_support::kZUpConfig;
 using achilles::test_support::SceneJoint;
 using achilles::test_support::SensorFile;
@@ -142,7 +143,7 @@ class Spinner : public ::testing::Test {
 
 TEST_F(Spinner, AMultiTurnEncoderUnwrapsPastHalfATurn) {
   Steps(sim_, 1000);  // 2 s: 4 rad, past pi
-  const auto reading = sim_.Read(sim_.FindSensor<Encoder>({"multi", 0}));
+  const auto reading = sim_.Sensor<Encoder>("multi").Read();
   EXPECT_NEAR(reading.value.position, kSpin * reading.sample_time, 1e-3F);
   EXPECT_GT(reading.value.position, kPi);
   EXPECT_NEAR(reading.value.velocity, kSpin, 1e-4F);
@@ -150,8 +151,8 @@ TEST_F(Spinner, AMultiTurnEncoderUnwrapsPastHalfATurn) {
 
 TEST_F(Spinner, ASingleTurnEncoderWrapsIntoOneTurn) {
   Steps(sim_, 1000);
-  const auto multi = sim_.Read(sim_.FindSensor<Encoder>({"multi", 0}));
-  const auto single = sim_.Read(sim_.FindSensor<Encoder>({"single", 0}));
+  const auto multi = sim_.Sensor<Encoder>("multi").Read();
+  const auto single = sim_.Sensor<Encoder>("single").Read();
   EXPECT_LE(single.value.position, kPi);
   EXPECT_GT(single.value.position, -kPi);
   EXPECT_NEAR(
@@ -161,10 +162,10 @@ TEST_F(Spinner, ASingleTurnEncoderWrapsIntoOneTurn) {
 
 TEST_F(Spinner, AGyroscopeReadsTheSpinInItsOwnAxes) {
   Steps(sim_, 100);
-  const auto straight = sim_.Read(sim_.FindSensor<Gyroscope>({"gyro", 0}));
+  const auto straight = sim_.Sensor<Gyroscope>("gyro").Read();
   EXPECT_NEAR(straight.value.Z(), kSpin, 1e-4F);
   EXPECT_NEAR(straight.value.X(), 0.0F, 1e-4F);
-  const auto tilted = sim_.Read(sim_.FindSensor<Gyroscope>({"gyro_tilted", 0}));
+  const auto tilted = sim_.Sensor<Gyroscope>("gyro_tilted").Read();
   EXPECT_NEAR(tilted.value.Y(), kSpin, 1e-4F);
   EXPECT_NEAR(tilted.value.Z(), 0.0F, 1e-4F);
 }
@@ -173,7 +174,7 @@ TEST_F(Spinner, AGyroscopeReadsTheSpinInItsOwnAxes) {
 // plus the support against gravity: (-w^2 r, 0, g) in the body's axes.
 TEST_F(Spinner, AnAccelerometerOffTheAxisReadsCentripetalPlusSupport) {
   Steps(sim_, 100);
-  const auto reading = sim_.Read(sim_.FindSensor<Accelerometer>({"accel", 0}));
+  const auto reading = sim_.Sensor<Accelerometer>("accel").Read();
   EXPECT_NEAR(reading.value.X(), -kSpin * kSpin * kLever, 1e-3F);
   EXPECT_NEAR(reading.value.Y(), 0.0F, 1e-3F);
   EXPECT_NEAR(reading.value.Z(), kGravity, 1e-3F);
@@ -181,8 +182,8 @@ TEST_F(Spinner, AnAccelerometerOffTheAxisReadsCentripetalPlusSupport) {
 
 TEST_F(Spinner, AMagnetometerReadsTheWorldFieldTurnedIntoTheBody) {
   Steps(sim_, 300);
-  const auto reading = sim_.Read(sim_.FindSensor<Magnetometer>({"mag", 0}));
-  const float angle = kSpin * reading.sample_time;
+  const auto reading = sim_.Sensor<Magnetometer>("mag").Read();
+  const auto angle = static_cast<float>(kSpin * reading.sample_time);
   // The default field, (0.2, 0, -0.45), seen from a body turned `angle`.
   EXPECT_NEAR(reading.value.X(), 0.2F * std::cos(angle), 1e-3F);
   EXPECT_NEAR(reading.value.Y(), -0.2F * std::sin(angle), 1e-3F);
@@ -191,11 +192,11 @@ TEST_F(Spinner, AMagnetometerReadsTheWorldFieldTurnedIntoTheBody) {
 
 TEST_F(Spinner, ATruthSensorReadsTheFieldExactly) {
   Steps(sim_, 50);
-  using Truth = TruthOf<ABAAlgorithm, ABAField::kWorldTransform>;
-  const auto reading = sim_.Read(sim_.FindSensor<Truth>({"truth", 0}));
-  const std::size_t row =
-      sim_.RowFor<TopologicalOrdering>({"scene", "spinner"});
-  const auto pose = sim_.ViewFor<ABAAlgorithm>()
+  using Truth = achilles::domain::sensing::truth::WorldTransform;
+  const auto reading = sim_.Sensor<Truth>("truth").Read();
+  const std::size_t row = JointRow(sim_, {"scene", "spinner"});
+  const auto pose = sim_.Context()
+                        .ViewFor<ABAAlgorithm>()
                         .Load<ABAField::kWorldTransform, ScalarOperationT>(row);
   EXPECT_EQ(reading.value.Rotation().W(), pose.Rotation().W());
   EXPECT_EQ(reading.value.Rotation().Z(), pose.Rotation().Z());
@@ -203,7 +204,7 @@ TEST_F(Spinner, ATruthSensorReadsTheFieldExactly) {
 
 TEST_F(Spinner, EverySampleAdvancesTheSequence) {
   Steps(sim_, 10);
-  const auto reading = sim_.Read(sim_.FindSensor<Gyroscope>({"gyro", 0}));
+  const auto reading = sim_.Sensor<Gyroscope>("gyro").Read();
   EXPECT_EQ(reading.sequence, 10U);
 }
 
@@ -257,11 +258,11 @@ class DroppedBox : public ::testing::Test {
 
 TEST_F(DroppedBox, AnAccelerometerReadsNothingInFreeFallAndGravityAtRest) {
   Steps(sim_, 50);  // 0.1 s: still falling
-  const auto handle = sim_.FindSensor<Accelerometer>({"accel", 0});
-  EXPECT_NEAR(sim_.Read(handle).value.Norm(), 0.0F, 1e-3F);
+  const auto handle = sim_.Sensor<Accelerometer>("accel");
+  EXPECT_NEAR(handle.Read().value.Norm(), 0.0F, 1e-3F);
 
   Steps(sim_, 1500);  // 3 s: landed and settled
-  const auto resting = sim_.Read(handle).value;
+  const auto resting = handle.Read().value;
   EXPECT_NEAR(resting.Z(), kGravity, 0.05F);
   EXPECT_NEAR(resting.X(), 0.0F, 0.05F);
   EXPECT_NEAR(resting.Y(), 0.0F, 0.05F);
@@ -342,7 +343,7 @@ class LidarOverGround : public ::testing::Test {
   }
 
   float Range(const Simulation& sim, const std::string& name) {
-    const auto scan = sim.Read(sim.FindSensor<Lidar>({name, 0}));
+    const auto scan = sim.Sensor<Lidar>(name).Read();
     EXPECT_EQ(scan.value.beams, 1U);
     return scan.value.ranges[0];
   }

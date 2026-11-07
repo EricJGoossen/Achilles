@@ -9,14 +9,14 @@
 #include <numbers>
 #include <string>
 
-#include "algorithms/sensing/encoder.hpp"
-#include "algorithms/sensing/gyroscope.hpp"
-#include "algorithms/sensing/lidar.hpp"
+#include "domain/sensing/encoder.hpp"
+#include "domain/sensing/gyroscope.hpp"
+#include "domain/sensing/lidar.hpp"
 #include "interface/simulation.hpp"
 
-using achilles::algorithms::sensing::Encoder;
-using achilles::algorithms::sensing::Gyroscope;
-using achilles::algorithms::sensing::Lidar;
+using achilles::domain::sensing::Encoder;
+using achilles::domain::sensing::Gyroscope;
+using achilles::domain::sensing::Lidar;
 using achilles::interface::Simulation;
 
 namespace {
@@ -44,7 +44,7 @@ class Maze : public ::testing::Test {
   // The range of the beam nearest `azimuth` (radians, counterclockwise
   // from the robot's forward).
   float RangeAt(float azimuth) const {
-    const auto scan = sim_.Read(sim_.FindSensor<Lidar>({"lidar", 0})).value;
+    const auto scan = sim_.Sensor<Lidar>("lidar").Read().value;
     const float step = 2.0F * kPi / kBeams;
     const auto beam =
         static_cast<std::size_t>(std::lround(((azimuth + kPi) / step) - 0.5F)) %
@@ -58,12 +58,12 @@ class Maze : public ::testing::Test {
 }  // namespace
 
 TEST_F(Maze, LoadsTheRobotsSensors) {
-  EXPECT_NO_THROW((void)sim_.FindSensor<Lidar>({"lidar", 0}));
-  EXPECT_NO_THROW((void)sim_.FindSensor<Gyroscope>({"gyroscope", 0}));
+  EXPECT_NO_THROW((void)sim_.Sensor<Lidar>("lidar"));
+  EXPECT_NO_THROW((void)sim_.Sensor<Gyroscope>("gyroscope"));
   for (const char* wheel :
        {"left_front", "left_rear", "right_front", "right_rear"}) {
-    EXPECT_NO_THROW((void
-    )sim_.FindSensor<Encoder>({std::string(wheel) + "_encoder", 0}));
+    EXPECT_NO_THROW((void)sim_.Sensor<Encoder>(std::string(wheel) + "_encoder")
+    );
   }
 }
 

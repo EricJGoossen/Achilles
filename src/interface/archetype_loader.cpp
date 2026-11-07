@@ -12,7 +12,8 @@
 #include <utility>
 #include <vector>
 
-#include "domain/archetype.hpp"
+#include "domain/archetype/archetype.hpp"
+#include "domain/joint_data.hpp"
 #include "util/yaml.hpp"
 
 // -- .arow format --
@@ -45,15 +46,15 @@
 // found is appended, in encounter order, to that field's flat value list.
 // Nothing here knows what shape any particular field "should" have; it's
 // on whoever writes the .arow file to give a field's leaves in the same
-// order its bound Assembler flattens to (see ArchetypeField's own comment,
-// engine/topology/archetype.hpp) -- the loader stays generic on purpose,
-// so a brand new field needs no change here.
+// order its bound Assembler flattens to (see domain::JointField's
+// own comment, engine/topology/archetype.hpp) -- the loader stays generic on
+// purpose, so a brand new field needs no change here.
 //
 // A .arow file can instead declare one sensor, attached to a joint the same
 // way an archetype is, and pulled in through `includes` like any other
 // file -- so a sensor can live in its own file and be dropped into a robot:
 //
-//   sensor: body_pose        # its name, unique across every sensor
+//   sensor: body_pose        # its name, unique across sensors and actuators
 //   kind: world_transform     # a registered sensor kind's name
 //   attach:
 //     archetype: balancer      # the archetype it's mounted on
@@ -64,8 +65,23 @@
 // Every instance of the archetype it's attached to gets one (instance i of
 // the sensor is mounted on instance i of the archetype). Which kinds exist,
 // and which settings each takes, isn't the loader's business: it records
-// them on the archetype (domain::ArchetypeAttachment) for whatever hosts
+// them on the archetype (domain::JointAttachment) for whatever hosts
 // the sensors to check.
+//
+// An actuator is declared the same way, and its `axis` says which direction
+// it acts along, in the joint's own frame:
+//
+//   actuator: elbow_motor     # its name, unique like a sensor's
+//   kind: angular              # angular (a torque) or linear (a force)
+//   attach:
+//     archetype: arm
+//     joint: elbow
+//   config:
+//     axis: [1, 0, 0]
+//
+// Every instance of the archetype gets one here too, and checking the kind
+// and the axis is likewise left to whatever hosts them (see
+// interface/attachments.hpp).
 //
 // A field must be given on either every joint of an archetype or none of
 // them (no partial coverage -- see BuildField below), and every instance
@@ -73,34 +89,34 @@
 // only repeats the shape, it never varies the data.
 //
 // Static joints aren't supported yet -- every joint this loader produces
-// is non-static, matching ArchetypeTreeStructure/Ordering, which have no
+// is non-static, matching Ordering, which has no
 // notion of "static" at all today.
 
 namespace achilles::interface {
 
-using domain::Archetype;
-using domain::ArchetypeField;
-using domain::ArchetypeJointHandle;
-using domain::ArchetypeTreeStructure;
+using domain::archetype::Archetype;
 
 namespace {
 
 // One field's raw per-leaf values for a single instance of one joint, in
 // the order they were parsed -- broadcast across every instance of the
-// owning archetype when the real ArchetypeField is built (see BuildField).
+// owning archetype when the real domain::JointField is built (see
+// BuildField).
 struct ParsedJoint {
   std::string name;
   std::string parent_name;  // empty => this joint is its archetype's root
   std::vector<std::pair<std::string, std::vector<double>>> fields;
 };
 
-struct ParsedSensor {
+// A sensor or an actuator: the two are declared the same way.
+struct ParsedAttachment {
   std::string name;
   std::string kind;
   std::string attach_archetype;
   std::string attach_joint;
   std::vector<std::pair<std::string, std::vector<double>>> config;
   std::string source_file;  // for error messages only
+  std::string key;          // "sensor" or "actuator"
 };
 
 struct ParsedArchetype {
@@ -253,7 +269,7 @@ std::vector<ParsedJoint> ParseJoints(
 void ParseArchetypeFile(
     const std::filesystem::path& path,
     std::unordered_map<std::string, ParsedArchetype>& archetypes,
-    std::vector<ParsedSensor>& sensors,
+    std::vector<ParsedAttachment>& attachments,
     std::unordered_set<std::string>& in_progress_files
 );
 
@@ -261,7 +277,7 @@ void ProcessIncludes(
     const YAML::Node& doc,
     const std::filesystem::path& path,
     std::unordered_map<std::string, ParsedArchetype>& archetypes,
-    std::vector<ParsedSensor>& sensors,
+    std::vector<ParsedAttachment>& attachments,
     std::unordered_set<std::string>& in_progress_files
 ) {
   YAML::Node includes = doc["includes"];
@@ -272,53 +288,79 @@ void ProcessIncludes(
     ParseArchetypeFile(
         ResolveInclude(path, include.as<std::string>()),
         archetypes,
-        sensors,
+        attachments,
         in_progress_files
     );
   }
 }
 
-// A sensor file's body: its name, kind, attach target and settings.
-ParsedSensor ParseSensor(
-    const YAML::Node& doc, const std::filesystem::path& path
+// A sensor or actuator file's body: its name, kind, attach target and
+// settings. `what` is the key that declares it.
+ParsedAttachment ParseAttachment(
+    const YAML::Node& doc,
+    const std::filesystem::path& path,
+    const std::string& what
 ) {
-  ParsedSensor sensor;
-  sensor.name = doc["sensor"].as<std::string>();
-  sensor.source_file = path.string();
+  ParsedAttachment parsed;
+  parsed.key = what;
+  parsed.name = doc[what].as<std::string>();
+  parsed.source_file = path.string();
   YAML::Node kind = doc["kind"];
   if (!kind || !kind.IsScalar()) {
     Fail(
-        sensor.source_file,
-        "sensor '" + sensor.name + "': missing required 'kind: <name>'."
+        parsed.source_file,
+        what + " '" + parsed.name + "': missing required 'kind: <name>'."
     );
   }
-  sensor.kind = kind.as<std::string>();
+  parsed.kind = kind.as<std::string>();
   YAML::Node attach = doc["attach"];
   if (!attach || !attach["archetype"] || !attach["joint"]) {
     Fail(
-        sensor.source_file,
-        "sensor '" + sensor.name +
+        parsed.source_file,
+        what + " '" + parsed.name +
             "': attach with both 'archetype' and 'joint' is required."
     );
   }
-  sensor.attach_archetype = attach["archetype"].as<std::string>();
-  sensor.attach_joint = attach["joint"].as<std::string>();
+  parsed.attach_archetype = attach["archetype"].as<std::string>();
+  parsed.attach_joint = attach["joint"].as<std::string>();
   if (YAML::Node config = doc["config"]; config && config.IsMap()) {
     for (const auto& entry : config) {
       std::vector<double> values;
-      FlattenNode(entry.second, sensor.source_file, values);
-      sensor.config.emplace_back(
+      FlattenNode(entry.second, parsed.source_file, values);
+      parsed.config.emplace_back(
           entry.first.as<std::string>(), std::move(values)
       );
     }
   }
-  return sensor;
+  return parsed;
+}
+
+// Parses a sensor or actuator file onto `attachments`, whose names must stay
+// unique.
+void AddAttachment(
+    const YAML::Node& doc,
+    const std::filesystem::path& path,
+    const std::string& what,
+    std::vector<ParsedAttachment>& attachments
+) {
+  ParsedAttachment parsed = ParseAttachment(doc, path, what);
+  for (const ParsedAttachment& other : attachments) {
+    if (other.name == parsed.name) {
+      Fail(
+          parsed.source_file,
+          what + " name '" + parsed.name + "' also declared in " +
+              other.source_file +
+              " -- sensor and actuator names must be unique."
+      );
+    }
+  }
+  attachments.push_back(std::move(parsed));
 }
 
 void ParseArchetypeFile(
     const std::filesystem::path& path,
     std::unordered_map<std::string, ParsedArchetype>& archetypes,
-    std::vector<ParsedSensor>& sensors,
+    std::vector<ParsedAttachment>& attachments,
     std::unordered_set<std::string>& in_progress_files
 ) {
   std::string canonical = std::filesystem::weakly_canonical(path).string();
@@ -330,20 +372,15 @@ void ParseArchetypeFile(
   }
 
   YAML::Node doc = LoadYamlFile(path);
-  ProcessIncludes(doc, path, archetypes, sensors, in_progress_files);
+  ProcessIncludes(doc, path, archetypes, attachments, in_progress_files);
 
   if (doc["sensor"]) {
-    ParsedSensor sensor = ParseSensor(doc, path);
-    for (const ParsedSensor& other : sensors) {
-      if (other.name == sensor.name) {
-        Fail(
-            sensor.source_file,
-            "sensor name '" + sensor.name + "' also declared in " +
-                other.source_file + " -- sensor names must be unique."
-        );
-      }
-    }
-    sensors.push_back(std::move(sensor));
+    AddAttachment(doc, path, "sensor", attachments);
+    in_progress_files.erase(canonical);
+    return;
+  }
+  if (doc["actuator"]) {
+    AddAttachment(doc, path, "actuator", attachments);
     in_progress_files.erase(canonical);
     return;
   }
@@ -390,7 +427,7 @@ std::size_t LocalJointIndex(
 // local root, every joint reachable from it.
 std::vector<std::size_t> BuildTreeStructure(const ParsedArchetype& archetype) {
   std::size_t n = archetype.joints.size();
-  std::vector<std::size_t> parents(n, ArchetypeTreeStructure::kNoParent);
+  std::vector<std::size_t> parents(n, domain::kNoParent);
   std::vector<std::vector<std::size_t>> children(n);
   std::size_t root_count = 0;
 
@@ -424,9 +461,7 @@ std::vector<std::size_t> BuildTreeStructure(const ParsedArchetype& archetype) {
 
   std::size_t local_root = std::distance(
       parents.begin(),
-      std::find(
-          parents.begin(), parents.end(), ArchetypeTreeStructure::kNoParent
-      )
+      std::find(parents.begin(), parents.end(), domain::kNoParent)
   );
   std::vector<bool> visited(n, false);
   std::vector<std::size_t> frontier = {local_root};
@@ -459,17 +494,17 @@ std::vector<std::size_t> BuildTreeStructure(const ParsedArchetype& archetype) {
 
 // A field must be declared on every joint of an archetype or none of them,
 // with the same leaf count throughout -- partial coverage would leave
-// some (instance, joint) slots in ArchetypeField::values with no defined
-// source, which BuildTreeStructure's own caller has no reasonable default
-// for. Returns every such field, broadcasting each joint's one-instance
+// some (instance, joint) slots in domain::JointField::values with no
+// defined source, which BuildTreeStructure's own caller has no reasonable
+// default for. Returns every such field, broadcasting each joint's one-instance
 // values across every one of the archetype's `copies`.
-std::vector<ArchetypeField> BuildFields(const ParsedArchetype& archetype) {
+std::vector<domain::JointField> BuildFields(const ParsedArchetype& archetype) {
   std::vector<std::string> field_order;
   for (const auto& [name, values] : archetype.joints.front().fields) {
     field_order.push_back(name);
   }
 
-  std::vector<ArchetypeField> result;
+  std::vector<domain::JointField> result;
   for (const std::string& field_name : field_order) {
     std::size_t scalars_per_leaf = 0;
     std::vector<double> per_instance;  // joint-major, leaf-minor
@@ -509,7 +544,7 @@ std::vector<ArchetypeField> BuildFields(const ParsedArchetype& archetype) {
       values.insert(values.end(), per_instance.begin(), per_instance.end());
     }
     result.push_back(
-        ArchetypeField{field_name, scalars_per_leaf, std::move(values)}
+        domain::JointField{field_name, scalars_per_leaf, std::move(values)}
     );
   }
   return result;
@@ -606,33 +641,42 @@ std::vector<std::string> DepthFirstOrder(
 
 namespace {
 
-std::vector<Archetype> LoadArchetypesImpl(const std::filesystem::path& root_file
+// Every attachment, on the archetype it's attached to, in load order.
+std::unordered_map<std::string, std::vector<domain::JointAttachment>>
+ByArchetype(
+    const std::unordered_map<std::string, ParsedArchetype>& parsed,
+    const std::vector<ParsedAttachment>& attachments
 ) {
-  std::unordered_map<std::string, ParsedArchetype> parsed;
-  std::vector<ParsedSensor> sensors;
-  std::unordered_set<std::string> in_progress_files;
-  ParseArchetypeFile(root_file, parsed, sensors, in_progress_files);
-
-  // Every sensor, on the archetype it's attached to, in load order.
-  std::unordered_map<std::string, std::vector<domain::ArchetypeAttachment>>
-      attachments;
-  for (const ParsedSensor& sensor : sensors) {
-    auto target = parsed.find(sensor.attach_archetype);
+  std::unordered_map<std::string, std::vector<domain::JointAttachment>> result;
+  for (const ParsedAttachment& entry : attachments) {
+    auto target = parsed.find(entry.attach_archetype);
     if (target == parsed.end()) {
       Fail(
-          sensor.source_file,
-          "sensor '" + sensor.name + "': attach.archetype '" +
-              sensor.attach_archetype +
+          entry.source_file,
+          entry.key + " '" + entry.name + "': attach.archetype '" +
+              entry.attach_archetype +
               "' was never declared (missing an 'includes' entry?)."
       );
     }
-    attachments[sensor.attach_archetype].push_back(domain::ArchetypeAttachment{
-        sensor.kind,
-        LocalJointIndex(target->second, sensor.attach_joint),
-        sensor.name,
-        sensor.config
+    result[entry.attach_archetype].push_back(domain::JointAttachment{
+        entry.kind,
+        LocalJointIndex(target->second, entry.attach_joint),
+        entry.name,
+        entry.config,
+        entry.key
     });
   }
+  return result;
+}
+
+std::vector<Archetype> LoadArchetypesImpl(const std::filesystem::path& root_file
+) {
+  std::unordered_map<std::string, ParsedArchetype> parsed;
+  std::vector<ParsedAttachment> attachments;
+  std::unordered_set<std::string> in_progress_files;
+  ParseArchetypeFile(root_file, parsed, attachments, in_progress_files);
+
+  auto by_archetype = ByArchetype(parsed, attachments);
 
   std::vector<std::string> order = DepthFirstOrder(parsed);
 
@@ -651,11 +695,11 @@ std::vector<Archetype> LoadArchetypesImpl(const std::filesystem::path& root_file
   for (const std::string& name : order) {
     const ParsedArchetype& archetype = parsed.at(name);
     std::vector<std::size_t> tree_structure = BuildTreeStructure(archetype);
-    std::vector<ArchetypeField> fields = BuildFields(archetype);
+    std::vector<domain::JointField> fields = BuildFields(archetype);
     bool is_root = !archetype.has_attach;
 
-    std::vector<ArchetypeJointHandle> root_parents(
-        archetype.copies, ArchetypeJointHandle{0, 0}
+    std::vector<domain::JointRef> root_parents(
+        archetype.copies, domain::JointRef{0, 0}
     );
     if (!is_root) {
       const ParsedArchetype& target = parsed.at(archetype.attach_archetype);
@@ -665,12 +709,11 @@ std::vector<Archetype> LoadArchetypesImpl(const std::filesystem::path& root_file
 
       if (target.copies == archetype.copies) {
         for (std::size_t i = 0; i < archetype.copies; ++i) {
-          root_parents[i] =
-              ArchetypeJointHandle{target_offset + i, target_joint};
+          root_parents[i] = domain::JointRef{target_offset + i, target_joint};
         }
       } else if (target.copies == 1) {
         for (std::size_t i = 0; i < archetype.copies; ++i) {
-          root_parents[i] = ArchetypeJointHandle{target_offset, target_joint};
+          root_parents[i] = domain::JointRef{target_offset, target_joint};
         }
       } else {
         Fail(
@@ -699,7 +742,7 @@ std::vector<Archetype> LoadArchetypesImpl(const std::filesystem::path& root_file
         is_root,
         std::move(fields),
         std::move(joint_names),
-        std::move(attachments[archetype.name])
+        std::move(by_archetype[archetype.name])
     );
   }
   return result;

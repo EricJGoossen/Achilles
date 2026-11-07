@@ -7,15 +7,14 @@
 #include <type_traits>
 #include <vector>
 
-#include "domain/archetype.hpp"
+#include "domain/archetype/archetype.hpp"
 #include "domain/joint_topology.hpp"
 #include "engine/topology/ordering_plan.hpp"
 #include "util/tmp.hpp"
 
 namespace achilles::engine::topology {
 
-using domain::ArchetypeJointHandle;
-using domain::ArchetypeTreeStructure;
+using domain::archetype::Archetype;
 
 // One archetype's own local joint ordering, bundled with what Consolidate
 // needs to place and wire up its block. TopologicalOrdering builds this
@@ -29,9 +28,9 @@ struct LocalOrder {
   // position p and instance j's joint at that same position p are always
   // exactly padded_instance_count apart.
   std::span<const std::size_t> local_topo_order;
-  // This archetype's own ArchetypeTreeStructure::root_parents, unchanged
+  // This archetype's own Archetype::root_parents, unchanged
   // -- ignored entirely when is_root_archetype is true.
-  std::span<const ArchetypeJointHandle> root_parents;
+  std::span<const domain::JointRef> root_parents;
   bool is_root_archetype = false;
 };
 
@@ -44,7 +43,7 @@ struct LocalOrder {
 template <typename P>
 concept OrderingPolicyLike =
     std::is_empty_v<P> &&
-    requires(std::span<ArchetypeTreeStructure> tree, std::size_t lane_size) {
+    requires(std::span<const Archetype> tree, std::size_t lane_size) {
       { P::Build(tree, lane_size) } -> std::same_as<OrderingPlan>;
     };
 
@@ -57,14 +56,14 @@ class Ordering {
     std::vector<std::vector<std::size_t>> physical_to_sorted;
     // Indexed by original archetype index, then by instance: the absolute
     // row of that instance's resolved external parent, or
-    // ArchetypeTreeStructure::kNoParent for a root archetype's instances
+    // domain::kNoParent for a root archetype's instances
     // (substituting that sentinel with the reserved base row is Build's
     // job, not this one's).
     std::vector<std::vector<std::size_t>> root_parent_rows;
     // The inverse of physical_to_sorted, indexed by absolute row: which
     // (instance, local joint) lives there, or {kNoParent, kNoParent} for a
     // padding row that no real joint ever occupies.
-    std::vector<ArchetypeJointHandle> sorted_to_physical;
+    std::vector<domain::JointRef> sorted_to_physical;
     // Total rows across every archetype's block. Each block's own size
     // (its joint count times its lane-rounded instance count) is already a
     // lane_size multiple, so this sum is one too.
@@ -72,12 +71,13 @@ class Ordering {
   };
 
   // Takes every archetype's own local joint ordering (in original
-  // archetype-index order, matching how ArchetypeJointHandle::instance_index is
-  // numbered) and a placement order for their blocks, and lays every
-  // archetype's instances out back to back: each archetype gets a block of
-  // local_topo_order.size() * RoundUp(root_parents.size(), lane_size) rows,
-  // placed in `placement_order`, with instance i's joint at sorted local
-  // position p landing at that block's row (p * padded_instance_count + i)
+  // archetype-index order, matching how
+  // domain::JointRef::instance_index is numbered) and a placement
+  // order for their blocks, and lays every archetype's instances out back to
+  // back: each archetype gets a block of local_topo_order.size() *
+  // RoundUp(root_parents.size(), lane_size) rows, placed in `placement_order`,
+  // with instance i's joint at sorted local position p landing at that block's
+  // row (p * padded_instance_count + i)
   // -- so a fixed p groups every instance's corresponding joint together,
   // and a lane group never straddles two archetypes. Also resolves each
   // instance's external parent (root_parents) to an absolute row, via the
@@ -89,7 +89,7 @@ class Ordering {
   );
 
   // Shared by both policies' Build: pairs each archetype's own local joint
-  // ordering with its ArchetypeTreeStructure (root_parents,
+  // ordering with its Archetype (root_parents,
   // is_root_archetype), consolidates them, and resolves the one thing
   // Consolidate leaves to the caller -- the per-row `parents` array a
   // JointTopology needs -- by walking each instance's own tree_structure
@@ -99,7 +99,7 @@ class Ordering {
   // parent into the padded tail of an archetype's instance range (see the
   // .cpp), so there's no need for a separate scratch/sink row to protect.
   static OrderingPlan BuildFromLocalOrders(
-      std::span<ArchetypeTreeStructure> tree,
+      std::span<const Archetype> tree,
       std::span<const std::vector<std::size_t>> local_topo_orders,
       std::span<const std::size_t> placement_order,
       std::size_t lane_size
@@ -113,7 +113,7 @@ class Ordering {
 struct TopologicalOrdering : public Ordering {
  public:
   static OrderingPlan Build(
-      std::span<ArchetypeTreeStructure> tree, std::size_t lane_size
+      std::span<const Archetype> tree, std::size_t lane_size
   );
 
  private:
@@ -145,7 +145,7 @@ struct TopologicalOrdering : public Ordering {
   // blocks -- unsupported for now, so it's a precondition violation, not
   // something to silently work around here.
   static std::vector<std::size_t> ArchetypeDepths(
-      std::span<const ArchetypeTreeStructure> tree
+      std::span<const Archetype> tree
   );
 };
 
@@ -157,7 +157,7 @@ struct TopologicalOrdering : public Ordering {
 //
 struct LinearOrdering : public Ordering {
   static OrderingPlan Build(
-      std::span<ArchetypeTreeStructure> tree, std::size_t lane_size
+      std::span<const Archetype> tree, std::size_t lane_size
   );
 };
 
@@ -174,12 +174,12 @@ template <typename Policy>
 using TopologyOfT =
     util::DetectedOrT<domain::JointTopology, detail::DeclaredTopology, Policy>;
 
-// Every attachment (domain::ArchetypeAttachment) whose list is `list`, as
-// the joint it's linked to: archetype by archetype, instance by instance,
-// in each archetype's own declaration order -- the order ListOrdering
-// numbers its rows in.
-std::vector<ArchetypeJointHandle> CollectAttachments(
-    std::span<ArchetypeTreeStructure> tree, std::string_view list
+// Every attachment (domain::JointAttachment) whose list is `list`,
+// as the joint it's linked to: archetype by archetype, instance by instance, in
+// each archetype's own declaration order -- the order ListOrdering numbers its
+// rows in.
+std::vector<domain::JointRef> CollectAttachments(
+    std::span<const Archetype> tree, std::string_view list
 );
 
 // Shared by every ListOrdering: one row per entry of each of `lists`, list
@@ -189,7 +189,7 @@ std::vector<ArchetypeJointHandle> CollectAttachments(
 // own JointLayout. Padding rows, after every list, link to the link
 // ordering's base row.
 OrderingPlan BuildListPlan(
-    std::span<const std::vector<ArchetypeJointHandle>> lists,
+    std::span<const std::vector<domain::JointRef>> lists,
     const domain::JointLayout& link_layout,
     std::size_t lane_size
 );
@@ -229,10 +229,10 @@ struct ListOrdering<LinkOrdering, util::TypeList<Tags...>> {
   using Topology = domain::SegmentedTopology;
 
   static OrderingPlan Build(
-      std::span<ArchetypeTreeStructure> tree, std::size_t lane_size
+      std::span<const Archetype> tree, std::size_t lane_size
   ) {
     const OrderingPlan link_plan = LinkOrdering::Build(tree, lane_size);
-    const std::vector<std::vector<ArchetypeJointHandle>> lists = {
+    const std::vector<std::vector<domain::JointRef>> lists = {
         CollectAttachments(tree, Tags::kListName)...
     };
     return BuildListPlan(lists, link_plan.Layout(), lane_size);
@@ -244,7 +244,7 @@ struct ListOrdering<LinkOrdering, util::TypeList<Tags...>> {
 // per row, and Admits(a, b) is the pair test on two rows' keys.
 template <typename F>
 concept PairFilterLike =
-    std::is_empty_v<F> && requires(const ArchetypeTreeStructure& archetype) {
+    std::is_empty_v<F> && requires(const Archetype& archetype) {
       {
         F::Admits(F::Key(archetype, 0), F::Key(archetype, 0))
       } -> std::same_as<bool>;
@@ -286,7 +286,7 @@ struct PairOrdering {
   using Topology = domain::PairTopology;
 
   static OrderingPlan Build(
-      std::span<ArchetypeTreeStructure> tree, std::size_t lane_size
+      std::span<const Archetype> tree, std::size_t lane_size
   ) {
     const OrderingPlan row_plan = RowOrdering::Build(tree, lane_size);
     const domain::JointLayout layout = row_plan.Layout();
@@ -300,7 +300,7 @@ struct PairOrdering {
     std::vector<Key> keys(layout.PaddedSize());
     for (std::size_t row = 0; row < layout.PaddedSize(); ++row) {
       if (!layout.IsPadding(row)) {
-        const ArchetypeJointHandle joint = layout.ToPhysical(row);
+        const domain::JointRef joint = layout.ToPhysical(row);
         keys[row] = Filter::Key(
             tree[archetype_of[joint.instance_index]], joint.joint_index
         );

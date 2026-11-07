@@ -20,7 +20,11 @@
 # whose targets actually exist in this codebase:
 #   - core.* / cplusplus.* / deadcode.DeadStores: general C++ correctness
 #     (null derefs, use-after-move, leaks, dead stores).
-#   - optin.cplusplus.UninitializedObject, optin.core.EnumCastOutOfRange.
+#   - optin.cplusplus.UninitializedObject.
+#   - optin.core.EnumCastOutOfRange is left out: field enums such as
+#     algorithms::attachment::AttachmentField name kFirstInput and then use
+#     the next N values unnamed, one per input, which this check reports as
+#     out of range at every cast.
 #   - optin.performance.Padding: struct layout, relevant for this project's
 #     SIMD/alignment-sensitive math types (Vector3, Matrix, Quaternion,
 #     Transform, Inertia).
@@ -40,7 +44,6 @@ Checks: >
     clang-analyzer-deadcode.DeadStores,
     clang-analyzer-optin.cplusplus.UninitializedObject,
     clang-analyzer-optin.cplusplus.VirtualCall,
-    clang-analyzer-optin.core.EnumCastOutOfRange,
     clang-analyzer-optin.performance.Padding,
     clang-analyzer-unix.Malloc,
     clang-analyzer-unix.MallocSizeof,
