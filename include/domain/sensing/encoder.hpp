@@ -5,13 +5,12 @@
 #include <stdexcept>
 #include <string_view>
 
-#include "algorithms/aba/aba_step.hpp"
-#include "algorithms/sensing/sensor.hpp"
+#include "domain/error/effects.hpp"
 #include "domain/math/vector3.hpp"
 #include "domain/random/counter_rng.hpp"
-#include "domain/sensing/effects.hpp"
+#include "domain/sensing/sensor.hpp"
 
-namespace achilles::algorithms::sensing {
+namespace achilles::domain::sensing {
 
 // One encoder sample: the joint's position along the encoder's axis
 // (radians for a rotary encoder, meters for a linear one) and its rate.
@@ -23,8 +22,8 @@ struct EncoderReading {
 // What an encoder remembers: its error models' state, and -- for a
 // multi-turn rotary encoder -- the unwrapped angle so far.
 struct EncoderState {
-  domain::sensing::ErrorChain<float>::State position_error;
-  domain::sensing::ErrorChain<float>::State velocity_error;
+  domain::error::ErrorChain<float>::State position_error;
+  domain::error::ErrorChain<float>::State velocity_error;
   float last_angle = 0.0F;
   float unwrapped = 0.0F;
   bool started = false;
@@ -39,22 +38,18 @@ struct EncoderState {
 // reports (-pi, pi], a multi-turn one the unwrapped total since Init. A
 // real drive usually differentiates counts for velocity -- model that with
 // the velocity model's noise, resolution and latency.
-class Encoder
-    : public Sensor<
-          Encoder,
-          SimInputs<
-              SimInput<aba::ABAAlgorithm, aba::ABAField::kJointPosition>,
-              SimInput<aba::ABAAlgorithm, aba::ABAField::kJointVelocity>,
-              SimInput<aba::ABAAlgorithm, aba::ABAField::kJointSubspace>>,
-          EncoderState,
-          EncoderReading> {
+class Encoder : public Sensor<
+                    Encoder,
+                    SimInputs<
+                        input::JointPosition,
+                        input::JointVelocity,
+                        input::JointSubspace>,
+                    EncoderState,
+                    EncoderReading> {
  public:
-  using Position =
-      InputValueT<SimInput<aba::ABAAlgorithm, aba::ABAField::kJointPosition>>;
-  using Velocity =
-      InputValueT<SimInput<aba::ABAAlgorithm, aba::ABAField::kJointVelocity>>;
-  using Subspace =
-      InputValueT<SimInput<aba::ABAAlgorithm, aba::ABAField::kJointSubspace>>;
+  using Position = input::JointPosition::Value;
+  using Velocity = input::JointVelocity::Value;
+  using Subspace = input::JointSubspace::Value;
 
   static constexpr std::string_view kListName = "encoder";
 
@@ -65,13 +60,13 @@ class Encoder
     domain::math::Vector3<float> axis = domain::math::Vector3<float>::UnitX();
     Motion motion = Motion::kRotary;
     bool multi_turn = true;
-    domain::sensing::ErrorChain<float>::Params position_error;
-    domain::sensing::ErrorChain<float>::Params velocity_error;
+    domain::error::ErrorChain<float>::Params position_error;
+    domain::error::ErrorChain<float>::Params velocity_error;
   };
 
   Encoder() = default;
   // Throws std::invalid_argument for a zero axis.
-  Encoder(SensorOptions options, const Params& params)
+  Encoder(AttachmentOptions options, const Params& params)
       : Sensor(options), params_(params) {
     if (params_.axis.Norm() <= 0.0F) {
       throw std::invalid_argument("Encoder: the axis must be nonzero.");
@@ -83,7 +78,7 @@ class Encoder
   // error models, prefixed position_ and velocity_ (see
   // AttachmentConfig::ErrorModel).
   static Encoder FromConfig(AttachmentConfig& config) {
-    const SensorOptions options = config.Options();
+    const AttachmentOptions options = config.Options();
     Params params;
     params.axis = config.Vector("axis", params.axis);
     params.motion =
@@ -95,7 +90,7 @@ class Encoder
   }
 
   void Read(
-      const SensorTick& tick,
+      const AttachmentTick& tick,
       const Position& q,
       const Velocity& qd,
       const Subspace& subspace,
@@ -110,10 +105,10 @@ class Encoder
                                   : rates.Linear().Dot(params_.axis);
 
     domain::random::CounterRng rng(tick.stream, tick.tick);
-    out->position = domain::sensing::ErrorChain<float>::Apply(
+    out->position = domain::error::ErrorChain<float>::Apply(
         params_.position_error, state->position_error, rng, tick.dt, position
     );
-    out->velocity = domain::sensing::ErrorChain<float>::Apply(
+    out->velocity = domain::error::ErrorChain<float>::Apply(
         params_.velocity_error, state->velocity_error, rng, tick.dt, velocity
     );
   }
@@ -145,4 +140,4 @@ class Encoder
   Params params_;
 };
 
-}  // namespace achilles::algorithms::sensing
+}  // namespace achilles::domain::sensing

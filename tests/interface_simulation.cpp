@@ -19,8 +19,8 @@
 #include "domain/archetype/archetype_set.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/orderings.hpp"
-#include "interface/actuator_handle.hpp"
 #include "interface/archetype_loader.hpp"
+#include "interface/attachment_handle.hpp"
 #include "interface/simulation.hpp"
 #include "support/aba_reference.hpp"
 #include "support/temp_dir.hpp"
@@ -42,7 +42,6 @@ using achilles::algorithms::aba::ABAStep;
 using achilles::domain::archetype::Archetype;
 using achilles::engine::memory::SimAllocator;
 using achilles::engine::topology::TopologicalOrdering;
-using achilles::interface::ActuatorLike;
 using achilles::interface::AngularActuator;
 using achilles::interface::LinearActuator;
 using achilles::interface::LoadArchetypes;
@@ -136,7 +135,7 @@ Simulation MakeInitializedSim(const TempDir& dir, float q0, float qd0 = 0.0F) {
 }
 
 AngularActuator Yaw(const Simulation& sim) {
-  return sim.Actuator<AngularActuator>("yaw");
+  return sim.Actuator<achilles::interface::truth::Torque>("yaw");
 }
 
 Transform WorldTransform(Simulation& sim) {
@@ -699,7 +698,9 @@ TEST(
   ASSERT_EQ(archetypes[0].name, "base");
   ASSERT_EQ(archetypes[1].name, "child");
 
-  SimAllocator<ABAAlgorithm> sim{achilles::domain::archetype::ArchetypeSet(archetypes)};
+  SimAllocator<ABAAlgorithm> sim{
+      achilles::domain::archetype::ArchetypeSet(archetypes)
+  };
   auto view = sim.ViewFor<ABAAlgorithm>();
   const auto& layout = sim.LayoutFor<TopologicalOrdering>();
   std::size_t lane = B::size;
@@ -833,26 +834,6 @@ float JointAccelerationZ(Simulation& sim) {
       .Load<ABAField::kJointAcceleration, float>(0)[0];
 }
 
-// A user's actuator model, returned by Actuator as its own type.
-class GearedMotor : public AngularActuator {
- public:
-  GearedMotor(AngularActuator base, float ratio)
-      : AngularActuator(std::move(base)), ratio_(ratio) {}
-  void Command(float motor_torque) const { Apply(ratio_ * motor_torque); }
-
- private:
-  float ratio_;
-};
-
-// Exactly what ActuatorLike and Actuator require: derived from a base
-// handle, built from it alone -- no members, no extra arguments.
-class ActuatorArchetype : public AngularActuator {
- public:
-  explicit ActuatorArchetype(AngularActuator base)
-      : AngularActuator(std::move(base)) {}
-};
-static_assert(ActuatorLike<ActuatorArchetype>);
-
 }  // namespace
 
 // The end-to-end contract: an effort Apply()ed before Step drives that
@@ -890,28 +871,6 @@ TEST(SimulationActuator, EveryAbaEvaluationInATickSeesTheSameEffort) {
   EXPECT_NEAR(JointAngleZ(sim), kExactOneTickAngle, 1e-6F);
 }
 
-// Actuator<T> hands back the caller's own model, built from the base
-// handle plus its own arguments -- no cast.
-TEST(SimulationActuator, ActuatorReturnsTheCallersOwnType) {
-  TempDir dir;
-  Simulation sim = MakeInitializedSim(dir, 0.0F);
-  auto motor = sim.Actuator<GearedMotor>("yaw", 0, 8.0F);
-  motor.Command(0.5F);
-  ASSERT_TRUE(sim.Step(0.0F));
-  EXPECT_FLOAT_EQ(JointAccelerationZ(sim), 1.0F);
-}
-
-// Actuator relies only on what ActuatorLike promises: a derived type
-// with nothing but a constructor from its base handle (an empty Args pack).
-TEST(SimulationActuator, ActuatorBuildsTheMinimalActuatorLikeType) {
-  TempDir dir;
-  Simulation sim = MakeInitializedSim(dir, 0.0F);
-  auto actuator = sim.Actuator<ActuatorArchetype>("yaw");
-  actuator.Apply(4.0F);
-  ASSERT_TRUE(sim.Step(0.0F));
-  EXPECT_FLOAT_EQ(JointAccelerationZ(sim), 1.0F);
-}
-
 // Finding one needs the built sim (its layout and its torque buffers), so
 // doing it first is a catchable error, like ViewFor's.
 TEST(SimulationActuator, ActuatorThrowsBeforeInit) {
@@ -925,10 +884,12 @@ TEST(SimulationActuator, ActuatorThrowsOnBadInput) {
   TempDir dir;
   Simulation sim = MakeInitializedSim(dir, 0.0F);
   EXPECT_THROW(
-      (void)sim.Actuator<AngularActuator>("nope"), std::invalid_argument
+      (void)sim.Actuator<achilles::interface::truth::Torque>("nope"),
+      std::invalid_argument
   );
   EXPECT_THROW(
-      (void)sim.Actuator<LinearActuator>("yaw"), std::invalid_argument
+      (void)sim.Actuator<achilles::interface::truth::Force>("yaw"),
+      std::invalid_argument
   );
 }
 

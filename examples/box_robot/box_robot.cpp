@@ -23,8 +23,7 @@
 #include <utility>
 
 #include "algorithms/conventions.hpp"
-#include "interface/actuator_handle.hpp"
-#include "interface/sensor_handle.hpp"
+#include "interface/attachment_handle.hpp"
 #include "interface/simulation.hpp"
 
 namespace {
@@ -62,13 +61,13 @@ constexpr std::array<std::array<float, 2>, 8> kWaypoints = {{
     {-1.2F, 0.4F},
 }};
 
-// A wheel's motor: drives its wheel toward a target speed with a PI loop,
-// limited to what the motor can deliver. A model of a real actuator,
-// built on the AngularActuator the sim hands out.
-class WheelMotor : public AngularActuator {
+// A wheel's speed controller: drives its wheel toward a target speed with a PI
+// loop, limited to what the motor can deliver, through the actuator the sim
+// hands out.
+class WheelMotor {
  public:
-  WheelMotor(AngularActuator base, SensorHandle<truth::JointVelocity> speed)
-      : AngularActuator(std::move(base)), speed_(speed) {}
+  WheelMotor(AngularActuator motor, SensorHandle<truth::JointVelocity> speed)
+      : motor_(std::move(motor)), speed_(speed) {}
 
   // The wheel's spin rate about its axle: its joint velocity's one
   // coordinate.
@@ -83,10 +82,11 @@ class WheelMotor : public AngularActuator {
     if (std::abs(torque) < kWheelTorqueLimit) {
       integral_ += error * dt;
     }
-    Apply(std::clamp(torque, -kWheelTorqueLimit, kWheelTorqueLimit));
+    motor_.Apply(std::clamp(torque, -kWheelTorqueLimit, kWheelTorqueLimit));
   }
 
  private:
+  AngularActuator motor_;
   SensorHandle<truth::JointVelocity> speed_;
   float integral_ = 0.0F;
 };
@@ -162,7 +162,7 @@ struct Wheels {
 
 WheelMotor AttachWheel(const Simulation& sim, const std::string& name) {
   auto speed = sim.Sensor<truth::JointVelocity>(name + "_speed");
-  return sim.Actuator<WheelMotor>(name + "_motor", 0, speed);
+  return {sim.Actuator<truth::Torque>(name + "_motor"), speed};
 }
 
 // Skid steering: a yaw rate w about +y moves a wheel at lateral offset x

@@ -6,14 +6,14 @@
 #include <utility>
 #include <vector>
 
-#include "algorithms/sensing/sensor.hpp"
+#include "domain/attachment/attachment_kind.hpp"
+#include "domain/error/effects.hpp"
 #include "domain/math/vector3.hpp"
-#include "domain/sensing/effects.hpp"
 #include "domain/spatial/transform.hpp"
 
-using achilles::algorithms::sensing::AttachmentConfig;
+using achilles::domain::attachment::AttachmentConfig;
+using achilles::domain::error::Vec3;
 using achilles::domain::math::Vector3;
-using achilles::domain::sensing::Vec3;
 using achilles::domain::spatial::Transform;
 
 namespace {

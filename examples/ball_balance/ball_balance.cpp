@@ -43,8 +43,7 @@
 #include <string_view>
 
 #include "algorithms/conventions.hpp"
-#include "interface/actuator_handle.hpp"
-#include "interface/sensor_handle.hpp"
+#include "interface/attachment_handle.hpp"
 #include "interface/simulation.hpp"
 
 namespace {
@@ -196,8 +195,8 @@ class Plate {
         plate_rate_(sim.Sensor<truth::JointVelocity>("plate_rate")),
         plate_pose_(sim.Sensor<truth::WorldTransform>("plate_pose")),
         ball_pose_(sim.Sensor<truth::WorldTransform>("ball_pose")),
-        tilt_x_(sim.Actuator<AngularActuator>("gimbal_motor")),
-        tilt_z_(sim.Actuator<AngularActuator>("plate_motor")) {}
+        tilt_x_(sim.Actuator<truth::Torque>("gimbal_motor")),
+        tilt_z_(sim.Actuator<truth::Torque>("plate_motor")) {}
 
   // The ball's center relative to the plate's pivot, in the scene's axes: (x,
   // y, z). Close enough to the plate's own axes at these tilts.

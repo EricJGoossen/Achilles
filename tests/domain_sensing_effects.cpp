@@ -3,19 +3,19 @@
 #include <cmath>
 #include <cstdint>
 
+#include "domain/error/effects.hpp"
 #include "domain/random/counter_rng.hpp"
-#include "domain/sensing/effects.hpp"
 
+using achilles::domain::error::ConstantBias;
+using achilles::domain::error::Delay;
+using achilles::domain::error::ErrorChain;
+using achilles::domain::error::GaussianNoise;
+using achilles::domain::error::Quantize;
+using achilles::domain::error::RandomWalk;
+using achilles::domain::error::Saturate;
+using achilles::domain::error::ScaleError;
+using achilles::domain::error::Vec3;
 using achilles::domain::random::CounterRng;
-using achilles::domain::sensing::ConstantBias;
-using achilles::domain::sensing::Delay;
-using achilles::domain::sensing::ErrorChain;
-using achilles::domain::sensing::GaussianNoise;
-using achilles::domain::sensing::Quantize;
-using achilles::domain::sensing::RandomWalk;
-using achilles::domain::sensing::Saturate;
-using achilles::domain::sensing::ScaleError;
-using achilles::domain::sensing::Vec3;
 
 namespace {
 

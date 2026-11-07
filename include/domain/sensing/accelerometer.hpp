@@ -2,13 +2,12 @@
 
 #include <string_view>
 
-#include "algorithms/aba/aba_step.hpp"
-#include "algorithms/sensing/sensor.hpp"
+#include "domain/error/effects.hpp"
 #include "domain/random/counter_rng.hpp"
-#include "domain/sensing/effects.hpp"
+#include "domain/sensing/sensor.hpp"
 #include "domain/spatial/transform.hpp"
 
-namespace achilles::algorithms::sensing {
+namespace achilles::domain::sensing {
 
 // A three-axis accelerometer: specific force (m/s^2) at its mount point, in
 // its own axes -- the acceleration of that point minus gravity, so a sensor
@@ -25,17 +24,13 @@ namespace achilles::algorithms::sensing {
 class Accelerometer
     : public Sensor<
           Accelerometer,
-          SimInputs<
-              SimInput<aba::ABAAlgorithm, aba::ABAField::kSpatialVelocity>,
-              SimInput<aba::ABAAlgorithm, aba::ABAField::kSpatialAcceleration>>,
-          domain::sensing::ErrorChain<domain::sensing::Vec3>::State,
-          domain::sensing::Vec3> {
+          SimInputs<input::SpatialVelocity, input::SpatialAcceleration>,
+          domain::error::ErrorChain<domain::error::Vec3>::State,
+          domain::error::Vec3> {
  public:
-  using ErrorModel = domain::sensing::ErrorChain<domain::sensing::Vec3>;
-  using Velocity =
-      InputValueT<SimInput<aba::ABAAlgorithm, aba::ABAField::kSpatialVelocity>>;
-  using Acceleration = InputValueT<
-      SimInput<aba::ABAAlgorithm, aba::ABAField::kSpatialAcceleration>>;
+  using ErrorModel = domain::error::ErrorChain<domain::error::Vec3>;
+  using Velocity = input::SpatialVelocity::Value;
+  using Acceleration = input::SpatialAcceleration::Value;
 
   static constexpr std::string_view kListName = "accelerometer";
 
@@ -47,32 +42,32 @@ class Accelerometer
   };
 
   Accelerometer() = default;
-  Accelerometer(SensorOptions options, const Params& params)
+  Accelerometer(AttachmentOptions options, const Params& params)
       : Sensor(options), params_(params) {}
 
   // Settings: period, mount (a pose in the body's frame, identity when
   // absent), and the error model's (see AttachmentConfig::ErrorModel).
   static Accelerometer FromConfig(AttachmentConfig& config) {
-    const SensorOptions options = config.Options();
+    const AttachmentOptions options = config.Options();
     return Accelerometer(
         options,
         Params{
-            config.Pose("mount", {}).Inverse(),
-            config.ErrorModel<domain::sensing::Vec3>()
+            config.BodyFromSensor().Inverse(),
+            config.ErrorModel<domain::error::Vec3>()
         }
     );
   }
 
   void Read(
-      const SensorTick& tick,
+      const AttachmentTick& tick,
       const Velocity& velocity,
       const Acceleration& acceleration,
       ErrorModel::State* error,
-      domain::sensing::Vec3* out
+      domain::error::Vec3* out
   ) const {
     const auto v = params_.sensor_from_body.Apply(velocity);
     const auto a = params_.sensor_from_body.Apply(acceleration);
-    const domain::sensing::Vec3 specific_force =
+    const domain::error::Vec3 specific_force =
         a.Linear() + v.Angular().Cross(v.Linear());
     domain::random::CounterRng rng(tick.stream, tick.tick);
     *out =
@@ -83,4 +78,4 @@ class Accelerometer
   Params params_;
 };
 
-}  // namespace achilles::algorithms::sensing
+}  // namespace achilles::domain::sensing

@@ -19,7 +19,7 @@
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
 #include "engine/topology/orderings.hpp"
-#include "interface/actuator_handle.hpp"
+#include "interface/attachment_handle.hpp"
 #include "interface/simulation.hpp"
 #include "support/joint_row.hpp"
 
@@ -79,7 +79,7 @@ struct Wheels {
 
 Wheels AttachWheels(const Simulation& sim) {
   auto attach = [&](const std::string& name) {
-    return sim.Actuator<AngularActuator>(name + "_motor");
+    return sim.Actuator<achilles::interface::truth::Torque>(name + "_motor");
   };
   return {
       {attach("left_front"), attach("left_rear")},

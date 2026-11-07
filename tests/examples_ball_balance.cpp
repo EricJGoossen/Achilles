@@ -25,7 +25,7 @@
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
 #include "engine/topology/orderings.hpp"
-#include "interface/actuator_handle.hpp"
+#include "interface/attachment_handle.hpp"
 #include "interface/simulation.hpp"
 #include "support/joint_row.hpp"
 #include "support/temp_dir.hpp"
@@ -113,8 +113,10 @@ Rig AttachRig(const Simulation& sim, std::size_t instance) {
       JointRow(sim, {"plate_rig", "gimbal", instance}),
       JointRow(sim, {"plate_rig", "plate", instance}),
       JointRow(sim, {"ball", "ball", instance}),
-      sim.Actuator<AngularActuator>("gimbal_motor", instance),
-      sim.Actuator<AngularActuator>("plate_motor", instance),
+      sim.Actuator<achilles::interface::truth::Torque>(
+          "gimbal_motor", instance
+      ),
+      sim.Actuator<achilles::interface::truth::Torque>("plate_motor", instance),
   };
 }
 

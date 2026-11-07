@@ -9,14 +9,14 @@
 #include <numbers>
 #include <string>
 
-#include "algorithms/sensing/encoder.hpp"
-#include "algorithms/sensing/gyroscope.hpp"
-#include "algorithms/sensing/lidar.hpp"
+#include "domain/sensing/encoder.hpp"
+#include "domain/sensing/gyroscope.hpp"
+#include "domain/sensing/lidar.hpp"
 #include "interface/simulation.hpp"
 
-using achilles::algorithms::sensing::Encoder;
-using achilles::algorithms::sensing::Gyroscope;
-using achilles::algorithms::sensing::Lidar;
+using achilles::domain::sensing::Encoder;
+using achilles::domain::sensing::Gyroscope;
+using achilles::domain::sensing::Lidar;
 using achilles::interface::Simulation;
 
 namespace {

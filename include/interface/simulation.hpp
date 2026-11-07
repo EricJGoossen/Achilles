@@ -11,20 +11,19 @@
 
 #include "algorithms/integrators.hpp"
 #include "algorithms/registry.hpp"
-#include "algorithms/sensing/truth_sensor.hpp"
 #include "algorithms/sim_config.hpp"
 #include "algorithms/viz/viz_step.hpp"
 #include "domain/archetype/archetype_set.hpp"
 #include "domain/joint_layout.hpp"
 #include "domain/joint_topology.hpp"
 #include "domain/random/seed.hpp"
+#include "domain/sim_clock.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/layout_policy.hpp"
 #include "engine/topology/orderings.hpp"
-#include "interface/actuator_handle.hpp"
 #include "interface/archetype_loader.hpp"
+#include "interface/attachment_handle.hpp"
 #include "interface/attachments.hpp"
-#include "interface/sensor_handle.hpp"
 #include "interface/sim_config_loader.hpp"
 #include "render/scene_renderer.hpp"
 #include "util/io.hpp"
@@ -33,8 +32,13 @@ namespace achilles::interface {
 
 using domain::JointAddress;
 
-// The truth sensors, by what they read: sim.Sensor<truth::WorldTransform>(...).
-namespace truth = algorithms::sensing::truth;
+// The truth sensors, by what they read, and truth actuators, by what they push
+// with: sim.Sensor<truth::WorldTransform>(...),
+// sim.Actuator<truth::Torque>(...).
+namespace truth {
+using namespace domain::sensing::truth;
+using namespace domain::actuation::truth;
+}  // namespace truth
 
 class Simulation {
   using Allocator =
@@ -81,8 +85,6 @@ class Simulation {
       );
     }
     seed_ = seed.value_or(GenerateSeed());
-    time_ = 0.0;
-    step_count_ = 0;
     try {
       state_ = Allocator::Build(archetypes_);
       ConfigureAttachments(state_->context, archetypes_, seed_);
@@ -91,7 +93,7 @@ class Simulation {
       return util::Warning("Simulation allocation failed", e.what());
     }
     // Model constants derived from the initial state, and every sensor's
-    // starting state (algorithms::Setup).
+    // and actuator's starting state (algorithms::Setup).
     return RunStepList(&algorithms::StepIntegrator<algorithms::Setup>, 0.0F);
   }
 
@@ -103,13 +105,11 @@ class Simulation {
   std::uint64_t Seed() const { return seed_; }
 
   // Sim time, in seconds since Init(): the sum of every dt a successful
-  // Step() advanced over. Kept in double so a long run at a
-  // fine dt doesn't lose ticks to rounding (the physics itself runs in
-  // ScalarOperationT).
-  double Time() const { return time_; }
+  // Step() advanced over (domain::SimClock). 0 before Init().
+  double Time() const { return Clock().time; }
 
   // How many Step()s have succeeded since Init().
-  std::uint64_t StepCount() const { return step_count_; }
+  std::uint64_t StepCount() const { return Clock().tick; }
 
   // Advances the physics by one tick of the selected integrator (see
   // SetIntegrator) over `dt`. Never renders -- see Render(). Returns false
@@ -120,12 +120,7 @@ class Simulation {
   // Apply()ed since the previous Step() -- however many times its step list
   // evaluates ABA.
   bool Step(algorithms::ScalarOperationT dt) {
-    if (!RunStepList(integrator_step_, dt)) {
-      return false;
-    }
-    time_ += dt;
-    ++step_count_;
-    return true;
+    return RunStepList(integrator_step_, dt);
   }
 
   // Draws one frame of the current state through render::SceneRenderer,
@@ -158,48 +153,6 @@ class Simulation {
     return true;
   }
 
-  // Instance `instance` of the actuator named `name`, as T: its kind's
-  // LinearActuator/AngularActuator itself, or a class deriving from one,
-  // built as T(base, args...) where `base` is that handle -- so a user's
-  // actuator model comes back as its own type, no cast. Instance i is the one
-  // on instance i of the archetype it's attached to, and its axis comes from
-  // its .arow. e.g.
-  //
-  //   class DcMotor : public AngularActuator {
-  //    public:
-  //     DcMotor(AngularActuator base, float kt)
-  //         : AngularActuator(std::move(base)), kt_(kt) {}
-  //     void Command(float amps) const { Apply(kt_ * amps); }
-  //    private:
-  //     float kt_;
-  //   };
-  //   DcMotor elbow = sim.Actuator<DcMotor>("elbow_motor", 0, 0.05F);
-  //
-  // The actuator is valid until this Simulation is re-Init()ed or destroyed.
-  // Throws std::runtime_error before Init(), std::invalid_argument for an
-  // unknown actuator or instance, or one that isn't T's kind.
-  template <ActuatorLike T, typename... Args>
-  T Actuator(std::string_view name, std::size_t instance = 0, Args&&... args)
-      const {
-    const auto& context = Context("Actuator");
-    return T(
-        ActuatorHandle<T::kKind>::Find(
-            context,
-            archetypes_.AttachmentRow(
-                name,
-                instance,
-                T::kListName,
-                context
-                    .template LayoutFor<engine::topology::TopologicalOrdering>()
-            ),
-            ActuatorHandle<T::kKind>::AxisOf(
-                archetypes_.Attachment(name, T::kListName)
-            )
-        ),
-        std::forward<Args>(args)...
-    );
-  }
-
   // The built sim itself, and the archetypes it was built from -- for a
   // caller that really means to go around the handles (and a test checking
   // what they're built on). Nothing here keeps a write consistent with the
@@ -218,11 +171,25 @@ class Simulation {
   // one mounted on instance i of the archetype it's attached to. Throws
   // std::runtime_error before Init(), std::invalid_argument for an unknown
   // sensor or instance, or one that isn't a K.
-  template <algorithms::sensing::SensorLike K>
+  template <domain::attachment::SensorLike K>
   SensorHandle<K> Sensor(std::string_view name, std::size_t instance = 0)
       const {
     const auto& context = Context("Sensor");
     return SensorHandle<K>::Find(
+        context, archetypes_.AttachmentEntry(name, instance, K::kListName)
+    );
+  }
+
+  // Instance `instance` of the actuator named `name`, as a handle of its kind
+  // K -- e.g. Actuator<truth::Torque>("elbow_motor"). Instance i is the one on
+  // instance i of the archetype it's attached to. Throws std::runtime_error
+  // before Init(), std::invalid_argument for an unknown actuator or instance,
+  // or one that isn't a K.
+  template <domain::attachment::ActuatorLike K>
+  ActuatorHandle<K> Actuator(std::string_view name, std::size_t instance = 0)
+      const {
+    const auto& context = Context("Actuator");
+    return ActuatorHandle<K>::Find(
         context, archetypes_.AttachmentEntry(name, instance, K::kListName)
     );
   }
@@ -232,6 +199,17 @@ class Simulation {
   std::vector<JointAddress> Joints() const { return archetypes_.Joints(); }
 
  private:
+  // The sim's clock; a stopped one before Init().
+  domain::SimClock Clock() const {
+    using algorithms::clock::ClockField;
+    using algorithms::clock::ClockView;
+    if (!state_.has_value()) {
+      return {};
+    }
+    return state_->context.template ViewFor<ClockView>()
+        .template Load<ClockField::kClock, domain::SimClock>(0);
+  }
+
   // The built sim's context, for a call that needs one; throws before
   // Init().
   const algorithms::RegisteredSimContext& Context(const char* caller) const {
@@ -268,8 +246,6 @@ class Simulation {
   std::optional<Allocator::State> state_;
   domain::archetype::ArchetypeSet archetypes_;
   std::uint64_t seed_ = 0;
-  double time_ = 0.0;
-  std::uint64_t step_count_ = 0;
   std::optional<render::SceneRenderer> renderer_;
   algorithms::IntegratorStepFn integrator_step_ =
       algorithms::StepFnFor(Integrator::kSemiImplicitEuler);

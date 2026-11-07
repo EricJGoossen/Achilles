@@ -14,6 +14,7 @@
 
 #include "algorithms/aba/aba_data.hpp"
 #include "algorithms/aba/aba_step.hpp"
+#include "algorithms/attachment/attachment_step.hpp"
 #include "algorithms/broad_phase/broad_phase_step.hpp"
 #include "algorithms/contact_solver/contact_solver_step.hpp"
 #include "algorithms/conventions.hpp"
@@ -21,11 +22,9 @@
 #include "algorithms/joint_limit/joint_limit_step.hpp"
 #include "algorithms/narrow_phase/narrow_phase_step.hpp"
 #include "algorithms/registry.hpp"
-#include "algorithms/sensing/sensing_step.hpp"
 #include "algorithms/sim_config.hpp"
 #include "domain/archetype/archetype_set.hpp"
 #include "engine/memory/sim_allocator.hpp"
-#include "interface/actuator_handle.hpp"
 #include "interface/archetype_loader.hpp"
 #include "support/registered_sim.hpp"
 #include "support/temp_dir.hpp"
@@ -63,7 +62,6 @@ using achilles::algorithms::aba::ABAAlgorithm;
 using achilles::algorithms::aba::ABAField;
 using achilles::algorithms::aba::ABAStep;
 using achilles::algorithms::aba::SwapTorqueStep;
-using achilles::interface::AngularActuator;
 using achilles::interface::LoadArchetypes;
 using achilles::test_support::TempDir;
 using achilles::util::TypeList;
@@ -133,11 +131,9 @@ Sim MakeSim(
   std::filesystem::path file =
       dir.Write("joint.arow", RevoluteZArow(inertia, q0, qd0));
   return {
-      Allocator::Build(
-          achilles::domain::archetype::ArchetypeSet(
-              LoadArchetypes(file.string())
-          )
-      ),
+      Allocator::Build(achilles::domain::archetype::ArchetypeSet(
+          LoadArchetypes(file.string())
+      )),
       config,
       tau0
   };
@@ -163,7 +159,11 @@ void ApplyTorque(const Sim& sim) {
       sim.state.context
           .LayoutFor<achilles::engine::topology::TopologicalOrdering>()
           .ToSorted(0, 0);
-  AngularActuator::Find(sim.state.context, row, {0, 0, 1}).Apply(sim.torque);
+  // The joint's one coordinate, straight into the torque the next tick reads:
+  // this joint has no declared actuators.
+  sim.state.context.ViewFor<ABAAlgorithm>()
+      .WriteSlot<ABAField::kJointTorqueNext>(row, 0)
+      .Add(sim.torque);
 }
 
 void StepTicks(
@@ -453,14 +453,14 @@ static_assert(std::is_same_v<
                   achilles::algorithms::joint_limit::JointLimitStep>>);
 
 // Setup is mj_setConst: ABA at the initial pose, then the solver's inverse
-// weights from its factors -- then every sensor kind's InitStep.
+// weights from its factors -- then every sensor and actuator kind's InitStep.
 static_assert(std::is_same_v<
               achilles::algorithms::Setup,
               achilles::util::ConcatT<
                   TypeList<
                       ABAStep,
                       achilles::algorithms::contact_solver::InvWeightStep>,
-                  achilles::algorithms::sensing::SensingSetup>>);
+                  achilles::algorithms::attachment::AttachmentSetup>>);
 
 // A pendulum dropped from horizontal swings far past 0.5 rad free (see
 // IntegratorPendulum above); with an upper limit at 0.5 rad, semi-implicit

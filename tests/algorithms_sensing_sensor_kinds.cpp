@@ -14,12 +14,12 @@
 #include "algorithms/aba/aba_data.hpp"
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
-#include "algorithms/sensing/accelerometer.hpp"
-#include "algorithms/sensing/encoder.hpp"
-#include "algorithms/sensing/gyroscope.hpp"
-#include "algorithms/sensing/lidar.hpp"
-#include "algorithms/sensing/magnetometer.hpp"
-#include "algorithms/sensing/truth_sensor.hpp"
+#include "domain/sensing/accelerometer.hpp"
+#include "domain/sensing/encoder.hpp"
+#include "domain/sensing/gyroscope.hpp"
+#include "domain/sensing/lidar.hpp"
+#include "domain/sensing/magnetometer.hpp"
+#include "domain/sensing/truth_sensor.hpp"
 #include "engine/topology/orderings.hpp"
 #include "interface/simulation.hpp"
 #include "support/joint_row.hpp"
@@ -29,12 +29,11 @@
 using achilles::algorithms::ScalarOperationT;
 using achilles::algorithms::aba::ABAAlgorithm;
 using achilles::algorithms::aba::ABAField;
-using achilles::algorithms::sensing::Accelerometer;
-using achilles::algorithms::sensing::Encoder;
-using achilles::algorithms::sensing::Gyroscope;
-using achilles::algorithms::sensing::Lidar;
-using achilles::algorithms::sensing::Magnetometer;
-using achilles::algorithms::sensing::TruthOf;
+using achilles::domain::sensing::Accelerometer;
+using achilles::domain::sensing::Encoder;
+using achilles::domain::sensing::Gyroscope;
+using achilles::domain::sensing::Lidar;
+using achilles::domain::sensing::Magnetometer;
 using achilles::engine::topology::TopologicalOrdering;
 using achilles::interface::Simulation;
 using achilles::test_support::Archetype;
@@ -193,7 +192,7 @@ TEST_F(Spinner, AMagnetometerReadsTheWorldFieldTurnedIntoTheBody) {
 
 TEST_F(Spinner, ATruthSensorReadsTheFieldExactly) {
   Steps(sim_, 50);
-  using Truth = TruthOf<ABAAlgorithm, ABAField::kWorldTransform>;
+  using Truth = achilles::domain::sensing::truth::WorldTransform;
   const auto reading = sim_.Sensor<Truth>("truth").Read();
   const std::size_t row = JointRow(sim_, {"scene", "spinner"});
   const auto pose = sim_.Context()

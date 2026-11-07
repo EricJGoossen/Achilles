@@ -8,17 +8,17 @@
 #include <string>
 #include <vector>
 
-#include "algorithms/sensing/encoder.hpp"
-#include "algorithms/sensing/gyroscope.hpp"
-#include "algorithms/sensing/sensor.hpp"
-#include "interface/sensor_handle.hpp"
+#include "domain/attachment/attachment_kind.hpp"
+#include "domain/sensing/encoder.hpp"
+#include "domain/sensing/gyroscope.hpp"
+#include "interface/attachment_handle.hpp"
 #include "interface/simulation.hpp"
 #include "support/sensing_scene.hpp"
 #include "support/temp_dir.hpp"
 
-using achilles::algorithms::sensing::Encoder;
-using achilles::algorithms::sensing::Gyroscope;
-using achilles::algorithms::sensing::SensorOptions;
+using achilles::domain::sensing::AttachmentOptions;
+using achilles::domain::sensing::Encoder;
+using achilles::domain::sensing::Gyroscope;
 using achilles::interface::Simulation;
 using achilles::test_support::Archetype;
 using achilles::test_support::kZUpConfig;
@@ -137,7 +137,7 @@ TEST_F(Arms, SetConfigReplacesASensorsSettings) {
   Steps(sim, 2);
   EXPECT_NEAR(handle.Read().value.Z(), 1.5F, 1e-4F);
 
-  handle.SetConfig(Gyroscope(SensorOptions{}, Gyroscope::Params{}));
+  handle.SetConfig(Gyroscope(AttachmentOptions{}, Gyroscope::Params{}));
   Steps(sim, 2);
   EXPECT_NEAR(handle.Read().value.Z(), 1.0F, 1e-4F);
   // Only that instance.

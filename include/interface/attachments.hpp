@@ -6,11 +6,10 @@
 #include <string>
 #include <string_view>
 
-#include "algorithms/sensing/sensor_kinds.hpp"
+#include "algorithms/attachment_kinds/attachment_kinds.hpp"
 #include "domain/joint_data.hpp"
 #include "engine/pass/sim_context.hpp"
-#include "interface/actuator_handle.hpp"
-#include "interface/sensor_handle.hpp"
+#include "interface/attachment_handle.hpp"
 #include "util/tmp.hpp"
 
 // Turns what the .arow says about a scene's sensors and actuators into the
@@ -20,9 +19,8 @@ namespace achilles::interface {
 
 namespace detail {
 
-using AttachmentHandles = util::ConcatT<
-    util::TransformT<SensorHandle, algorithms::sensing::SensorKinds>,
-    ActuatorKinds>;
+using AttachmentHandles =
+    util::TransformT<AttachmentHandle, algorithms::attachment::AttachmentKinds>;
 
 // Calls fn.template operator()<H>() for the handle whose kind is named
 // `kind`; false if none is.
@@ -41,7 +39,7 @@ bool WithKindNamed(
 
 // Configures every attachment of `archetypes`, each with its own random
 // stream drawn from `seed`. Run once the sim is allocated and before its Setup
-// list (whose InitStep seeds each sensor's state from its configuration).
+// list (whose InitSteps seed each attachment's state from its configuration).
 // Throws std::invalid_argument for an attachment of no registered kind, and
 // whatever its own Configure throws.
 template <engine::pass::SimContextLike SimStateT, typename Archetypes>

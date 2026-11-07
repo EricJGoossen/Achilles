@@ -44,20 +44,19 @@
 
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
-#include "algorithms/sensing/encoder.hpp"
-#include "algorithms/sensing/gyroscope.hpp"
-#include "algorithms/sensing/lidar.hpp"
-#include "interface/actuator_handle.hpp"
-#include "interface/sensor_handle.hpp"
+#include "domain/sensing/encoder.hpp"
+#include "domain/sensing/gyroscope.hpp"
+#include "domain/sensing/lidar.hpp"
+#include "interface/attachment_handle.hpp"
 #include "interface/simulation.hpp"
 
 namespace {
 
 using achilles::algorithms::ScalarOperationT;
-using achilles::algorithms::sensing::Encoder;
-using achilles::algorithms::sensing::Gyroscope;
-using achilles::algorithms::sensing::Lidar;
-using achilles::algorithms::sensing::LidarScan;
+using achilles::domain::sensing::Encoder;
+using achilles::domain::sensing::Gyroscope;
+using achilles::domain::sensing::Lidar;
+using achilles::domain::sensing::LidarScan;
 using achilles::interface::AngularActuator;
 using achilles::interface::SensorHandle;
 using achilles::interface::Simulation;
@@ -159,7 +158,7 @@ class Wheel {
  private:
   AngularActuator motor_;
   SensorHandle<Encoder> encoder_;
-  achilles::algorithms::sensing::EncoderReading reading_;
+  achilles::domain::sensing::EncoderReading reading_;
   float integral_ = 0.0F;
 };
 
@@ -501,7 +500,7 @@ class Navigator {
  private:
   static Wheel AttachWheel(const Simulation& sim, const std::string& name) {
     return {
-        sim.Actuator<AngularActuator>(name + "_motor"),
+        sim.Actuator<truth::Torque>(name + "_motor"),
         sim.Sensor<Encoder>(name + "_encoder")
     };
   }

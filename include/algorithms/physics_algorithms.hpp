@@ -2,6 +2,7 @@
 
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/broad_phase/broad_phase_step.hpp"
+#include "algorithms/clock/clock_step.hpp"
 #include "algorithms/contact_solver/contact_solver_step.hpp"
 #include "algorithms/joint_limit/joint_limit_step.hpp"
 #include "algorithms/midpoint/midpoint_step.hpp"
@@ -16,7 +17,7 @@
 namespace achilles::algorithms {
 
 // Every physics Algorithm the engine hosts, registered once here --
-// everything but sensing, which reads them. registry.hpp appends sensing
+// everything but the attachments, which read them. registry.hpp appends those
 // to make RegisteredAlgorithms, the list SimAllocator carves -- so nothing
 // else ever has to restate this pack. Adding a new physics algorithm to the
 // sim is one line here.
@@ -50,6 +51,7 @@ using PhysicsAlgorithms = util::TypeList<
     verlet::VerletAlgorithm,
     midpoint::MidpointAlgorithm,
     rk4::RK4Algorithm,
-    viz::VizAlgorithm>;
+    viz::VizAlgorithm,
+    clock::ClockAlgorithm>;
 
 }  // namespace achilles::algorithms

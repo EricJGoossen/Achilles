@@ -2,13 +2,12 @@
 
 #include <string_view>
 
-#include "algorithms/aba/aba_step.hpp"
-#include "algorithms/sensing/sensor.hpp"
+#include "domain/error/effects.hpp"
 #include "domain/random/counter_rng.hpp"
-#include "domain/sensing/effects.hpp"
+#include "domain/sensing/sensor.hpp"
 #include "domain/spatial/transform.hpp"
 
-namespace achilles::algorithms::sensing {
+namespace achilles::domain::sensing {
 
 // A three-axis rate gyroscope: the body's angular velocity (rad/s), in the
 // sensor's axes. Angular velocity is the same everywhere on a rigid body,
@@ -16,17 +15,14 @@ namespace achilles::algorithms::sensing {
 // error model carries the usual gyro terms: turn-on bias, scale error, rate
 // random walk (bias instability), angle random walk (noise density), range and
 // resolution.
-class Gyroscope
-    : public Sensor<
-          Gyroscope,
-          SimInputs<
-              SimInput<aba::ABAAlgorithm, aba::ABAField::kSpatialVelocity>>,
-          domain::sensing::ErrorChain<domain::sensing::Vec3>::State,
-          domain::sensing::Vec3> {
+class Gyroscope : public Sensor<
+                      Gyroscope,
+                      SimInputs<input::SpatialVelocity>,
+                      domain::error::ErrorChain<domain::error::Vec3>::State,
+                      domain::error::Vec3> {
  public:
-  using ErrorModel = domain::sensing::ErrorChain<domain::sensing::Vec3>;
-  using Velocity =
-      InputValueT<SimInput<aba::ABAAlgorithm, aba::ABAField::kSpatialVelocity>>;
+  using ErrorModel = domain::error::ErrorChain<domain::error::Vec3>;
+  using Velocity = input::SpatialVelocity::Value;
 
   static constexpr std::string_view kListName = "gyroscope";
 
@@ -38,27 +34,27 @@ class Gyroscope
   };
 
   Gyroscope() = default;
-  Gyroscope(SensorOptions options, const Params& params)
+  Gyroscope(AttachmentOptions options, const Params& params)
       : Sensor(options), params_(params) {}
 
   // Settings: period, mount (a pose in the body's frame, identity when
   // absent), and the error model's (see AttachmentConfig::ErrorModel).
   static Gyroscope FromConfig(AttachmentConfig& config) {
-    const SensorOptions options = config.Options();
+    const AttachmentOptions options = config.Options();
     return Gyroscope(
         options,
         Params{
-            config.Pose("mount", {}).Inverse(),
-            config.ErrorModel<domain::sensing::Vec3>()
+            config.BodyFromSensor().Inverse(),
+            config.ErrorModel<domain::error::Vec3>()
         }
     );
   }
 
   void Read(
-      const SensorTick& tick,
+      const AttachmentTick& tick,
       const Velocity& velocity,
       ErrorModel::State* error,
-      domain::sensing::Vec3* out
+      domain::error::Vec3* out
   ) const {
     domain::random::CounterRng rng(tick.stream, tick.tick);
     *out = ErrorModel::Apply(
@@ -74,4 +70,4 @@ class Gyroscope
   Params params_;
 };
 
-}  // namespace achilles::algorithms::sensing
+}  // namespace achilles::domain::sensing
