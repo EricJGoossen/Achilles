@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-#include "domain/archetype/archetype.hpp"
+#include "domain/joint_data.hpp"
 #include "domain/joint_layout.hpp"
 #include "domain/joint_topology.hpp"
 #include "engine/topology/ordering_plan.hpp"

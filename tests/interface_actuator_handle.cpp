@@ -17,6 +17,7 @@
 #include "algorithms/sim_config.hpp"
 #include "domain/archetype/archetype.hpp"
 #include "domain/archetype/archetype_set.hpp"
+#include "domain/joint_data.hpp"
 #include "domain/math/vector3.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/orderings.hpp"
@@ -248,6 +249,54 @@ TEST(ActuatorHandle, ThrowsOnAZeroAxis) {
   EXPECT_THROW(
       MakeSim(MakeJoint({kYaw}, {Angular({0, 0, 0})})), std::invalid_argument
   );
+}
+
+// What's thrown for any bad attachment names it, whatever the kind rejected.
+TEST(ActuatorHandle, ErrorsNameTheActuator) {
+  const auto message = [](Archetype archetype) {
+    try {
+      (void)MakeSim(std::move(archetype));
+    } catch (const std::invalid_argument& e) {
+      return std::string(e.what());
+    }
+    return std::string();
+  };
+  EXPECT_NE(
+      message(MakeJoint({kYaw}, {Angular({0, 0, 0})})).find("'actuator_0'"),
+      std::string::npos
+  );
+
+  Archetype misspelled = MakeJoint({kYaw}, {Angular({0, 0, 1})});
+  misspelled.attachments[0].config.emplace_back(
+      "nope", std::vector<double>{1.0}
+  );
+  EXPECT_NE(
+      message(std::move(misspelled)).find("actuator 'actuator_0': unknown"),
+      std::string::npos
+  );
+
+  Archetype bad_motor = MakeJoint({kYaw}, {Mount{"dc_motor", {0, 0, 1}}});
+  EXPECT_NE(
+      message(std::move(bad_motor)).find("actuator 'actuator_0': DcMotor"),
+      std::string::npos
+  );
+}
+
+// A truth actuator is exact, so it takes no error settings.
+TEST(ActuatorHandle, ATruthActuatorRejectsErrorSettings) {
+  Archetype archetype = MakeJoint({kYaw}, {Angular({0, 0, 1})});
+  archetype.attachments[0].config.emplace_back(
+      "bias", std::vector<double>{1.0}
+  );
+  EXPECT_THROW(MakeSim(std::move(archetype)), std::invalid_argument);
+}
+
+// A truth effort lasts its tick: the next one starts from nothing.
+TEST(ActuatorHandle, AnEffortIsUsedUpByItsTick) {
+  SimPtr sim = MakeSim(MakeJoint({kYaw}, {Angular({0, 0, 1})}));
+  Torqued(sim).Apply(3.0F);
+  ExpectTorqueEq(NextTickTorque(sim), {3.0F, 0, 0, 0, 0, 0});
+  ExpectTorqueEq(NextTickTorque(sim), {});
 }
 
 // Applies within one tick accumulate -- from one actuator, from a copy of

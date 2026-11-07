@@ -5,8 +5,11 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <stdexcept>
 
 #include "domain/actuation/dc_motor.hpp"
+#include "domain/attachment/attachment.hpp"
+#include "domain/math/vector3.hpp"
 #include "interface/simulation.hpp"
 #include "support/shaft_scene.hpp"
 #include "support/temp_dir.hpp"
@@ -38,11 +41,13 @@ DcMotor::Params TestMotor() {
   return params;
 }
 
+const achilles::domain::math::Vector3<float> kAxis(0.0F, 0.0F, 1.0F);
+
 // One update of a motor on a joint that yaws, at joint speed `omega`.
 DcMotorOutput Spin(
     const DcMotor::Params& params, DcMotorCommand command, float omega
 ) {
-  const DcMotor motor(AttachmentOptions{}, {0.0F, 0.0F, 1.0F}, params);
+  const DcMotor motor(AttachmentOptions{}, kAxis, params);
   DcMotor::Subspace subspace{};
   subspace(2, 0) = 1.0F;
   const DcMotor::Velocity qd(omega, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F);
@@ -78,6 +83,17 @@ TEST(Motor, BackEmfLimitsCurrentTowardFreeSpeed) {
   EXPECT_NEAR(Spin(TestMotor(), command, 8.0F).effort, 0.0F, 1e-4F);
 }
 
+// Past free speed the back-EMF would drive more current than the driver allows
+// -- 30 V against 24 here, -30 A -- but it's still held to the limit.
+TEST(Motor, PastFreeSpeedCurrentIsStillHeldToTheLimit) {
+  EXPECT_FLOAT_EQ(
+      Spin(TestMotor(), DcMotorCommand::Current(10.0F), 10.0F).current, -20.0F
+  );
+  EXPECT_FLOAT_EQ(
+      Spin(TestMotor(), DcMotorCommand::Current(-10.0F), -10.0F).current, 20.0F
+  );
+}
+
 // Voltage mode: the winding's own I = (V - Ke w) / R, within the limit.
 TEST(Motor, VoltageCommandSetsCurrentThroughTheWinding) {
   const auto command = DcMotorCommand::Voltage(12.0F);
@@ -85,6 +101,12 @@ TEST(Motor, VoltageCommandSetsCurrentThroughTheWinding) {
   EXPECT_NEAR(Spin(TestMotor(), command, 4.0F).current, 0.0F, 1e-4F);
   // Back-EMF 6 V: 30 A, limited.
   EXPECT_NEAR(Spin(TestMotor(), command, 2.0F).current, 20.0F, 1e-4F);
+}
+
+// A voltage past the bus is held to the bus: back-EMF 21 V leaves 3 V.
+TEST(Motor, VoltageIsHeldToTheBus) {
+  const auto out = Spin(TestMotor(), DcMotorCommand::Voltage(100.0F), 7.0F);
+  EXPECT_NEAR(out.current, 15.0F, 1e-3F);
 }
 
 // Back-driven, the gearbox loses nothing: the efficiency applies only when
@@ -106,6 +128,53 @@ TEST(Motor, FrictionOpposesMotion) {
   params.losses.coulomb.level = 0.1F;
   const float expected = -(0.01F * 10.0F + 0.1F * std::tanh(5.0F)) / 0.1F;
   EXPECT_NEAR(Spin(params, DcMotorCommand{}, 1.0F).effort, expected, 1e-4F);
+}
+
+// The error model acts on what reaches the joint, not the winding's current.
+TEST(Motor, ItsErrorModelActsOnTheJointTorque) {
+  DcMotor::Params params = TestMotor();
+  params.error.bias.bias = 1.0F;
+  const auto out = Spin(params, DcMotorCommand::Current(10.0F), 0.0F);
+  EXPECT_NEAR(out.effort, 27.0F + 1.0F, 1e-3F);
+  EXPECT_FLOAT_EQ(out.current, 10.0F);
+}
+
+TEST(Motor, ItsRangeLimitsTheJointTorque) {
+  DcMotor::Params params = TestMotor();
+  params.error.range.limit = 5.0F;
+  const auto out = Spin(params, DcMotorCommand::Current(10.0F), 0.0F);
+  EXPECT_FLOAT_EQ(out.effort, 5.0F);
+  EXPECT_FLOAT_EQ(out.current, 10.0F);
+}
+
+// A motor that can't turn, or whose math has no answer, is rejected up front.
+TEST(Motor, RejectsParamsItCantRunOn) {
+  const auto rejected = [](void (*change)(DcMotor::Params&)) {
+    DcMotor::Params params = TestMotor();
+    change(params);
+    EXPECT_THROW(
+        DcMotor(AttachmentOptions{}, kAxis, params), std::invalid_argument
+    );
+  };
+  rejected([](DcMotor::Params& p) { p.torque_constant = 0.0F; });
+  rejected([](DcMotor::Params& p) { p.bus_voltage = 0.0F; });
+  rejected([](DcMotor::Params& p) { p.max_current = 0.0F; });
+  rejected([](DcMotor::Params& p) { p.resistance = 0.0F; });
+  rejected([](DcMotor::Params& p) { p.gear_ratio = 0.0F; });
+  rejected([](DcMotor::Params& p) { p.losses.coulomb.smoothing = 0.0F; });
+  rejected([](DcMotor::Params& p) { p.losses.transmission.efficiency = 0.0F; });
+  rejected([](DcMotor::Params& p) { p.losses.transmission.efficiency = 1.5F; });
+  rejected([](DcMotor::Params& p) { p.back_emf_constant = -1.0F; });
+  rejected([](DcMotor::Params& p) { p.losses.viscous.coefficient = -1.0F; });
+  rejected([](DcMotor::Params& p) { p.losses.coulomb.level = -1.0F; });
+}
+
+// No back-EMF constant means no free speed: the bus only limits the stall.
+TEST(Motor, WithoutBackEmfThereIsNoFreeSpeed) {
+  DcMotor::Params params = TestMotor();
+  params.back_emf_constant = 0.0F;
+  const auto out = Spin(params, DcMotorCommand::Current(10.0F), 1000.0F);
+  EXPECT_FLOAT_EQ(out.current, 10.0F);
 }
 
 // A dc_motor actuator reaches the joint: the sim runs the motor, and the shaft

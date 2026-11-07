@@ -183,7 +183,7 @@ TEST_F(Spinner, AnAccelerometerOffTheAxisReadsCentripetalPlusSupport) {
 TEST_F(Spinner, AMagnetometerReadsTheWorldFieldTurnedIntoTheBody) {
   Steps(sim_, 300);
   const auto reading = sim_.Sensor<Magnetometer>("mag").Read();
-  const float angle = kSpin * reading.sample_time;
+  const auto angle = static_cast<float>(kSpin * reading.sample_time);
   // The default field, (0.2, 0, -0.45), seen from a body turned `angle`.
   EXPECT_NEAR(reading.value.X(), 0.2F * std::cos(angle), 1e-3F);
   EXPECT_NEAR(reading.value.Y(), -0.2F * std::sin(angle), 1e-3F);

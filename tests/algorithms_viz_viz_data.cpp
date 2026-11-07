@@ -13,6 +13,7 @@
 #include "algorithms/viz/viz_step.hpp"
 #include "domain/archetype/archetype.hpp"
 #include "domain/archetype/archetype_set.hpp"
+#include "domain/joint_data.hpp"
 #include "domain/joint_layout.hpp"
 #include "domain/math/quaternion.hpp"
 #include "domain/math/vector3.hpp"
@@ -41,9 +42,9 @@
 
 using namespace achilles::algorithms;
 using namespace achilles::algorithms::viz;
-using achilles::domain::archetype::Archetype;
 using achilles::domain::JointField;
 using achilles::domain::JointRef;
+using achilles::domain::archetype::Archetype;
 using achilles::engine::memory::SimAllocator;
 using achilles::engine::topology::TopologicalOrdering;
 using achilles::test_support::DOF0ActiveMask;

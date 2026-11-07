@@ -36,8 +36,14 @@ using domain::JointAddress;
 // with: sim.Sensor<truth::WorldTransform>(...),
 // sim.Actuator<truth::Torque>(...).
 namespace truth {
-using namespace domain::sensing::truth;
-using namespace domain::actuation::truth;
+using domain::actuation::truth::Force;
+using domain::actuation::truth::Torque;
+using domain::sensing::truth::JointAcceleration;
+using domain::sensing::truth::JointPosition;
+using domain::sensing::truth::JointVelocity;
+using domain::sensing::truth::SpatialAcceleration;
+using domain::sensing::truth::SpatialVelocity;
+using domain::sensing::truth::WorldTransform;
 }  // namespace truth
 
 class Simulation {

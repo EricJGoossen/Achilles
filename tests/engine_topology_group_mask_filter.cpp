@@ -5,12 +5,13 @@
 #include <vector>
 
 #include "domain/archetype/archetype.hpp"
+#include "domain/joint_data.hpp"
 #include "engine/topology/group_mask_filter.hpp"
 #include "engine/topology/orderings.hpp"
 
-using achilles::domain::archetype::Archetype;
 using achilles::domain::JointField;
 using achilles::domain::JointRef;
+using achilles::domain::archetype::Archetype;
 using achilles::engine::topology::GroupMaskFilter;
 using achilles::engine::topology::PairFilterLike;
 
@@ -35,7 +36,7 @@ struct ThreeJoints {
   };
 
   Archetype Tree() const {
-    return Archetype("joints", tree_structure, root_parents, true, fields);
+    return {"joints", tree_structure, root_parents, true, fields};
   }
 };
 

@@ -30,7 +30,9 @@ struct AdvanceClockOp {
       ArgData{ClockField::kClock, ArgIndex::kTarget},
   };
 
-  void operator()(domain::SimClock* clock) const { clock->Advance(dt_); }
+  void operator()(domain::SimClock* clock) const {
+    domain::Advance(clock, dt_);
+  }
 
  private:
   ScalarOperationT dt_;

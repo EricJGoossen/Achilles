@@ -14,6 +14,7 @@
 #include "algorithms/verlet/verlet_step.hpp"
 #include "domain/archetype/archetype.hpp"
 #include "domain/archetype/archetype_set.hpp"
+#include "domain/joint_data.hpp"
 #include "domain/joint_layout.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/orderings.hpp"
@@ -34,8 +35,8 @@
 
 using namespace achilles::algorithms;
 using namespace achilles::algorithms::verlet;
-using achilles::domain::archetype::Archetype;
 using achilles::domain::JointRef;
+using achilles::domain::archetype::Archetype;
 using achilles::engine::memory::SimAllocator;
 using achilles::engine::topology::TopologicalOrdering;
 
@@ -61,8 +62,9 @@ SimAllocator<VerletAlgorithm> MakeSim(std::size_t instance_count) {
   std::array<Archetype, 1> archetypes = {Archetype(
       "joints", {achilles::domain::kNoParent}, std::move(root_parents), true, {}
   )};
-  return SimAllocator<VerletAlgorithm>(achilles::domain::archetype::ArchetypeSet(archetypes
-  ));
+  return SimAllocator<VerletAlgorithm>(
+      achilles::domain::archetype::ArchetypeSet(archetypes)
+  );
 }
 
 std::size_t BatchGroup(

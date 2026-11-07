@@ -51,9 +51,9 @@
 #include "domain/joint_topology.hpp"
 #include "domain/math/vector3.hpp"
 #include "engine/topology/orderings.hpp"
+#include "interface/sim_config_loader.hpp"
 #include "interface/simulation.hpp"
 #include "support/temp_dir.hpp"
-#include "util/tmp.hpp"
 
 using achilles::algorithms::MathematicalT;
 using achilles::algorithms::ScalarOperationT;

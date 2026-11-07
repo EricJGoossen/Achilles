@@ -18,6 +18,7 @@
 #include "algorithms/aba/aba_data.hpp"
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
+#include "domain/actuation/truth_actuator.hpp"
 #include "engine/topology/orderings.hpp"
 #include "interface/attachment_handle.hpp"
 #include "interface/simulation.hpp"

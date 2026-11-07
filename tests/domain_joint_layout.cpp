@@ -4,7 +4,7 @@
 #include <span>
 #include <vector>
 
-#include "domain/archetype/archetype.hpp"
+#include "domain/joint_data.hpp"
 #include "domain/joint_layout.hpp"
 
 using achilles::domain::JointLayout;

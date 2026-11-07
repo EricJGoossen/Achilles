@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "domain/archetype/archetype.hpp"
+#include "domain/joint_data.hpp"
 #include "domain/joint_layout.hpp"
 #include "domain/joint_topology.hpp"
 #include "engine/pass/row_policies.hpp"
@@ -282,7 +283,9 @@ std::vector<size_t> MakeGroupedParents(
 
 TEST(TreeTraversalStride, ForwardDividesRawRowsIntoGroupsAtLaneFour) {
   constexpr size_t kStride = 4;
-  TopologyArchetype topology{MakeGroupedParents(2, kStride, /*base_parent_group=*/10)};
+  TopologyArchetype topology{
+      MakeGroupedParents(2, kStride, /*base_parent_group=*/10)
+  };
   std::vector<std::pair<size_t, size_t>> calls;
 
   TreeTraversal<Direction::kForward, kStride>::Apply(
@@ -297,7 +300,9 @@ TEST(TreeTraversalStride, ForwardDividesRawRowsIntoGroupsAtLaneFour) {
 
 TEST(TreeTraversalStride, ForwardDividesRawRowsIntoGroupsAtLaneEight) {
   constexpr size_t kStride = 8;
-  TopologyArchetype topology{MakeGroupedParents(3, kStride, /*base_parent_group=*/99)};
+  TopologyArchetype topology{
+      MakeGroupedParents(3, kStride, /*base_parent_group=*/99)
+  };
   std::vector<std::pair<size_t, size_t>> calls;
 
   TreeTraversal<Direction::kForward, kStride>::Apply(
@@ -313,7 +318,9 @@ TEST(TreeTraversalStride, ForwardDividesRawRowsIntoGroupsAtLaneEight) {
 
 TEST(TreeTraversalStride, ForwardDividesRawRowsIntoGroupsAtLaneThirtyTwo) {
   constexpr size_t kStride = 32;
-  TopologyArchetype topology{MakeGroupedParents(2, kStride, /*base_parent_group=*/5)};
+  TopologyArchetype topology{
+      MakeGroupedParents(2, kStride, /*base_parent_group=*/5)
+  };
   std::vector<std::pair<size_t, size_t>> calls;
 
   TreeTraversal<Direction::kForward, kStride>::Apply(
@@ -330,7 +337,9 @@ TEST(TreeTraversalStride, ForwardDividesRawRowsIntoGroupsAtLaneThirtyTwo) {
 // once Stride > 1 groups (rather than raw rows) are what's being reversed.
 TEST(TreeTraversalStride, BackwardVisitsGroupsInReverseOrder) {
   constexpr size_t kStride = 8;
-  TopologyArchetype topology{MakeGroupedParents(3, kStride, /*base_parent_group=*/99)};
+  TopologyArchetype topology{
+      MakeGroupedParents(3, kStride, /*base_parent_group=*/99)
+  };
   std::vector<std::pair<size_t, size_t>> calls;
 
   TreeTraversal<Direction::kBackward, kStride>::Apply(
@@ -348,7 +357,9 @@ TEST(TreeTraversalStride, BackwardVisitsGroupsInReverseOrder) {
 // too, the same as every real Apply step's own parent value.
 TEST(TreeTraversalStride, InitOpDividesRawRowByStride) {
   constexpr size_t kStride = 4;
-  TopologyArchetype topology{MakeGroupedParents(2, kStride, /*base_parent_group=*/10)};
+  TopologyArchetype topology{
+      MakeGroupedParents(2, kStride, /*base_parent_group=*/10)
+  };
 
   size_t seen = 999;
   TreeTraversal<Direction::kForward, kStride>::InitOp(
@@ -400,7 +411,9 @@ TEST(GlobalTraversalApply, CallsOnceAtZeroWhateverTheTopology) {
     std::vector<std::pair<size_t, size_t>> visits;
     TopologyArchetype topology{std::vector<size_t>(size, 0)};
     GlobalTraversal::Apply(
-        [&](size_t target, size_t source) { visits.emplace_back(target, source); },
+        [&](size_t target, size_t source) {
+          visits.emplace_back(target, source);
+        },
         topology
     );
     ASSERT_EQ(visits.size(), 1U);

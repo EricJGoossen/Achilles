@@ -8,11 +8,12 @@
 
 #include "domain/archetype/archetype.hpp"
 #include "domain/archetype/archetype_set.hpp"
+#include "domain/joint_data.hpp"
 
-using achilles::domain::archetype::Archetype;
-using achilles::domain::archetype::ArchetypeSet;
 using achilles::domain::JointField;
 using achilles::domain::JointRef;
+using achilles::domain::archetype::Archetype;
+using achilles::domain::archetype::ArchetypeSet;
 
 namespace {
 

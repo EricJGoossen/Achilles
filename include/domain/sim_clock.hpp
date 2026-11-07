@@ -13,11 +13,12 @@ namespace achilles::domain {
 struct SimClock {
   double time = 0.0;
   std::uint64_t tick = 0;
-
-  void Advance(float dt) {
-    time += static_cast<double>(dt);
-    ++tick;
-  }
 };
+
+// One tick of `dt` has passed.
+inline void Advance(SimClock* clock, float dt) {
+  clock->time += static_cast<double>(dt);
+  ++clock->tick;
+}
 
 }  // namespace achilles::domain

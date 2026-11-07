@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 #include "interface/simulation.hpp"
@@ -11,13 +12,14 @@ namespace achilles::test_support {
 // One body (1 kg, 0.1 kg m^2 about each axis) on a joint that only yaws --
 // a motor's shaft, for the actuator model tests -- with a joint_velocity
 // truth sensor and a yaw actuator (shaft_motor) of `kind` on it, loaded and
-// initialized. `settings` is the rest of its config: block, each line indented
-// and newline-terminated.
+// initialized with `seed`. `settings` is the rest of its config: block, each
+// line indented and newline-terminated.
 inline bool LoadShaft(
     const TempDir& dir,
     interface::Simulation& sim,
     const std::string& kind,
-    const std::string& settings
+    const std::string& settings,
+    std::uint64_t seed = 1
 ) {
   dir.Write(
       "shaft_rate.arow",
@@ -38,7 +40,7 @@ inline bool LoadShaft(
           {"shaft_rate.arow", "shaft_motor.arow"}
       )
   );
-  return sim.LoadArowFile(file.string()) && sim.Init(1);
+  return sim.LoadArowFile(file.string()) && sim.Init(seed);
 }
 
 // The shaft's rate, from its truth sensor.

@@ -23,6 +23,8 @@
 #include <utility>
 
 #include "algorithms/conventions.hpp"
+#include "domain/actuation/truth_actuator.hpp"
+#include "domain/sensing/truth_sensor.hpp"
 #include "interface/attachment_handle.hpp"
 #include "interface/simulation.hpp"
 
@@ -67,7 +69,7 @@ constexpr std::array<std::array<float, 2>, 8> kWaypoints = {{
 class WheelMotor {
  public:
   WheelMotor(AngularActuator motor, SensorHandle<truth::JointVelocity> speed)
-      : motor_(std::move(motor)), speed_(speed) {}
+      : motor_(motor), speed_(speed) {}
 
   // The wheel's spin rate about its axle: its joint velocity's one
   // coordinate.

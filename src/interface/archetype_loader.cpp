@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "domain/archetype/archetype.hpp"
+#include "domain/joint_data.hpp"
 #include "util/yaml.hpp"
 
 // -- .arow format --

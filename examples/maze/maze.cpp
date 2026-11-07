@@ -42,11 +42,12 @@
 #include <utility>
 #include <vector>
 
-#include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
+#include "domain/actuation/truth_actuator.hpp"
 #include "domain/sensing/encoder.hpp"
 #include "domain/sensing/gyroscope.hpp"
 #include "domain/sensing/lidar.hpp"
+#include "domain/sensing/truth_sensor.hpp"
 #include "interface/attachment_handle.hpp"
 #include "interface/simulation.hpp"
 
@@ -136,7 +137,7 @@ struct Pose {
 class Wheel {
  public:
   Wheel(AngularActuator motor, SensorHandle<Encoder> encoder)
-      : motor_(std::move(motor)), encoder_(encoder) {}
+      : motor_(motor), encoder_(encoder) {}
 
   // Reads the encoder; call once per tick, before Drive and Angle.
   void Sense() { reading_ = encoder_.Read().value; }
@@ -458,7 +459,7 @@ class Navigator {
   // One control tick: read every sensor (as of the last Step), update the
   // pose estimate, and on a new scan the map and plan; then command the
   // wheels for the next Step.
-  void Tick(const Simulation& sim, float time, float dt) {
+  void Tick(float time, float dt) {
     float wheel_angle = 0.0F;
     for (Wheel& wheel : wheels_) {
       wheel.Sense();
@@ -591,7 +592,7 @@ int Run(const Args& args) {
   float sim_time = 0.0F;
   float next_report = 0.0F;
   auto tick = [&] {
-    navigator.Tick(sim, sim_time, kDt);
+    navigator.Tick(sim_time, kDt);
     bool ok = sim.Step(kDt);
     sim_time += kDt;
     if (args.headless && sim_time >= next_report) {

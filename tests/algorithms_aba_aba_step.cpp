@@ -11,6 +11,7 @@
 #include "algorithms/sim_config.hpp"
 #include "domain/archetype/archetype.hpp"
 #include "domain/archetype/archetype_set.hpp"
+#include "domain/joint_data.hpp"
 #include "domain/joint_layout.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/orderings.hpp"
@@ -36,8 +37,8 @@
 
 using namespace achilles::algorithms;
 using namespace achilles::algorithms::aba;
-using achilles::domain::archetype::Archetype;
 using achilles::domain::JointRef;
+using achilles::domain::archetype::Archetype;
 using achilles::engine::memory::SimAllocator;
 using achilles::engine::topology::TopologicalOrdering;
 using achilles::test_support::AbaInertiaOutputs;
@@ -78,7 +79,9 @@ SimAllocator<ABAAlgorithm> MakeSim(std::vector<std::size_t> tree_structure) {
   std::array<Archetype, 1> archetypes = {Archetype(
       "chain", std::move(tree_structure), std::move(root_parents), true, {}
   )};
-  return SimAllocator<ABAAlgorithm>(achilles::domain::archetype::ArchetypeSet(archetypes));
+  return SimAllocator<ABAAlgorithm>(
+      achilles::domain::archetype::ArchetypeSet(archetypes)
+  );
 }
 
 std::size_t BatchGroup(
@@ -105,8 +108,7 @@ void PopulateRevoluteZJoint(
   // twist and exponentiate it, the same way IntegratePositionOp
   // (pi_ops.hpp) builds/maintains this field in a real simulation loop.
   Vector6 q_coords(q0, B(0.0F), B(0.0F), B(0.0F), B(0.0F), B(0.0F));
-  Transform x_joint =
-      Transform::Exp(Velocity(RevoluteZSubspace() * q_coords));
+  Transform x_joint = Transform::Exp(Velocity(RevoluteZSubspace() * q_coords));
   view.Store<ABAField::kJointPosition, B>(group, x_joint);
   view.Store<ABAField::kJointVelocity, B>(group, qd);
   view.Store<ABAField::kJointTorque, B>(group, tau);

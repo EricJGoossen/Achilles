@@ -25,6 +25,7 @@
 #include "algorithms/sim_config.hpp"
 #include "domain/archetype/archetype_set.hpp"
 #include "engine/memory/sim_allocator.hpp"
+#include "engine/topology/orderings.hpp"
 #include "interface/archetype_loader.hpp"
 #include "support/registered_sim.hpp"
 #include "support/temp_dir.hpp"

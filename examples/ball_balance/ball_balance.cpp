@@ -43,6 +43,8 @@
 #include <string_view>
 
 #include "algorithms/conventions.hpp"
+#include "domain/actuation/truth_actuator.hpp"
+#include "domain/sensing/truth_sensor.hpp"
 #include "interface/attachment_handle.hpp"
 #include "interface/simulation.hpp"
 

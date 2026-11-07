@@ -7,14 +7,20 @@
 #include "domain/random/counter_rng.hpp"
 
 using achilles::domain::error::ConstantBias;
+using achilles::domain::error::CoulombFriction;
 using achilles::domain::error::Delay;
 using achilles::domain::error::ErrorChain;
 using achilles::domain::error::GaussianNoise;
+using achilles::domain::error::LossChain;
 using achilles::domain::error::Quantize;
 using achilles::domain::error::RandomWalk;
+using achilles::domain::error::SampleNoise;
 using achilles::domain::error::Saturate;
 using achilles::domain::error::ScaleError;
+using achilles::domain::error::SpeedCurve;
+using achilles::domain::error::TransmissionLoss;
 using achilles::domain::error::Vec3;
+using achilles::domain::error::ViscousFriction;
 using achilles::domain::random::CounterRng;
 
 namespace {
@@ -31,6 +37,29 @@ V ApplyOnce(
 ) {
   CounterRng rng(1, tick);
   return E::Apply(params, state, rng, kDt, value);
+}
+
+// One application of rate effect E to `value`, at `rate`.
+template <typename E>
+float ApplyAt(const typename E::Params& params, float rate, float value) {
+  typename E::State state;
+  CounterRng rng(1, 0);
+  return E::Apply(params, state, rng, kDt, rate, value);
+}
+
+// The standard deviation of `sigma` SampleNoise around 0, sampled every `dt`.
+float SampleNoiseDeviation(float sigma, float dt) {
+  constexpr int kSamples = 20000;
+  SampleNoise<float>::Params params{sigma};
+  SampleNoise<float>::State state;
+  double sum_squares = 0.0;
+  for (int i = 0; i < kSamples; ++i) {
+    CounterRng rng(1, static_cast<std::uint64_t>(i));
+    const float sample =
+        SampleNoise<float>::Apply(params, state, rng, dt, 0.0F);
+    sum_squares += static_cast<double>(sample) * sample;
+  }
+  return static_cast<float>(std::sqrt(sum_squares / kSamples));
 }
 
 }  // namespace
@@ -175,4 +204,105 @@ TEST(ErrorChain, TheSameTickGivesTheSameNoise) {
       ApplyOnce<ErrorChain<float>>(params, a, 0.0F, 9),
       ApplyOnce<ErrorChain<float>>(params, b, 0.0F, 9)
   );
+}
+
+TEST(ErrorChain, PerSampleNoiseIsOneOfItsStages) {
+  ErrorChain<float>::Params params;
+  params.sample_noise.sigma = 0.5F;
+  ErrorChain<float>::State state;
+  EXPECT_NE(ApplyOnce<ErrorChain<float>>(params, state, 1.0F), 1.0F);
+}
+
+// ---------------------------------------------------------------------------
+// Per-sample noise
+// ---------------------------------------------------------------------------
+
+TEST(SampleNoise, ZeroSigmaIsIdentity) {
+  SampleNoise<float>::Params params;
+  SampleNoise<float>::State state;
+  EXPECT_FLOAT_EQ(ApplyOnce<SampleNoise<float>>(params, state, 2.0F), 2.0F);
+}
+
+// Unlike GaussianNoise's density, sigma doesn't depend on the sample rate.
+TEST(SampleNoise, SigmaIsTheDeviationWhateverTheRate) {
+  EXPECT_NEAR(SampleNoiseDeviation(0.5F, 0.001F), 0.5F, 0.02F);
+  EXPECT_NEAR(SampleNoiseDeviation(0.5F, 0.1F), 0.5F, 0.02F);
+}
+
+TEST(SampleNoise, ActsOnEachComponent) {
+  SampleNoise<Vec3>::Params params{0.5F};
+  SampleNoise<Vec3>::State state;
+  const Vec3 out = ApplyOnce<SampleNoise<Vec3>>(params, state, Vec3());
+  EXPECT_NE(out.X(), out.Y());
+  EXPECT_NE(out.Y(), out.Z());
+}
+
+// ---------------------------------------------------------------------------
+// The effects that depend on the rate
+// ---------------------------------------------------------------------------
+
+TEST(SpeedCurve, ZeroStallIsNoCurve) {
+  EXPECT_FLOAT_EQ(ApplyAt<SpeedCurve>({}, 100.0F, 50.0F), 50.0F);
+}
+
+TEST(SpeedCurve, AtRestTheLimitIsTheStallEitherWay) {
+  const SpeedCurve::Params params{.stall = 10.0F, .free_rate = 5.0F};
+  EXPECT_FLOAT_EQ(ApplyAt<SpeedCurve>(params, 0.0F, 20.0F), 10.0F);
+  EXPECT_FLOAT_EQ(ApplyAt<SpeedCurve>(params, 0.0F, -20.0F), -10.0F);
+  EXPECT_FLOAT_EQ(ApplyAt<SpeedCurve>(params, 0.0F, 3.0F), 3.0F);
+}
+
+// Less is available with the motion, and more against it.
+TEST(SpeedCurve, TheLimitsShiftWithTheRate) {
+  const SpeedCurve::Params params{.stall = 10.0F, .free_rate = 5.0F};
+  EXPECT_FLOAT_EQ(ApplyAt<SpeedCurve>(params, 2.5F, 20.0F), 5.0F);
+  EXPECT_FLOAT_EQ(ApplyAt<SpeedCurve>(params, 2.5F, -20.0F), -15.0F);
+}
+
+TEST(SpeedCurve, NoEffortIsLeftAtTheFreeRate) {
+  const SpeedCurve::Params params{.stall = 10.0F, .free_rate = 5.0F};
+  EXPECT_FLOAT_EQ(ApplyAt<SpeedCurve>(params, 5.0F, 20.0F), 0.0F);
+}
+
+// Past the free rate even a forward command is pushed backward.
+TEST(SpeedCurve, PastTheFreeRateTheEffortReverses) {
+  const SpeedCurve::Params params{.stall = 10.0F, .free_rate = 5.0F};
+  EXPECT_FLOAT_EQ(ApplyAt<SpeedCurve>(params, 10.0F, 3.0F), -10.0F);
+}
+
+TEST(ViscousFriction, OpposesTheRateInProportion) {
+  const ViscousFriction::Params params{2.0F};
+  EXPECT_FLOAT_EQ(ApplyAt<ViscousFriction>(params, 3.0F, 10.0F), 4.0F);
+  EXPECT_FLOAT_EQ(ApplyAt<ViscousFriction>(params, -3.0F, 10.0F), 16.0F);
+}
+
+TEST(CoulombFriction, ZeroLevelIsIdentity) {
+  EXPECT_FLOAT_EQ(ApplyAt<CoulombFriction>({}, 3.0F, 1.0F), 1.0F);
+}
+
+// Smoothed through zero: no drag at rest, and its full size once moving.
+TEST(CoulombFriction, RampsUpFromNothingAtRest) {
+  const CoulombFriction::Params params{.level = 2.0F, .smoothing = 1.0F};
+  EXPECT_FLOAT_EQ(ApplyAt<CoulombFriction>(params, 0.0F, 5.0F), 5.0F);
+  EXPECT_NEAR(ApplyAt<CoulombFriction>(params, 100.0F, 5.0F), 3.0F, 1e-5F);
+  EXPECT_NEAR(ApplyAt<CoulombFriction>(params, -100.0F, 5.0F), 7.0F, 1e-5F);
+}
+
+TEST(TransmissionLoss, LosesEffortOnlyWhenDrivingTheLoad) {
+  const TransmissionLoss::Params params{0.9F};
+  EXPECT_FLOAT_EQ(ApplyAt<TransmissionLoss>(params, 1.0F, 10.0F), 9.0F);
+  EXPECT_FLOAT_EQ(ApplyAt<TransmissionLoss>(params, -1.0F, -10.0F), -9.0F);
+  EXPECT_FLOAT_EQ(ApplyAt<TransmissionLoss>(params, -1.0F, 10.0F), 10.0F);
+}
+
+TEST(LossChain, DefaultParamsLoseNothing) {
+  EXPECT_FLOAT_EQ(ApplyAt<LossChain>({}, 3.0F, 10.0F), 10.0F);
+}
+
+// Friction comes off first, and the transmission loses a share of the rest.
+TEST(LossChain, FrictionComesOffBeforeTheTransmission) {
+  LossChain::Params params;
+  params.viscous.coefficient = 1.0F;
+  params.transmission.efficiency = 0.5F;
+  EXPECT_FLOAT_EQ(ApplyAt<LossChain>(params, 2.0F, 10.0F), 4.0F);
 }

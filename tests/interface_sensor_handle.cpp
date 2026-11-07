@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#include "domain/attachment/attachment_kind.hpp"
+#include "domain/attachment/attachment.hpp"
 #include "domain/sensing/encoder.hpp"
 #include "domain/sensing/gyroscope.hpp"
 #include "interface/attachment_handle.hpp"

@@ -67,11 +67,11 @@ template <typename List>
 inline constexpr bool kOnJoints = false;
 template <typename... Inputs>
 inline constexpr bool kOnJoints<util::TypeList<Inputs...>> =
-    ((InputSource<Inputs>::kShared &&
-      std::is_same_v<
-          typename InputSource<Inputs>::Ordering,
-          engine::topology::TopologicalOrdering>) &&
-     ...);
+    std::conjunction_v<std::bool_constant<
+        InputSource<Inputs>::kShared &&
+        std::is_same_v<
+            typename InputSource<Inputs>::Ordering,
+            engine::topology::TopologicalOrdering>>...>;
 
 // The concepts as type traits, for engine::pass::SegmentOps' filter.
 template <typename S>
@@ -146,7 +146,9 @@ template <typename Kinds>
 inline constexpr bool kKindsOnJoints = false;
 template <typename... Kinds>
 inline constexpr bool kKindsOnJoints<util::TypeList<Kinds...>> =
-    ((kOnJoints<KindInputs<Kinds>> && kOnJoints<KindScene<Kinds>>) && ...);
+    std::conjunction_v<
+        std::bool_constant<kOnJoints<KindInputs<Kinds>>>...,
+        std::bool_constant<kOnJoints<KindScene<Kinds>>>...>;
 
 }  // namespace detail
 

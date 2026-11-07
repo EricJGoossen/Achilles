@@ -6,7 +6,7 @@
 #include <type_traits>
 #include <vector>
 
-#include "domain/archetype/archetype.hpp"
+#include "domain/joint_data.hpp"
 #include "domain/joint_layout.hpp"
 #include "engine/topology/indexing_policy.hpp"
 

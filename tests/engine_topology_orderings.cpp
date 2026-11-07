@@ -9,6 +9,7 @@
 #include <xsimd/xsimd.hpp>
 
 #include "domain/archetype/archetype.hpp"
+#include "domain/joint_data.hpp"
 #include "domain/joint_layout.hpp"
 #include "domain/joint_topology.hpp"
 #include "engine/memory/arena.hpp"
@@ -16,11 +17,11 @@
 #include "engine/topology/orderings.hpp"
 #include "util/tmp.hpp"
 
-using achilles::domain::archetype::Archetype;
 using achilles::domain::JointAttachment;
 using achilles::domain::JointLayout;
 using achilles::domain::JointRef;
 using achilles::domain::JointTopology;
+using achilles::domain::archetype::Archetype;
 using achilles::engine::memory::Arena;
 using achilles::engine::topology::LinearOrdering;
 using achilles::engine::topology::OrderingPlan;
@@ -36,7 +37,7 @@ Archetype MakeArchetype(
     const std::vector<std::size_t>& tree_structure,
     const std::vector<JointRef>& root_parents
 ) {
-  return Archetype("archetype", tree_structure, root_parents, is_root, {});
+  return {"archetype", tree_structure, root_parents, is_root, {}};
 }
 
 // Exactly what OrderingPolicyLike requires. Nothing else.

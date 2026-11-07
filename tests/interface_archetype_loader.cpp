@@ -7,6 +7,7 @@
 
 #include "domain/archetype/archetype.hpp"
 #include "domain/archetype/archetype_set.hpp"
+#include "domain/joint_data.hpp"
 #include "interface/archetype_loader.hpp"
 #include "support/temp_dir.hpp"
 
@@ -122,8 +123,7 @@ joints:
   EXPECT_EQ(transform->scalars_per_leaf, 7U);
   for (std::size_t leaf = 0; leaf < 7; ++leaf) {
     EXPECT_DOUBLE_EQ(
-        JointFieldAt(*transform, 0, 0, leaf, 1),
-        static_cast<double>(leaf + 1)
+        JointFieldAt(*transform, 0, 0, leaf, 1), static_cast<double>(leaf + 1)
     );
   }
 }

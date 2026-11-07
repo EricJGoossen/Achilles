@@ -51,6 +51,8 @@ struct Archetype {
     }
   }
 
+  // Public on purpose: plain data, and the constructor above only checks it.
+  // NOLINTBEGIN(misc-non-private-member-variables-in-classes)
   std::string name;
   std::vector<std::size_t> tree_structure;
   std::vector<JointRef> root_parents;
@@ -59,6 +61,7 @@ struct Archetype {
   // By local joint index; empty for an Archetype built without joint names.
   std::vector<std::string> joint_names;
   std::vector<JointAttachment> attachments;
+  // NOLINTEND(misc-non-private-member-variables-in-classes)
 };
 
 }  // namespace achilles::domain::archetype

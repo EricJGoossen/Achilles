@@ -6,7 +6,7 @@
 #include <utility>
 #include <vector>
 
-#include "domain/attachment/attachment_kind.hpp"
+#include "domain/attachment/attachment_config.hpp"
 #include "domain/error/effects.hpp"
 #include "domain/math/vector3.hpp"
 #include "domain/spatial/transform.hpp"
@@ -68,6 +68,22 @@ TEST(AttachmentConfig, ErrorModelReadsItsPrefixedSettings) {
   EXPECT_EQ(params.latency.samples, 3U);
   EXPECT_FLOAT_EQ(params.noise.density, 0.0F);
   EXPECT_NO_THROW(config.Finish());
+}
+
+TEST(AttachmentConfig, ErrorModelReadsPerSampleNoise) {
+  const Entries entries = {{"noise_sigma", {0.25}}};
+  AttachmentConfig config(entries);
+  EXPECT_FLOAT_EQ(config.ErrorModel<float>().sample_noise.sigma, 0.25F);
+  EXPECT_NO_THROW(config.Finish());
+}
+
+TEST(AttachmentConfig, BodyFromSensorIsTheMountOrIdentity) {
+  const Entries entries = {{"mount", {1, 2, 3, 1, 0, 0, 0}}};
+  AttachmentConfig config(entries);
+  EXPECT_FLOAT_EQ(config.BodyFromSensor().Translation().Y(), 2.0F);
+  AttachmentConfig none(Entries{});
+  EXPECT_FLOAT_EQ(none.BodyFromSensor().Translation().Y(), 0.0F);
+  EXPECT_FLOAT_EQ(none.BodyFromSensor().Rotation().W(), 1.0F);
 }
 
 TEST(AttachmentConfig, AThreeAxisModelsBiasTakesThreeNumbers) {

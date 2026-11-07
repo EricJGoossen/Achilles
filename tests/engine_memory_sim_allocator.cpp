@@ -10,6 +10,7 @@
 
 #include "domain/archetype/archetype.hpp"
 #include "domain/archetype/archetype_set.hpp"
+#include "domain/joint_data.hpp"
 #include "domain/joint_layout.hpp"
 #include "domain/math/vector3.hpp"
 #include "engine/algorithm_contract.hpp"
@@ -22,9 +23,9 @@
 #include "support/toy_buffered_field.hpp"
 #include "util/tmp.hpp"
 
-using achilles::domain::archetype::Archetype;
 using achilles::domain::JointField;
 using achilles::domain::JointRef;
+using achilles::domain::archetype::Archetype;
 using achilles::domain::math::Vector3;
 using achilles::domain::math::Vector3Assembler;
 using achilles::engine::Algorithm;
@@ -403,7 +404,9 @@ TEST(SimAllocatorSharedAs, DiesOnIncompatibleOrderingForSameSharedTag) {
   using Sim = SimAllocator<
       Algorithm<SharedField, SharedFieldTraits>,
       Algorithm<MismatchedOrderingField, MismatchedOrderingFieldTraits>>;
-  EXPECT_DEATH(Sim sim{achilles::domain::archetype::ArchetypeSet(archetypes)}, "unsound");
+  EXPECT_DEATH(
+      Sim sim{achilles::domain::archetype::ArchetypeSet(archetypes)}, "unsound"
+  );
 }
 
 namespace {
@@ -460,5 +463,7 @@ TEST(SimAllocatorSharedAs, DiesOnIncompatibleBufferingForSameSharedTag) {
   using Sim = SimAllocator<
       Algorithm<SharedField, SharedFieldTraits>,
       Algorithm<MismatchedBufferingField, MismatchedBufferingFieldTraits>>;
-  EXPECT_DEATH(Sim sim{achilles::domain::archetype::ArchetypeSet(archetypes)}, "unsound");
+  EXPECT_DEATH(
+      Sim sim{achilles::domain::archetype::ArchetypeSet(archetypes)}, "unsound"
+  );
 }
