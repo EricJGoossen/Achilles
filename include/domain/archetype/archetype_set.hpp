@@ -167,20 +167,6 @@ class ArchetypeSet {
     });
   }
 
-  // The address of every named joint of every instance, archetype by
-  // archetype.
-  std::vector<JointAddress> Joints() const {
-    std::vector<JointAddress> joints;
-    for (const Archetype& archetype : archetypes_) {
-      for (std::size_t i = 0; i < archetype.root_parents.size(); ++i) {
-        for (const std::string& joint : archetype.joint_names) {
-          joints.push_back({archetype.name, joint, i});
-        }
-      }
-    }
-    return joints;
-  }
-
  private:
   JointRef ResolveJoint(const JointAddress& address) const {
     const std::optional<Located> found = Find([&](const Archetype& archetype) {

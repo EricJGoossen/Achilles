@@ -194,10 +194,6 @@ class Simulation {
     );
   }
 
-  // Every named joint of the loaded archetypes, archetype by archetype.
-  // Valid once LoadArowFile() has run.
-  std::vector<JointAddress> Joints() const { return archetypes_.Joints(); }
-
  private:
   // The sim's clock; a stopped one before Init().
   domain::SimClock Clock() const {

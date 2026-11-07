@@ -29,7 +29,7 @@ TEST(AttachmentConfig, ReadsEachSettingOrItsDefault) {
       {"on", {1}},
       {"axis", {0, 1, 0}},
   };
-  AttachmentConfig config("s", entries);
+  AttachmentConfig config(entries);
   EXPECT_FLOAT_EQ(config.Scalar("gain", 0.0F), 2.5F);
   EXPECT_FLOAT_EQ(config.Scalar("missing", 4.0F), 4.0F);
   EXPECT_EQ(config.Count("count", 0), 7U);
@@ -41,15 +41,15 @@ TEST(AttachmentConfig, ReadsEachSettingOrItsDefault) {
 
 TEST(AttachmentConfig, PeriodIsTheOneOptionEverySensorHas) {
   const Entries entries = {{"period", {0.1}}};
-  AttachmentConfig config("s", entries);
+  AttachmentConfig config(entries);
   EXPECT_FLOAT_EQ(config.Options().period, 0.1F);
-  AttachmentConfig none("s", {});
+  AttachmentConfig none(Entries{});
   EXPECT_FLOAT_EQ(none.Options().period, 0.0F);
 }
 
 TEST(AttachmentConfig, PoseIsTranslationThenNormalizedRotation) {
   const Entries entries = {{"mount", {1, 2, 3, 2, 0, 0, 0}}};
-  AttachmentConfig config("s", entries);
+  AttachmentConfig config(entries);
   const Transform<float> pose = config.Pose("mount", {});
   EXPECT_FLOAT_EQ(pose.Translation().Z(), 3.0F);
   EXPECT_FLOAT_EQ(pose.Rotation().W(), 1.0F);
@@ -61,7 +61,7 @@ TEST(AttachmentConfig, ErrorModelReadsItsPrefixedSettings) {
       {"velocity_resolution", {0.1}},
       {"velocity_delay_samples", {3}},
   };
-  AttachmentConfig config("s", entries);
+  AttachmentConfig config(entries);
   const auto params = config.ErrorModel<float>("velocity_");
   EXPECT_FLOAT_EQ(params.bias.bias, 0.5F);
   EXPECT_FLOAT_EQ(params.resolution.resolution, 0.1F);
@@ -72,38 +72,38 @@ TEST(AttachmentConfig, ErrorModelReadsItsPrefixedSettings) {
 
 TEST(AttachmentConfig, AThreeAxisModelsBiasTakesThreeNumbers) {
   const Entries entries = {{"bias", {1, 2, 3}}};
-  AttachmentConfig config("s", entries);
+  AttachmentConfig config(entries);
   const auto params = config.ErrorModel<Vec3>();
   EXPECT_FLOAT_EQ(params.bias.bias.Z(), 3.0F);
 }
 
 TEST(SensorConfigErrors, FinishRejectsASettingNothingRead) {
   const Entries entries = {{"perod", {0.1}}};
-  AttachmentConfig config("s", entries);
+  AttachmentConfig config(entries);
   (void)config.Options();
   EXPECT_THROW(config.Finish(), std::invalid_argument);
 }
 
 TEST(SensorConfigErrors, TheWrongNumberOfValuesThrows) {
   const Entries entries = {{"axis", {1, 0}}};
-  AttachmentConfig config("s", entries);
+  AttachmentConfig config(entries);
   EXPECT_THROW((void)config.Vector("axis", {}), std::invalid_argument);
 }
 
 TEST(SensorConfigErrors, ANegativeCountThrows) {
   const Entries entries = {{"count", {-1}}};
-  AttachmentConfig config("s", entries);
+  AttachmentConfig config(entries);
   EXPECT_THROW((void)config.Count("count", 0), std::invalid_argument);
 }
 
 TEST(SensorConfigErrors, AZeroRotationThrows) {
   const Entries entries = {{"mount", {0, 0, 0, 0, 0, 0, 0}}};
-  AttachmentConfig config("s", entries);
+  AttachmentConfig config(entries);
   EXPECT_THROW((void)config.Pose("mount", {}), std::invalid_argument);
 }
 
 TEST(SensorConfigErrors, ADelayPastTheCapacityThrows) {
   const Entries entries = {{"delay_samples", {1000}}};
-  AttachmentConfig config("s", entries);
+  AttachmentConfig config(entries);
   EXPECT_THROW((void)config.ErrorModel<float>(), std::invalid_argument);
 }

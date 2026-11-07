@@ -919,18 +919,3 @@ TEST(SimulationClock, FailedStepLeavesTimeAlone) {
   EXPECT_FALSE(sim.Step(0.01F));
   EXPECT_EQ(sim.Time(), 0.0);
 }
-
-// ---------------------------------------------------------------------------
-// Joints by name
-// ---------------------------------------------------------------------------
-
-// Joints() names every joint a config could refer to.
-TEST(SimulationJoints, ListsEveryNamedJoint) {
-  TempDir dir;
-  Simulation sim = MakeInitializedSim(dir, 0.0F);
-  const auto joints = sim.Joints();
-  ASSERT_EQ(joints.size(), 1U);
-  EXPECT_EQ(joints[0].archetype, "base");
-  EXPECT_EQ(joints[0].joint, "joint");
-  EXPECT_EQ(joints[0].instance, 0U);
-}

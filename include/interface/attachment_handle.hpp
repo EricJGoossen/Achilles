@@ -48,7 +48,7 @@ class AttachmentHandle {
   // typo doesn't silently do nothing, and for an actuator an axis its joint can
   // move along -- and writes it into its row: `entry` of K's list, on instance
   // `instance` of its archetype, with `stream` as its random stream. Throws
-  // std::invalid_argument.
+  // std::invalid_argument naming the attachment, whatever was wrong with it.
   template <engine::pass::SimContextLike SimStateT>
   static void Configure(
       const SimStateT& sim_state,
@@ -58,25 +58,30 @@ class AttachmentHandle {
       std::uint64_t stream
   ) {
     domain::RequireKey(attachment, K::kKey);
-    domain::attachment::AttachmentConfig config(
-        attachment.name, attachment.config
-    );
-    K kind = K::FromConfig(config);
-    config.Finish();
-    if constexpr (domain::attachment::ActuatorLike<K>) {
-      CheckAxis(
-          kind,
-          attachment.name,
-          sim_state.template ViewFor<View>(),
-          sim_state.template LayoutFor<engine::topology::TopologicalOrdering>()
-              .ToSorted(instance, attachment.joint)
+    try {
+      domain::attachment::AttachmentConfig config(attachment.config);
+      K kind = K::FromConfig(config);
+      config.Finish();
+      const View view = sim_state.template ViewFor<View>();
+      if constexpr (domain::attachment::ActuatorLike<K>) {
+        using algorithms::attachment::kInputFieldOf;
+        using algorithms::attachment::SubspaceInput;
+        kind.CheckAxis(view.template Load<
+                       kInputFieldOf<SubspaceInput>,
+                       algorithms::ScalarOperationT>(
+            sim_state
+                .template LayoutFor<engine::topology::TopologicalOrdering>()
+                .ToSorted(instance, attachment.joint)
+        ));
+        kind.NormalizeAxis();
+      }
+      kind.SetStream(stream);
+      view.template Store<Field::kConfig, K>(RowOf(sim_state, entry), kind);
+    } catch (const std::invalid_argument& e) {
+      throw std::invalid_argument(
+          std::string(K::kKey) + " '" + attachment.name + "': " + e.what()
       );
-      kind.NormalizeAxis();
     }
-    kind.SetStream(stream);
-    sim_state.template ViewFor<View>().template Store<Field::kConfig, K>(
-        RowOf(sim_state, entry), kind
-    );
   }
 
   // The handle for `entry` of kind K's list.
@@ -149,25 +154,6 @@ class AttachmentHandle {
     return sim_state.template LayoutFor<AttachmentOrdering>().ToSorted(
         util::kIndexOfV<K, AttachmentKinds>, entry
     );
-  }
-
-  // Kind::CheckAxis against the joint at `joint_row`, naming the actuator in
-  // what it throws.
-  static void CheckAxis(
-      const K& kind,
-      const std::string& name,
-      const View& view,
-      std::size_t joint_row
-  ) {
-    using algorithms::attachment::kInputFieldOf;
-    using algorithms::attachment::SubspaceInput;
-    try {
-      kind.CheckAxis(view.template Load<
-                     kInputFieldOf<SubspaceInput>,
-                     algorithms::ScalarOperationT>(joint_row));
-    } catch (const std::invalid_argument& e) {
-      throw std::invalid_argument("actuator '" + name + "': " + e.what());
-    }
   }
 
   View view_;

@@ -23,15 +23,14 @@ namespace achilles::domain::attachment {
 // with a default for when it's absent unless it's required.
 // Every setting given must be read -- Finish throws std::invalid_argument
 // for any left over -- so a misspelled setting is an error rather than
-// silently doing nothing.
+// silently doing nothing. Whatever owns the settings names the attachment in
+// what's thrown (AttachmentHandle::Configure).
 class AttachmentConfig {
  public:
   using Entries = std::span<const std::pair<std::string, std::vector<double>>>;
 
-  AttachmentConfig(std::string name, Entries entries)
-      : name_(std::move(name)),
-        entries_(entries),
-        read_(entries.size(), false) {}
+  explicit AttachmentConfig(Entries entries)
+      : entries_(entries), read_(entries.size(), false) {}
 
   float Scalar(std::string_view key, float fallback) {
     const std::vector<double>* values = Take(key, 1);
@@ -132,7 +131,7 @@ class AttachmentConfig {
     for (std::size_t i = 0; i < entries_.size(); ++i) {
       if (!read_[i]) {
         throw std::invalid_argument(
-            "'" + name_ + "': unknown setting '" + entries_[i].first + "'."
+            "unknown setting '" + entries_[i].first + "'."
         );
       }
     }
@@ -177,11 +176,10 @@ class AttachmentConfig {
 
   [[noreturn]] void Fail(std::string_view key, const std::string& why) const {
     throw std::invalid_argument(
-        "'" + name_ + "': setting '" + std::string(key) + "' " + why + "."
+        "setting '" + std::string(key) + "' " + why + "."
     );
   }
 
-  std::string name_;
   Entries entries_;
   std::vector<bool> read_;
 };
