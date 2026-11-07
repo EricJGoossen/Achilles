@@ -8,7 +8,6 @@
 #include <string>
 
 #include "domain/actuation/dc_motor.hpp"
-#include "domain/sensing/truth_sensor.hpp"
 #include "interface/attachment_handle.hpp"
 #include "interface/simulation.hpp"
 #include "support/sensing_scene.hpp"

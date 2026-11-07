@@ -14,7 +14,6 @@
 #include "algorithms/contact_solver/contact_solver_step.hpp"
 #include "algorithms/conventions.hpp"
 #include "algorithms/sim_config.hpp"
-#include "domain/actuation/truth_actuator.hpp"
 #include "domain/archetype/archetype.hpp"
 #include "domain/archetype/archetype_set.hpp"
 #include "engine/memory/sim_allocator.hpp"
