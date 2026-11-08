@@ -12,7 +12,6 @@
 #include "algorithms/integrators.hpp"
 #include "algorithms/registry.hpp"
 #include "algorithms/sim_config.hpp"
-#include "algorithms/viz/viz_step.hpp"
 #include "domain/actuation/truth_actuator.hpp"
 #include "domain/archetype/archetype_set.hpp"
 #include "domain/joint_layout.hpp"
@@ -27,7 +26,6 @@
 #include "interface/attachment_handle.hpp"
 #include "interface/attachments.hpp"
 #include "interface/sim_config_loader.hpp"
-#include "render/scene_renderer.hpp"
 #include "util/io.hpp"
 
 namespace achilles::interface {
@@ -120,8 +118,8 @@ class Simulation {
   std::uint64_t StepCount() const { return Clock().tick; }
 
   // Advances the physics by one tick of the selected integrator (see
-  // SetIntegrator) over `dt`. Never renders -- see Render(). Returns false
-  // (after warning) if the sim isn't initialized or the step throws.
+  // SetIntegrator) over `dt`. Returns false (after warning) if the sim isn't
+  // initialized or the step throws.
   //
   // Every integrator starts by swapping actuator torque
   // (aba::SwapTorqueStep), so the tick reads exactly what actuators
@@ -129,36 +127,6 @@ class Simulation {
   // evaluates ABA.
   bool Step(algorithms::ScalarOperationT dt) {
     return RunStepList(integrator_step_, dt);
-  }
-
-  // Draws one frame of the current state through render::SceneRenderer,
-  // opening the window on the first call -- walking this sim's own
-  // viz::VizAlgorithm state (see algorithms/viz/viz_data.hpp for what gets
-  // drawn). Separate from Step() so a caller decides how many ticks run
-  // per frame; a caller that never calls this never opens a window.
-  // Returns false once the window has been closed (or if the sim isn't
-  // initialized).
-  bool Render() {
-    if (!state_.has_value()) {
-      return util::Warning(
-          "Simulation::Render() called before Simulation::Init() -- "
-          "the sim is not yet initialized."
-      );
-    }
-    if (!renderer_.has_value()) {
-      renderer_.emplace("Achilles Viewer");
-    }
-    renderer_->PollInput();
-    if (renderer_->ShouldClose()) {
-      return false;
-    }
-    renderer_->RenderFrame(
-        state_->context.template ViewFor<algorithms::viz::VizAlgorithm>(),
-        state_->context
-            .template TopologyFor<engine::topology::TopologicalOrdering>()
-    );
-    renderer_->SwapBuffers();
-    return true;
   }
 
   // The built sim itself, and the archetypes it was built from -- for a
@@ -250,7 +218,6 @@ class Simulation {
   std::optional<Allocator::State> state_;
   domain::archetype::ArchetypeSet archetypes_;
   std::uint64_t seed_ = 0;
-  std::optional<render::SceneRenderer> renderer_;
   algorithms::IntegratorStepFn integrator_step_ =
       algorithms::StepFnFor(Integrator::kSemiImplicitEuler);
 };

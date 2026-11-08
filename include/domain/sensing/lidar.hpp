@@ -133,6 +133,11 @@ class Lidar
     return params_.horizontal_samples * params_.channels;
   }
 
+  // The scan's geometry and error settings, as configured -- for a
+  // consumer that turns beams back into angles without repeating them in its
+  // own config.
+  const Params& GetParams() const { return params_; }
+
   void Initialize(const AttachmentTick& /*tick*/, LidarReturns* returns) const {
     returns->nearest.fill(params_.max_range);
   }

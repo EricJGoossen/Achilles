@@ -158,8 +158,8 @@ struct ABAFieldTraits<ABAField::kParentToBodyTransform> {
 };
 template <>
 struct ABAFieldTraits<ABAField::kWorldTransform> {
-  // SharedAs = WorldTransformSlot so a read-only consumer (e.g.
-  // algorithms::viz) can read this exact block rather than re-deriving
+  // SharedAs = WorldTransformSlot so a read-only consumer (e.g. the
+  // attachments' sensors) can read this exact block rather than re-deriving
   // world pose from kJointPosition/kFixedJointTransform itself.
   using Assembler = spatial::TransformAssembler<ScalarOperationT>;
   using SharedAs = WorldTransformSlot;

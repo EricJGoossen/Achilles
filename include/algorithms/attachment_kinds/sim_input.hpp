@@ -39,8 +39,28 @@ struct InputBinding<SimInput<AlgorithmT, F>> {
   using Type = SimInput<AlgorithmT, F>;
 };
 
+// A quantity the attachment algorithm keeps itself, as a field of its own
+// (AttachmentField, attachment_data.hpp) loaded from the .arow, rather than
+// reading another algorithm's: data nothing but an attachment reads, like how
+// a body looks to a camera. Its field is named by kOwnFieldOf there.
+template <typename Quantity>
+struct OwnInput {
+  using Value = typename Quantity::Value;
+};
+
+template <typename Quantity>
+struct InputBinding<OwnInput<Quantity>> {
+  using Type = OwnInput<Quantity>;
+};
+
 template <typename Input>
 using BoundInputT = typename InputBinding<Input>::Type;
+
+// Whether a bound input is one of the attachment algorithm's own fields.
+template <typename Input>
+inline constexpr bool kIsOwnInput = false;
+template <typename Quantity>
+inline constexpr bool kIsOwnInput<OwnInput<Quantity>> = true;
 
 namespace detail {
 
@@ -68,10 +88,18 @@ using InputSource = detail::SourceTraitsOf<
     BoundInputT<Input>::kField>;
 
 // What a kind receives for one input: the source field's value read at its
-// own scalar -- e.g. Transform<float> for ABA's kWorldTransform.
+// own scalar -- e.g. Transform<float> for ABA's kWorldTransform -- or, for an
+// own input, its quantity's Value (which its field is checked to give).
 template <typename Input>
-using InputValueT =
-    engine::AssembledT<typename InputSource<Input>::Type::Assembler>;
+struct InputValueOf {
+  using Type = engine::AssembledT<typename InputSource<Input>::Type::Assembler>;
+};
+template <typename Quantity>
+struct InputValueOf<OwnInput<Quantity>> {
+  using Type = typename Quantity::Value;
+};
+template <typename Input>
+using InputValueT = typename InputValueOf<Input>::Type;
 
 template <>
 struct InputBinding<input::JointPosition> {
@@ -118,6 +146,24 @@ struct InputBinding<input::CollisionRadius> {
   using Type = SimInput<
       broad_phase::BroadPhaseAlgorithm,
       broad_phase::BroadPhaseField::kCollisionRadius>;
+};
+
+// How a body looks: only cameras read it, so the attachment algorithm keeps it.
+template <>
+struct InputBinding<input::VisualPose> {
+  using Type = OwnInput<input::VisualPose>;
+};
+template <>
+struct InputBinding<input::VisualExtents> {
+  using Type = OwnInput<input::VisualExtents>;
+};
+template <>
+struct InputBinding<input::VisualColor> {
+  using Type = OwnInput<input::VisualColor>;
+};
+template <>
+struct InputBinding<input::VisualShape> {
+  using Type = OwnInput<input::VisualShape>;
 };
 
 // A quantity's Value is what reading its field gives.

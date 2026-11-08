@@ -91,8 +91,9 @@ EXAMPLE_HEADER_FILTER="^${ROOT_DIR}/(src|include|examples)/.*"
 TEST_HEADER_FILTER="^${ROOT_DIR}/tests/.*"
 GOOGLETEST_INCLUDE_DIR="$BUILD_DIR/_deps/googletest-src/googletest/include"
 YAML_CPP_INCLUDE_DIR="$BUILD_DIR/_deps/yaml-cpp-src/include"
-GLFW_INCLUDE_DIR="$BUILD_DIR/_deps/glfw-src/include"
-DEP_ARGS=(-x c++ -std=c++20 -I"$ROOT_DIR/src" -I"$ROOT_DIR/include" -isystem"$GOOGLETEST_INCLUDE_DIR" -isystem"$YAML_CPP_INCLUDE_DIR" -isystem"$GLFW_INCLUDE_DIR")
+# achilles/build_config.hpp, configured into the build tree.
+GENERATED_INCLUDE_DIR="$BUILD_DIR/generated"
+DEP_ARGS=(-x c++ -std=c++20 -I"$ROOT_DIR/src" -I"$ROOT_DIR/include" -isystem"$GOOGLETEST_INCLUDE_DIR" -isystem"$YAML_CPP_INCLUDE_DIR" -I"$GENERATED_INCLUDE_DIR")
 
 # Hashes both .clang-tidy configs (root and tests/ -- a tests/*.cpp file
 # resolves tests/.clang-tidy as its nearest config, not the root one) and

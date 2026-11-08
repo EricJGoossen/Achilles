@@ -30,8 +30,8 @@ struct JointAccelerationSlot;
 // is also the buffer group whose parity SwapTorqueStep flips.
 struct JointTorqueSlot;
 // ABA's own kWorldTransform (aba_data.hpp) -- shared so a read-only
-// consumer (e.g. algorithms::viz's own kWorldTransform, viz/viz_data.hpp,
-// or algorithms::broad_phase's, broad_phase/broad_phase_data.hpp) can see the
+// consumer (e.g. the attachments' sensors, attachment_kinds/sim_input.hpp, or
+// algorithms::broad_phase's, broad_phase/broad_phase_data.hpp) can see the
 // exact world pose ABA already computes every tick, instead of re-deriving it
 // from kJointPosition/kFixedJointTransform itself.
 struct WorldTransformSlot;

@@ -52,8 +52,8 @@ foreach(_test_src ${ACHILLES_TEST_SOURCES})
 endforeach()
 
 # tests/consumer, configured, built and run as its own project -- Achilles
-# included the way another repo includes it -- once headless and once with
-# the viewer. Same generator and compilers as this build; the nested build
+# included the way another repo includes it -- once without the GPU and,
+# when this build has it, once with. Same generator and compilers as this build; the nested build
 # reuses the dependency sources this one already fetched rather than
 # fetching them again. Each keeps its own build directory, so a rerun is
 # incremental.
@@ -67,7 +67,7 @@ if (CMAKE_CXX_COMPILER_LAUNCHER)
         -DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}
     )
 endif ()
-foreach (_dep yaml-cpp xsimd glfw)
+foreach (_dep yaml-cpp xsimd)
     string(TOUPPER ${_dep} _dep_upper)
     if (${_dep}_SOURCE_DIR)
         list(APPEND _consumer_options
@@ -76,12 +76,12 @@ foreach (_dep yaml-cpp xsimd glfw)
     endif ()
 endforeach ()
 
-set(_consumer_variants headless OFF)
-if (ACHILLES_WITH_VIEWER)
-    list(APPEND _consumer_variants viewer ON)
+set(_consumer_variants no_gpu OFF)
+if (ACHILLES_WITH_GPU)
+    list(APPEND _consumer_variants gpu ON)
 endif ()
 while (_consumer_variants)
-    list(POP_FRONT _consumer_variants _name _viewer)
+    list(POP_FRONT _consumer_variants _name _gpu)
     set(_dir ${CMAKE_CURRENT_BINARY_DIR}/consumer_${_name})
     add_test(NAME consumer_${_name}
         COMMAND ${CMAKE_CTEST_COMMAND}
@@ -91,11 +91,15 @@ while (_consumer_variants)
             --build-generator ${CMAKE_GENERATOR}
             --build-makeprogram ${CMAKE_MAKE_PROGRAM}
             --build-config $<CONFIG>
-            --build-options ${_consumer_options} -DACHILLES_WITH_VIEWER=${_viewer}
+            --build-options ${_consumer_options} -DACHILLES_WITH_GPU=${_gpu}
             --test-command ${_dir}/consumer
     )
+    # Run alone: each is a whole nested build, at the build tool's own
+    # parallelism, so two at once (or beside other tests, under ctest -j)
+    # can run a small machine out of memory.
     set_tests_properties(consumer_${_name} PROPERTIES
         LABELS consumer
         TIMEOUT 900
+        RUN_SERIAL TRUE
     )
 endwhile ()

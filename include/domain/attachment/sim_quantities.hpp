@@ -58,4 +58,18 @@ struct CollisionRadius {
   using Value = math::Scalar<float>;
 };
 
+// How the body is seen (domain/geometry/visual_shape.hpp).
+struct VisualPose {
+  using Value = spatial::Transform<float>;
+};
+struct VisualExtents {
+  using Value = math::Vector3<float>;
+};
+struct VisualColor {
+  using Value = math::Vector3<float>;
+};
+struct VisualShape {
+  using Value = math::Scalar<float>;
+};
+
 }  // namespace achilles::domain::attachment::input

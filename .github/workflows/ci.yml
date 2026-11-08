@@ -113,7 +113,7 @@ jobs:
       - uses: actions/checkout@v5
 
       # tests/consumer includes Achilles the way another repo does, with
-      # the viewer off: catches duplicate symbols across translation units
+      # the GPU off: catches duplicate symbols across translation units
       # and settings that leak into the including project.
       - name: Configure
         env:

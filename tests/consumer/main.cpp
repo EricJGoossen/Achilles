@@ -1,11 +1,11 @@
-// Loads nothing, steps nothing: links, and Render() before Init() refuses
-// instead of opening a window -- with the viewer built in or not.
+// Loads nothing, steps nothing: links, and a Step() before Init() refuses
+// instead of dereferencing an empty state.
 #include "interface/simulation.hpp"
 
-bool RenderHeadless(achilles::interface::Simulation& sim);
+bool StepUninitialized(achilles::interface::Simulation& sim);
 
 int main() {
   achilles::interface::Simulation sim;
-  // Before Init(), Render() must refuse.
-  return RenderHeadless(sim) ? 1 : 0;
+  // Before Init(), Step() must refuse.
+  return StepUninitialized(sim) ? 1 : 0;
 }

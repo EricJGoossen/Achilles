@@ -280,13 +280,6 @@ TEST(Simulation, StepReturnsFalseBeforeInit) {
   EXPECT_FALSE(sim.Step(0.1F));
 }
 
-// Render needs the sim's state to draw; before Init it must refuse (and so
-// never open a window), not dereference an empty state.
-TEST(Simulation, RenderReturnsFalseBeforeInit) {
-  Simulation sim;
-  EXPECT_FALSE(sim.Render());
-}
-
 // Full stack: a real .arow file, loaded through the real LoadArchetypes,
 // allocated by the real SimAllocatorForT<RegisteredAlgorithms>, stepped
 // through the real ABAStep -- verifies the joint's own nonzero initial

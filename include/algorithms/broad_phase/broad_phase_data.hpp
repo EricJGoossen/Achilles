@@ -73,8 +73,8 @@ using CollisionGroupMask = math::
 // default: zero extents, radius and margin -- a point at its body origin --
 // and a zero kCollisionPose, whose rotation part is read as identity (see
 // ComputeSweptBoxBoundsOp), so the shape just sits on the body frame. That's
-// the same "absent data reads as an inert default" convention algorithms::viz's
-// own kVisualExtents follows (viz_data.hpp); such a body also has no
+// the same "absent data reads as an inert default" convention the attachments'
+// kVisualExtents follows (attachment_data.hpp); such a body also has no
 // kCollisionGroup, so it never collides anyway.
 //
 // Which pairs are even allowed to collide is per-body data too, Bullet-
@@ -122,8 +122,7 @@ template <BroadPhaseField F>
 struct BroadPhaseFieldTraits;
 
 // Every BroadPhaseField binds Ordering = TopologicalOrdering, matching ABA's
-// own choice for kWorldTransform (aba_data.hpp) -- for the same reason
-// algorithms::viz does (see viz_data.hpp's own comment): a View addresses
+// own choice for kWorldTransform (aba_data.hpp): a View addresses
 // every one of its fields by the same sorted row index, so every field has
 // to share the ordering policy that produced that numbering, or row i of
 // kCollisionExtents and row i of kWorldTransform could silently refer to two

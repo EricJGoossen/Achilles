@@ -10,6 +10,7 @@
 #include "domain/attachment/attachment.hpp"
 #include "domain/attachment/attachment_kind.hpp"
 #include "domain/sensing/accelerometer.hpp"
+#include "domain/sensing/camera.hpp"
 #include "domain/sensing/encoder.hpp"
 #include "domain/sensing/gyroscope.hpp"
 #include "domain/sensing/lidar.hpp"
@@ -61,17 +62,37 @@ struct KindSceneOf<S> {
 template <typename S>
 using KindScene = typename KindSceneOf<S>::Type;
 
-// Whether a list of inputs can be read in place at a joint: shared, and ordered
-// by joint.
+// Whether an input can be read in place at a joint: shared, and ordered by
+// joint -- as an own input always is (its field, attachment_data.hpp).
+template <typename Input>
+inline constexpr bool kInputOnJoints =
+    InputSource<Input>::kShared && std::is_same_v<
+                                       typename InputSource<Input>::Ordering,
+                                       engine::topology::TopologicalOrdering>;
+template <typename Quantity>
+inline constexpr bool kInputOnJoints<OwnInput<Quantity>> = true;
+
+// Whether every input of a list can.
 template <typename List>
 inline constexpr bool kOnJoints = false;
 template <typename... Inputs>
 inline constexpr bool kOnJoints<util::TypeList<Inputs...>> =
-    std::conjunction_v<std::bool_constant<
-        InputSource<Inputs>::kShared &&
-        std::is_same_v<
-            typename InputSource<Inputs>::Ordering,
-            engine::topology::TopologicalOrdering>>...>;
+    (kInputOnJoints<Inputs> && ...);
+
+// A list of inputs less the own ones: those read another algorithm's field.
+template <typename List>
+struct ForeignInputs;
+template <typename... Inputs>
+struct ForeignInputs<util::TypeList<Inputs...>> {
+  using Type = util::ConcatT<
+      util::TypeList<>,
+      std::conditional_t<
+          kIsOwnInput<Inputs>,
+          util::TypeList<>,
+          util::TypeList<Inputs>>...>;
+};
+template <typename List>
+using ForeignInputsT = typename ForeignInputs<List>::Type;
 
 // The concepts as type traits, for engine::pass::SegmentOps' filter.
 template <typename S>
@@ -87,14 +108,16 @@ struct IsActuator : std::bool_constant<ActuatorLike<S>> {};
 // kListName. A kind with no instances costs one empty loop per pass, nothing
 // more.
 //
-// The modelled sensors -- a joint encoder, an IMU's three parts and a scanning
-// lidar -- then the truth sensors, each attached under its quantity's name.
+// The modelled sensors -- a joint encoder, an IMU's three parts, a scanning
+// lidar and a camera -- then the truth sensors, each attached under its
+// quantity's name.
 using SensorKinds = util::TypeList<
     domain::sensing::Encoder,
     domain::sensing::Gyroscope,
     domain::sensing::Accelerometer,
     domain::sensing::Magnetometer,
     domain::sensing::Lidar,
+    domain::sensing::Camera,
     domain::sensing::truth::JointPosition,
     domain::sensing::truth::JointVelocity,
     domain::sensing::truth::JointAcceleration,
@@ -132,13 +155,15 @@ using SubspaceInput =
 using TorqueTarget =
     SimInput<aba::ABAAlgorithm, aba::ABAField::kJointTorqueNext>;
 
-// Every sim field any registered kind touches, once each: at its mount joint
-// or, for a scanning kind, at every body -- which of the two is the running
-// Op's business, not the field's.
-using AttachmentInputs = util::UniqueT<util::ConcatT<
+// Every other algorithm's field any registered kind touches, once each: at its
+// mount joint or, for a scanning kind, at every body -- which of the two is
+// the running Op's business, not the field's. Own inputs are the attachment
+// algorithm's own fields already, so they aren't among these.
+using AttachmentInputs = util::UniqueT<ForeignInputsT<util::ConcatT<
     util::TypeList<ClockInput, SubspaceInput, TorqueTarget>,
     util::ApplyT<util::ConcatT, util::TransformT<KindInputs, AttachmentKinds>>,
-    util::ApplyT<util::ConcatT, util::TransformT<KindScene, AttachmentKinds>>>>;
+    util::
+        ApplyT<util::ConcatT, util::TransformT<KindScene, AttachmentKinds>>>>>;
 
 namespace detail {
 

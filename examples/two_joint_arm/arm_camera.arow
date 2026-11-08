@@ -1,0 +1,15 @@
+# The view of the arm: 4.6 m out along +x, 1.6 m to the side and 1.4 m up,
+# looking down at the shoulder, so the whole swing (in the y-z plane)
+# stays in frame. The mount's rotation turns the camera's axes (x forward,
+# y left, z up) onto that line of sight. 640 x 480 at 30 frames a second,
+# seeing out to 10 m.
+sensor: arm_camera
+kind: camera
+attach: {archetype: camera_rig, joint: mount}
+config:
+  period: 0.0333333
+  mount: {translation: [4.6, 1.6, 1.4], rotation: [0.145064, 0.16726, 0.024889, -0.974865]}
+  width: 640
+  height: 480
+  horizontal_fov: 1.0
+  far: 10
