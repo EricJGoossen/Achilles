@@ -11,7 +11,6 @@
 #include "algorithms/rk4/rk4_step.hpp"
 #include "algorithms/verlet/verlet_step.hpp"
 #include "algorithms/vi/vi_step.hpp"
-#include "algorithms/viz/viz_step.hpp"
 #include "util/tmp.hpp"
 
 namespace achilles::algorithms {
@@ -31,9 +30,7 @@ namespace achilles::algorithms {
 // runtime is just stepping a different list over the same state.
 //
 // ABA is first because the first Algorithm naming a SharedAs tag owns that
-// block (SimAllocator::Carve). viz::VizAlgorithm has no Step: it only ever
-// supplies memory (its kWorldTransform aliases ABA's, via
-// WorldTransformSlot) for a renderer to read after a real Step() call.
+// block (SimAllocator::Carve).
 //
 // broad_phase::BroadPhaseAlgorithm comes before
 // narrow_phase::NarrowPhaseAlgorithm for the same reason: the narrow phase
@@ -51,7 +48,6 @@ using PhysicsAlgorithms = util::TypeList<
     verlet::VerletAlgorithm,
     midpoint::MidpointAlgorithm,
     rk4::RK4Algorithm,
-    viz::VizAlgorithm,
     clock::ClockAlgorithm>;
 
 }  // namespace achilles::algorithms

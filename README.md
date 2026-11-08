@@ -3,7 +3,8 @@
 A C++20 articulated rigid-body dynamics engine. Achilles loads a jointed
 scene from a YAML `.arow` file and runs forward dynamics on it with the
 Articulated Body Algorithm (ABA). It integrates the result at a fixed
-timestep and can draw the scene live in an OpenGL viewer.
+timestep, and simulates sensors on it -- cameras render the scene headless
+on the GPU.
 
 The engine is built around compile-time contracts (C++20 concepts). Each
 algorithm is written as small, typed **Ops** that the engine runs over the
@@ -13,14 +14,14 @@ mean writing a new hand-rolled loop.
 ## Quick start
 
 ```bash
-scripts/run-example.sh            # build, then open the viewer on the demo arm
-scripts/run-example.sh --headless # same simulation, no window
+scripts/run-example.sh            # build, then run the demo arm headless
 ```
 
 This builds the `achilles` target into `build/` and runs it against
 [examples/two_joint_arm/two_joint_arm.arow](examples/two_joint_arm/two_joint_arm.arow) with
-[examples/two_joint_arm/sim_config.yaml](examples/two_joint_arm/sim_config.yaml). In the viewer,
-left-drag to orbit, scroll to zoom, and close the window to stop.
+[examples/two_joint_arm/sim_config.yaml](examples/two_joint_arm/sim_config.yaml). Nothing is
+drawn on screen -- the display that shows a scene's sensors lives outside
+the sim -- so Ctrl-C to stop.
 
 ```bash
 scripts/run-robot-demo.sh         # contact demo: a robot toppling onto a plane
@@ -42,16 +43,14 @@ Fetched automatically by CMake (`FetchContent`):
 | Library    | Version | Used for                         |
 |------------|---------|----------------------------------|
 | yaml-cpp   | 0.8.0   | `.arow` and config loading       |
-| GLFW       | 3.4     | Window and input for the viewer  |
 | GoogleTest | 1.14.0  | Test suite                       |
 
 Needed on the system:
 
 - CMake ≥ 3.16, Ninja, and a C++20 compiler (CI uses Clang)
-- OpenGL and X11 development headers (`libgl1-mesa-dev`, `libx11-dev`,
-  `libxrandr-dev`, `libxinerama-dev`, `libxcursor-dev`, `libxi-dev`,
-  `libxext-dev`). You need these even for headless builds, because GLFW
-  is always compiled.
+- OpenGL and EGL development headers (`libgl1-mesa-dev`), for the camera
+  sensors' GPU. `-DACHILLES_WITH_GPU=OFF` builds without them; a scene
+  with a camera then fails its first step.
 - [xsimd](https://github.com/xtensor-stack/xsimd), installed as headers
 - clang-format / clang-tidy 18, only for the lint targets
 
@@ -72,16 +71,20 @@ CMake options:
 
 - `BUILD_TESTS` (default `ON`): build the GoogleTest suite.
 - `ENABLE_CCACHE` (default `ON`): use ccache if it's installed.
+- `ACHILLES_WITH_GPU` (default `ON`): render camera sensors on the GPU,
+  headless, through EGL.
+- `ACHILLES_OPTIMIZE_DEBUG` (default `ON`): Debug builds at `-O1`, fast
+  enough to debug in real time; `OFF` is `-O0`.
 
 ## Usage
 
 ```
-achilles <scene.arow> [sim_config.yaml] [--headless]
+achilles <scene.arow> [sim_config.yaml] [--dt seconds] [--integrator name]
 ```
 
 The binary loads the scene, applies the optional config, and steps the
-simulation at a fixed 1/120 s. It renders a frame per step unless you pass
-`--headless`. You can also drive a simulation from code through
+simulation headless in real time at a fixed timestep. You can also drive a
+simulation from code through
 `achilles::interface::Simulation`
 ([include/interface/simulation.hpp](include/interface/simulation.hpp)):
 
@@ -90,7 +93,6 @@ achilles::interface::Simulation sim;
 sim.LoadArowFile("scene.arow");
 sim.LoadConfigFile("sim_config.yaml");  // optional
 sim.Init();
-sim.SetHeadless(false);                 // headless is the default
 while (sim.Step(1.0F / 120.0F)) {}
 ```
 
@@ -102,7 +104,7 @@ joint subspace and activation mask, fixed joint transform, rigid-body
 inertia, position, velocity, torque, and optional `visual_extents` /
 `visual_color` / `visual_shape` (0 box, 1 sphere, 2 cylinder) /
 `visual_pose` (the drawn shape's offset from the joint, like
-`collision_pose`) for the viewer. The demo scene has a comment on every
+`collision_pose`) for the cameras. The demo scene has a comment on every
 field. The loader is in
 [include/interface/archetype_loader.hpp](include/interface/archetype_loader.hpp).
 
@@ -141,10 +143,9 @@ include/
     contact_solver/ MuJoCo's soft-constraint contact solver (primal CG,
                  pyramidal condim 3): contacts -> constrained joint
                  accelerations
-    viz/         Render-only state (world transforms, visuals); never stepped
   interface/   Loaders and the Simulation facade
-  render/      The OpenGL/GLFW viewer
-  util/        Buffers, SIMD helpers, template metaprogramming, I/O
+  util/        Buffers, SIMD helpers, template metaprogramming, I/O, and
+               gl/ -- the camera sensors' GPU (headless OpenGL through EGL)
 src/           Implementations matching include/
 tests/         One GoogleTest executable per header
 ```

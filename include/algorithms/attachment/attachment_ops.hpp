@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <memory>
 
 #include "algorithms/attachment/attachment_data.hpp"
 #include "algorithms/attachment_kinds/attachment_kinds.hpp"
@@ -176,7 +177,9 @@ struct InitOpImpl<S, util::TypeList<Inputs...>> {
       KindOutput<S>* out
   ) const {
     *command = KindCommand<S>{};
-    *state = KindState<S>{};
+    // Value-initialized in place: a kind's state can be megabytes (a
+    // camera's images), too big for the temporary an assignment makes.
+    std::construct_at(state);
     *out = KindOutput<S>{};
     domain::attachment::InitializeState(attachment, &state->value);
     domain::attachment::InitializeOutput(

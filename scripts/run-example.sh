@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Configures/builds achilles and runs it, visually, against the demo scene
-# (examples/two_joint_arm/two_joint_arm.arow + examples/two_joint_arm/sim_config.yaml) -- the quickest
-# way to see the OpenGL viewer working. Left-drag orbits the camera,
-# scroll zooms; close the window to stop.
+# Configures/builds achilles and runs it, headless and in real time, against
+# the demo scene (examples/two_joint_arm/two_joint_arm.arow +
+# examples/two_joint_arm/sim_config.yaml), whose camera renders the arm on the
+# GPU every frame. Nothing is drawn on screen; Ctrl-C to stop.
 #
 # achilles itself now defaults to the RK4 integrator at a 2ms timestep
 # (see src/main.cpp's own comment) -- this double pendulum should swing
@@ -11,7 +11,7 @@
 # semi-implicit-Euler behavior for comparison, or --dt 0.0333 to trade
 # some of that fidelity back for a much cheaper run.
 #
-# Usage: scripts/run-example.sh [extra achilles args, e.g. --headless]
+# Usage: scripts/run-example.sh [extra achilles args, e.g. --dt 0.01]
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

@@ -3,6 +3,7 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -101,6 +102,16 @@ class AttachmentHandle {
     return view_.template Load<Field::kPublished, KindOutput<K>>(row_).value;
   }
 
+  // Its state, in place, as of the last Step() -- what its kind keeps between
+  // updates. Most readers want Read(); this is for a kind whose output points
+  // into its state rather than copying it (a camera's CameraFrame names which
+  // of its images is the latest). Valid until the next Step().
+  const typename K::State& State() const {
+    return view_.template Field<Field::kState>()
+        .template Ref<KindState<K>>(row_)
+        ->value;
+  }
+
   // Its current configuration.
   K Config() const { return view_.template Load<Field::kConfig, K>(row_); }
 
@@ -113,9 +124,12 @@ class AttachmentHandle {
     config.SetStream(Config().Stream());
     view_.template Store<Field::kConfig, K>(row_, config);
 
-    KindState<K> state{};
-    domain::attachment::InitializeState(config, &state.value);
-    view_.template Store<Field::kState, KindState<K>>(row_, state);
+    // In place: a kind's state can be megabytes (a camera's images), too big
+    // for a temporary.
+    KindState<K>* state =
+        view_.template Field<Field::kState>().template Ref<KindState<K>>(row_);
+    std::construct_at(state);
+    domain::attachment::InitializeState(config, &state->value);
     view_.template Store<Field::kCommand, KindCommand<K>>(
         row_, KindCommand<K>{}
     );

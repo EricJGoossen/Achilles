@@ -18,10 +18,11 @@ else ()
     set(_achilles_tests_default ${PROJECT_IS_TOP_LEVEL})
 endif ()
 option(ACHILLES_BUILD_TESTS "Build the test suite" ${_achilles_tests_default})
-# Off builds a headless library: no GLFW, no OpenGL, no X11 -- for a
-# simulator embedded in a container or CI. Simulation::Render() then warns
-# and returns false.
-option(ACHILLES_WITH_VIEWER "Build the OpenGL viewer (src/render/)" ON)
+# The GPU backs camera sensors (util/gl/gpu.hpp): scenes are rendered
+# headless, through EGL, with no window or display. Off builds no OpenGL at
+# all; a scene with a camera then fails its first sample, and every other
+# scene is unaffected.
+option(ACHILLES_WITH_GPU "Render camera sensors on the GPU (OpenGL + EGL)" ON)
 
 if (PROJECT_IS_TOP_LEVEL)
     set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -39,6 +40,22 @@ if (PROJECT_IS_TOP_LEVEL)
     if (NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
         set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
     endif ()
+
+    # Debug keeps its asserts and debug info but is still optimized: the
+    # engine's layers (views, cursors, assemblers, SIMD wrappers) are meant
+    # to inline away, and at -O0 they don't, which leaves a sim far too slow
+    # to debug in real time. -O1 gets nearly all of Release's speed; a
+    # debugger may show some locals as optimized out. Turn this off for a
+    # build to step through line by line, at far below real time -- in its
+    # own build directory, since it recompiles everything.
+    option(ACHILLES_OPTIMIZE_DEBUG "Optimize Debug builds (-O1); off is -O0" ON)
+    if (ACHILLES_OPTIMIZE_DEBUG)
+        set(_achilles_debug_flags "-g -O1 -fno-omit-frame-pointer")
+    else ()
+        set(_achilles_debug_flags "-g -O0 -fno-omit-frame-pointer")
+    endif ()
+    set(CMAKE_C_FLAGS_DEBUG "${_achilles_debug_flags}")
+    set(CMAKE_CXX_FLAGS_DEBUG "${_achilles_debug_flags}")
 endif ()
 
 include(FetchContent)
@@ -82,36 +99,40 @@ set(YAML_CPP_BUILD_CONTRIB OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_INSTALL OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(yaml-cpp)
 
-# GLFW backs the OpenGL viewer (src/render/, behind Simulation::Render()).
-# Building it from source needs its own X11/OpenGL dev headers (on Linux:
-# libgl1-mesa-dev, libx11-dev, libxrandr-dev, libxinerama-dev,
-# libxcursor-dev, libxi-dev, libxext-dev -- see .devcontainer/Dockerfile);
-# ACHILLES_WITH_VIEWER=OFF skips it altogether.
-if (ACHILLES_WITH_VIEWER)
-    FetchContent_Declare(
-        glfw
-        GIT_REPOSITORY https://github.com/glfw/glfw.git
-        GIT_TAG 3.4
-        GIT_SHALLOW TRUE
-    )
-    set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-    set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
-    # X11 only -- Wayland support needs wayland-scanner, an extra build-time
-    # dependency this project doesn't otherwise carry, and the renderer has
-    # no Wayland-specific code of its own to lose by disabling it.
-    set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(glfw)
-    find_package(OpenGL REQUIRED)
+# OpenGL through EGL (libglvnd's libOpenGL + libEGL, no GLX): the camera
+# sensors render on it headless (src/util/gl/gpu_egl.cpp). On Linux
+# the dev headers come with libgl1-mesa-dev (see .devcontainer/Dockerfile);
+# ACHILLES_WITH_GPU=OFF skips it altogether.
+if (ACHILLES_WITH_GPU)
+    find_package(OpenGL REQUIRED COMPONENTS OpenGL EGL)
 endif ()
+
+# Which build this is, as constants code branches on with if constexpr
+# (achilles/build_config.hpp) -- never a macro: no header changes shape
+# with the build. What differs is only which sources below are compiled.
+set(ACHILLES_CONFIG_WITH_GPU false)
+if (ACHILLES_WITH_GPU)
+    set(ACHILLES_CONFIG_WITH_GPU true)
+endif ()
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/achilles/build_config.hpp.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/achilles/build_config.hpp"
+    @ONLY
+)
 
 file(GLOB_RECURSE ACHILLES_LIB_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
 )
 list(FILTER ACHILLES_LIB_SOURCES EXCLUDE REGEX ".*/main\\.cpp$")
-if (NOT ACHILLES_WITH_VIEWER)
-    list(FILTER ACHILLES_LIB_SOURCES EXCLUDE REGEX ".*/src/render/.*")
+# The GL helpers and the camera's GPU backend with the GPU; only its
+# stand-in (gpu_none.cpp) without.
+if (ACHILLES_WITH_GPU)
+    list(FILTER ACHILLES_LIB_SOURCES EXCLUDE REGEX ".*/gpu_none\\.cpp$")
+else ()
+    list(FILTER ACHILLES_LIB_SOURCES EXCLUDE REGEX ".*/src/util/gl/.*")
+    list(APPEND ACHILLES_LIB_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/util/gl/gpu_none.cpp"
+    )
 endif ()
 
 add_library(achilles_lib ${ACHILLES_LIB_SOURCES})
@@ -121,15 +142,11 @@ add_library(achilles::achilles ALIAS achilles_lib)
 target_include_directories(achilles_lib PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated"
 )
 target_link_libraries(achilles_lib PUBLIC yaml-cpp::yaml-cpp xsimd)
-if (ACHILLES_WITH_VIEWER)
-    target_link_libraries(achilles_lib PUBLIC glfw OpenGL::GL)
-    # Public: interface/viewer.hpp holds the renderer only when it's
-    # built, so every translation unit must agree on whether it is.
-    target_compile_definitions(achilles_lib PUBLIC ACHILLES_WITH_VIEWER=1)
-else ()
-    target_compile_definitions(achilles_lib PUBLIC ACHILLES_WITH_VIEWER=0)
+if (ACHILLES_WITH_GPU)
+    target_link_libraries(achilles_lib PUBLIC OpenGL::OpenGL OpenGL::EGL)
 endif ()
 
 if (ACHILLES_BUILD_EXAMPLES)

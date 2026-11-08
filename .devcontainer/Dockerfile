@@ -17,10 +17,11 @@ RUN apt-get update && apt-get install -y \
     doxygen \
     && rm -rf /var/lib/apt/lists/*
 
-# GLFW (fetched from source by the root CMakeLists.txt, backing
-# src/render/ -- see interface::Simulation's own headless flag) needs its
-# own X11/OpenGL dev headers to configure; these are build-time only, no
-# display required (a headless build/test run never opens a window).
+# libgl1-mesa-dev brings the OpenGL and EGL headers (and Mesa's
+# surfaceless EGL) the camera sensors' GPU builds and runs on
+# (src/util/gl/gpu_egl.cpp) -- no display required. The X11 headers
+# were for GLFW, which Achilles no longer builds; kept until the sensor
+# display's own repo has an image of its own.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-dev \
     libx11-dev \

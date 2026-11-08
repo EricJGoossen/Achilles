@@ -14,6 +14,7 @@
 #include <string>
 #include <string_view>
 
+#include "achilles/build_config.hpp"
 #include "algorithms/aba/aba_data.hpp"
 #include "algorithms/aba/aba_ops.hpp"
 #include "algorithms/aba/aba_step.hpp"
@@ -49,7 +50,6 @@
 #include "engine/view/view_factory.hpp"
 #include "interface/sim_config_loader.hpp"
 #include "interface/simulation.hpp"
-#include "render/mat4.hpp"
 #include "util/buffer.hpp"
 #include "util/io.hpp"
 #include "util/simd_ops.hpp"
@@ -63,7 +63,6 @@ using Integrator = achilles::interface::Simulation::Integrator;
 using achilles::algorithms::ScalarOperationT;
 
 struct CliArgs {
-  bool headless = false;
   std::string arow_path;
   std::string config_path;
   // RK4 at a 2ms step. RK4 is the integrator MuJoCo itself points at for
@@ -105,9 +104,7 @@ std::optional<CliArgs> ParseArgs(int argc, char** argv) {
   CliArgs args;
   for (int i = 1; i < argc; ++i) {
     std::string_view arg = argv[i];
-    if (arg == "--headless") {
-      args.headless = true;
-    } else if (arg == "--dt") {
+    if (arg == "--dt") {
       if (++i >= argc) {
         std::cerr << "--dt requires a floating-point seconds argument\n";
         return std::nullopt;
@@ -140,28 +137,27 @@ std::optional<CliArgs> ParseArgs(int argc, char** argv) {
 
 }  // namespace
 
-// achilles <scene.arow> [sim_config.yaml] [--headless] [--dt seconds]
+// achilles <scene.arow> [sim_config.yaml] [--dt seconds]
 //   [--integrator euler|verlet|midpoint|implicitfast|rk4]
 //
 // Loads and initializes a Simulation from a .arow file (see
 // interface/archetype_loader.hpp for its format, and examples/ for a
-// sample scene), then runs it in real time: each frame, as many fixed-dt
-// Step() ticks as the elapsed wall-clock time covers, then -- unless
-// --headless -- one Render(). Ticks and frames are independent, so dt only
-// controls accuracy, never frame rate. The loop runs until a Step() fails,
-// or (only when visual) the render window is closed. See
-// scripts/run-example.sh for the common case of running this against
-// examples/two_joint_arm/two_joint_arm.arow. --integrator sets
-// Simulation::SetIntegrator and --dt the fixed timestep; CliArgs's own defaults
-// (kRungeKutta4, dt = 2ms) are the CLI's, not Simulation's -- library callers
-// (tests, embedders) still get semi-implicit Euler at whatever dt they pass
-// unless they ask for something else. Pass --integrator euler to see the older,
-// visibly-dissipative behavior for comparison, or raise --dt to trade
+// sample scene), then runs it headless in real time: each pass, as many
+// fixed-dt Step() ticks as the elapsed wall-clock time covers, so dt only
+// controls accuracy, never pacing. The loop runs until a Step() fails. Nothing
+// is drawn: the sim has no display (one that shows its sensors lives outside
+// it, on the handles). See scripts/run-example.sh for the common case of
+// running this against examples/two_joint_arm/two_joint_arm.arow. --integrator
+// sets Simulation::SetIntegrator and --dt the fixed timestep; CliArgs's own
+// defaults (kRungeKutta4, dt = 2ms) are the CLI's, not Simulation's -- library
+// callers (tests, embedders) still get semi-implicit Euler at whatever dt they
+// pass unless they ask for something else. Pass --integrator euler to see the
+// older, visibly-dissipative behavior for comparison, or raise --dt to trade
 // fidelity back for throughput.
 int main(int argc, char** argv) {
   if (argc < 2) {
     std::cerr << "usage: achilles <scene.arow> [sim_config.yaml] "
-                 "[--headless] [--dt seconds] [--integrator ";
+                 "[--dt seconds] [--integrator ";
     PrintIntegratorNames(std::cerr, "|");
     std::cerr << "]\n";
     return 1;
@@ -195,16 +191,13 @@ int main(int argc, char** argv) {
     ScalarOperationT elapsed =
         std::chrono::duration<ScalarOperationT>(now - last_time).count();
     last_time = now;
-    // Clamped so a debugger pause or a hitch (e.g. window drag) doesn't
-    // make the next real frame try to catch up with a huge burst of steps.
+    // Clamped so a debugger pause or a hitch doesn't make the next pass try
+    // to catch up with a huge burst of steps.
     accumulator += std::min(elapsed, kMaxFrameTime);
 
     while (running && accumulator >= dt) {
       running = sim.Step(dt);
       accumulator -= dt;
-    }
-    if (running && !args->headless) {
-      running = sim.Render();
     }
   }
 

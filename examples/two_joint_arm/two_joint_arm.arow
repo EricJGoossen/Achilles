@@ -1,8 +1,8 @@
-# A minimal demo scene for achilles_viewer: a two-joint revolute arm
+# A minimal demo scene: a two-joint revolute arm
 # (shoulder -> elbow), each joint a single DOF about its own local X axis
 # (see joint_subspace/joint_activation_mask below), each drawn as a colored
-# box via the visual_extents/visual_color fields algorithms::viz reads
-# (see include/algorithms/viz/viz_data.hpp). The rotation axis is
+# box via the visual_extents/visual_color fields its camera sees (see
+# include/algorithms/attachment/attachment_data.hpp). The rotation axis is
 # deliberately perpendicular to sim_config.yaml's gravity (along Z) so the
 # arm actually swings -- gravity parallel to a joint's own rotation axis
 # produces zero torque about that axis for any mass distribution, so a
@@ -11,6 +11,14 @@
 # Build+run: scripts/run-example.sh, or
 #   ./build/achilles examples/two_joint_arm/two_joint_arm.arow examples/two_joint_arm/sim_config.yaml
 archetype: arm
+# Hung from the camera rig's welded joint at the world origin -- the scene's
+# fixed root, carrying the camera the arm is watched through -- so it sits
+# exactly where it would alone.
+attach:
+  archetype: camera_rig
+  joint: mount
+includes:
+  - camera_rig.arow
 joints:
   - name: shoulder
     parent: null

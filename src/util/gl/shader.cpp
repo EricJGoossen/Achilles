@@ -1,4 +1,4 @@
-#include "render/shader.hpp"
+#include "util/gl/shader.hpp"
 
 #include <array>
 #include <cstddef>
@@ -7,10 +7,9 @@
 #include <string_view>
 #include <utility>
 
-#include "render/gl.hpp"
-#include "render/mat4.hpp"
+#include "util/gl/gl.hpp"
 
-namespace achilles::render {
+namespace achilles::util::gl {
 
 namespace {
 
@@ -30,7 +29,7 @@ GLuint CompileStage(GLenum stage, std::string_view source) {
     gl::g_functions.get_shader_info_log(id, log_length, nullptr, log.data());
     gl::g_functions.delete_shader(id);
     throw std::runtime_error(
-        "achilles::render: shader compilation failed: " + log
+        "achilles::util::gl: shader compilation failed: " + log
     );
   }
   return id;
@@ -61,7 +60,7 @@ Shader::Shader(std::string_view vertex_source, std::string_view fragment_source)
     );
     gl::g_functions.delete_program(program_);
     program_ = 0;
-    throw std::runtime_error("achilles::render: shader link failed: " + log);
+    throw std::runtime_error("achilles::util::gl: shader link failed: " + log);
   }
 }
 
@@ -86,29 +85,14 @@ Shader& Shader::operator=(Shader&& other) noexcept {
 
 void Shader::Use() const { gl::g_functions.use_program(program_); }
 
-void Shader::SetMat4(const char* name, const Mat4& value) const {
+void Shader::SetMat4(
+    const char* name, const std::array<float, 16>& column_major
+) const {
   GLint location = gl::g_functions.get_uniform_location(program_, name);
   if (location < 0) {
     return;
   }
-  // Mat4 is stored row-major (see mat4.hpp's own comment); transpose=TRUE
-  // tells GL to read it that way rather than assuming column-major, so
-  // this uploads the matrix as-is with no hand transposition needed.
-  std::array<GLfloat, 16> flat{};
-  for (std::size_t row = 0; row < 4; ++row) {
-    for (std::size_t col = 0; col < 4; ++col) {
-      flat[(row * 4) + col] = value(row, col);
-    }
-  }
-  gl::g_functions.uniform_matrix4fv(location, 1, GL_TRUE, flat.data());
+  gl::g_functions.uniform_matrix4fv(location, 1, GL_FALSE, column_major.data());
 }
 
-void Shader::SetVec3(const char* name, float x, float y, float z) const {
-  GLint location = gl::g_functions.get_uniform_location(program_, name);
-  if (location < 0) {
-    return;
-  }
-  gl::g_functions.uniform3f(location, x, y, z);
-}
-
-}  // namespace achilles::render
+}  // namespace achilles::util::gl

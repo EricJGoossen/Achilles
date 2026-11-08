@@ -186,7 +186,7 @@ struct Args {
   std::string arow_path;
   std::string config_path;
   bool headless = false;
-  float seconds = 0.0F;  // 0: run until the window closes
+  float seconds = 0.0F;  // 0: run until stopped
 };
 
 bool ParseArgs(int argc, char** argv, Args& args) {
@@ -279,9 +279,6 @@ int Run(const Args& args) {
     while (running && accumulator >= kDt) {
       running = tick();
       accumulator -= kDt;
-    }
-    if (running) {
-      running = sim.Render();
     }
   }
   return 0;
