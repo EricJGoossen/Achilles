@@ -8,6 +8,7 @@
 #include <cstring>
 #include <limits>
 #include <map>
+#include <memory>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -164,8 +165,12 @@ class HeadlessContext {
     gl::LoadGLFunctions();
   }
 
+  // Never destroyed: it lives with Gpu, for the process (see Gpu::Get).
+  ~HeadlessContext() = default;
   HeadlessContext(const HeadlessContext&) = delete;
   HeadlessContext& operator=(const HeadlessContext&) = delete;
+  HeadlessContext(HeadlessContext&&) = delete;
+  HeadlessContext& operator=(HeadlessContext&&) = delete;
 
   // Current already (the usual case: one sim stepping) costs one query.
   void MakeCurrent() const {
@@ -212,9 +217,12 @@ class Gpu {
   // Made on first use and never destroyed: it lives for the process, and
   // tearing GL down during static destruction -- after whatever else has
   // already gone -- is a crash waiting to happen for nothing gained.
+  // Use Get(): public only for it to make the one Gpu with.
+  Gpu() : shader_(kVertexSource, kFragmentSource) {}
+
   static Gpu& Get() {
-    static Gpu* const gpu = new Gpu();
-    return *gpu;
+    static Gpu* const kGpu = std::make_unique<Gpu>().release();
+    return *kGpu;
   }
 
   void Render(
@@ -318,7 +326,7 @@ class Gpu {
     if (rgb.size() != pixels * 3 || depth.size() != pixels) {
       return false;
     }
-    CopyRows(readbacks.rgb[index], width * 3, height, rgb);
+    CopyRows(readbacks.rgb[index], std::size_t{width} * 3, height, rgb);
     CopyRows(readbacks.depth[index], width, height, depth);
     return true;
   }
@@ -327,8 +335,6 @@ class Gpu {
   // A camera's buffers not rendered into for this many renders are freed
   // -- a sim re-Init()ed, or one gone, leaves its cameras' behind.
   static constexpr std::uint64_t kStaleAfter = 4096;
-
-  Gpu() : shader_(kVertexSource, kFragmentSource) {}
 
   // `data`'s mesh on the GPU, uploaded the first time it's drawn.
   SolidMesh& MeshFor(const MeshData& data) {

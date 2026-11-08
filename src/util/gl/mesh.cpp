@@ -79,7 +79,7 @@ SolidMesh::SolidMesh(
         GL_FLOAT,
         GL_FALSE,
         kInstanceStride,
-        ByteOffset(column * 4 * sizeof(GLfloat))
+        ByteOffset(std::size_t{column} * 4 * sizeof(GLfloat))
     );
     gl::g_functions.enable_vertex_attrib_array(2 + column);
     gl::g_functions.vertex_attrib_divisor(2 + column, 1);
