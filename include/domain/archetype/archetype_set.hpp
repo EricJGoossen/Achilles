@@ -145,11 +145,13 @@ class ArchetypeSet {
     });
   }
 
-  // Calls fn(attachment, instance, entry, stream) for every attachment of
-  // every instance: `instance` is the global index of the archetype instance
-  // carrying it, `entry` is where it sits in its list (see AttachmentEntry)
-  // and `stream` is its own random stream, drawn from `seed` and its place
-  // among every attachment, whatever its list.
+  // Calls fn(attachment, instance, local_instance, entry, stream) for every
+  // attachment of every instance: `instance` is the global index of the
+  // archetype instance carrying it and `local_instance` its index among its
+  // own archetype's instances (what AttachmentEntry takes), `entry` is where
+  // it sits in its list (see AttachmentEntry) and `stream` is its own random
+  // stream, drawn from `seed` and its place among every attachment, whatever
+  // its list.
   template <typename Fn>
   void ForEachAttachment(std::uint64_t seed, const Fn& fn) const {
     std::unordered_map<std::string_view, std::size_t> entries;
@@ -160,6 +162,7 @@ class ArchetypeSet {
         for (const JointAttachment& attachment : archetype.attachments) {
           fn(attachment,
              first_instance + i,
+             i,
              entries[attachment.list]++,
              random::StreamKey(seed, index++));
         }

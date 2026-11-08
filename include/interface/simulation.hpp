@@ -170,6 +170,40 @@ class Simulation {
     );
   }
 
+  // Every sensor and actuator the scene declares, one list per kind (see
+  // AttachmentLists), each with its handle and the name and instance
+  // Sensor() or Actuator() would find it by. For a caller that keeps every
+  // handle, such as a display: the .arow declares them all, so one call after
+  // Init() has each one, and the handles stay valid until the next Init().
+  // Throws std::runtime_error before Init().
+  AttachmentLists Attachments() const {
+    const auto& context = Context("Attachments");
+    AttachmentLists lists;
+    archetypes_.ForEachAttachment(
+        seed_,
+        [&](const domain::JointAttachment& attachment,
+            std::size_t /*instance*/,
+            std::size_t local_instance,
+            std::size_t entry,
+            std::uint64_t /*stream*/) {
+          // Init() configured every attachment, so its kind is registered.
+          detail::WithKindNamed(
+              detail::AttachmentHandles{},
+              attachment.list,
+              [&]<typename Handle>() {
+                std::get<NamedAttachments<typename Handle::Kind>>(lists)
+                    .push_back(
+                        {.name = attachment.name,
+                         .instance = local_instance,
+                         .handle = Handle::Find(context, entry)}
+                    );
+              }
+          );
+        }
+    );
+    return lists;
+  }
+
  private:
   // The sim's clock; a stopped one before Init().
   domain::SimClock Clock() const {

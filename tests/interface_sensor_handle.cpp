@@ -6,12 +6,14 @@
 #include <cstdint>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "domain/attachment/attachment.hpp"
 #include "domain/sensing/encoder.hpp"
 #include "domain/sensing/gyroscope.hpp"
 #include "interface/attachment_handle.hpp"
+#include "interface/attachments.hpp"
 #include "interface/simulation.hpp"
 #include "support/sensing_scene.hpp"
 #include "support/temp_dir.hpp"
@@ -19,6 +21,8 @@
 using achilles::domain::sensing::AttachmentOptions;
 using achilles::domain::sensing::Encoder;
 using achilles::domain::sensing::Gyroscope;
+using achilles::interface::AttachmentLists;
+using achilles::interface::NamedAttachments;
 using achilles::interface::Simulation;
 using achilles::test_support::Archetype;
 using achilles::test_support::kZUpConfig;
@@ -109,6 +113,76 @@ TEST_F(Arms, SensorRejectsTheWrongKind) {
 TEST(SensorHandleBeforeInit, SensorThrows) {
   Simulation sim;
   EXPECT_THROW((void)sim.Sensor<Gyroscope>("gyro"), std::runtime_error);
+}
+
+// ---------------------------------------------------------------------------
+// Listing every attachment
+// ---------------------------------------------------------------------------
+
+TEST_F(Arms, AttachmentsListsEachOnceByKindWithItsNameAndInstance) {
+  dir_.Write("enc.arow", SensorFile("enc", "encoder", "arm", "link"));
+  Write({}, {"enc.arow"});
+  Simulation sim;
+  ASSERT_TRUE(Load(sim));
+
+  const AttachmentLists lists = sim.Attachments();
+  const auto described = [](const auto& list) {
+    std::vector<std::string> out;
+    for (const auto& attachment : list) {
+      out.push_back(attachment.name + " " + std::to_string(attachment.instance));
+    }
+    return out;
+  };
+  EXPECT_EQ(
+      described(std::get<NamedAttachments<Gyroscope>>(lists)),
+      (std::vector<std::string>{"gyro 0", "gyro 1", "gyro 2"})
+  );
+  EXPECT_EQ(
+      described(std::get<NamedAttachments<Encoder>>(lists)),
+      (std::vector<std::string>{"enc 0", "enc 1", "enc 2"})
+  );
+  // Nothing else: every other kind's list is empty.
+  const std::size_t total = std::apply(
+      [](const auto&... each) { return (each.size() + ...); }, lists
+  );
+  EXPECT_EQ(total, 6U);
+}
+
+TEST_F(Arms, AttachmentsHandsOutTheHandlesSensorFinds) {
+  Write();
+  Simulation sim;
+  ASSERT_TRUE(Load(sim));
+  // Each copy samples at its own period, so after a few ticks each has made
+  // a different number of updates, and a handle on the wrong row shows.
+  for (std::size_t copy = 0; copy < 3; ++copy) {
+    sim.Sensor<Gyroscope>("gyro", copy)
+        .SetConfig(Gyroscope(
+            AttachmentOptions{.period = kDt * static_cast<float>(copy + 1)},
+            Gyroscope::Params{}
+        ));
+  }
+  const auto gyros = std::get<NamedAttachments<Gyroscope>>(sim.Attachments());
+  ASSERT_EQ(gyros.size(), 3U);
+  Steps(sim, 6);
+  for (const auto& gyro : gyros) {
+    EXPECT_EQ(
+        gyro.handle.Read().sequence,
+        sim.Sensor<Gyroscope>(gyro.name, gyro.instance).Read().sequence
+    ) << "copy "
+      << gyro.instance;
+    EXPECT_EQ(
+        gyro.handle.Config().Options().period,
+        kDt * static_cast<float>(gyro.instance + 1)
+    ) << "copy "
+      << gyro.instance;
+  }
+  // And the periods really did tell them apart.
+  EXPECT_NE(gyros[0].handle.Read().sequence, gyros[2].handle.Read().sequence);
+}
+
+TEST(SensorHandleBeforeInit, AttachmentsThrows) {
+  Simulation sim;
+  EXPECT_THROW((void)sim.Attachments(), std::runtime_error);
 }
 
 // ---------------------------------------------------------------------------

@@ -41,6 +41,9 @@ class AttachmentHandle {
   using KindOutput = algorithms::attachment::KindOutput<Kind>;
 
  public:
+  // What it's a handle to.
+  using Kind = K;
+
   // The `kind:` an .arow declares one under.
   static constexpr std::string_view kListName = K::kListName;
 
