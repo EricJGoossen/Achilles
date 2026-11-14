@@ -33,14 +33,6 @@ struct HandlesFor<util::TypeList<Ks...>> {
   using Type = std::tuple<interface::AttachmentHandle<Ks>...>;
 };
 
-template <typename List>
-struct EffortCount;
-template <typename... Ks>
-struct EffortCount<util::TypeList<Ks...>> {
-  static constexpr std::size_t kValue =
-      (std::size_t{0} + ... + (EffortActuator<Ks> ? 1 : 0));
-};
-
 // What a display may be bound to: one that shows, any attachments --
 // sensors, and actuators read without being touched; one that drives, only
 // actuators it can give an effort to. Nothing but an actuator's own driving
@@ -64,14 +56,10 @@ inline constexpr bool kDrivableV<util::TypeList<Ks...>> = sizeof...(Ks) > 0 &&
 template <typename List>
 using HandlesForT = typename detail::HandlesFor<List>::Type;
 
-// How many of `List`'s kinds are actuators: one effort each, in order.
+// The efforts a driving display asks of its actuators this frame: one per
+// attachment, in order -- a display that drives is bound only to actuators.
 template <typename List>
-inline constexpr std::size_t kEffortCountV = detail::EffortCount<List>::kValue;
-
-// The efforts a display asks of its actuators this frame, in the order its
-// actuators appear in its Attachments.
-template <typename List>
-using EffortsForT = std::array<float, kEffortCountV<List>>;
+using EffortsForT = std::array<float, util::kSizeV<List>>;
 
 // Whether a display drives its attachments: it turns its controls into
 // efforts. One that doesn't only shows them.
