@@ -129,6 +129,25 @@ class ArchetypeSet {
     );
   }
 
+  // Every joint of every instance, as the address RowOf takes: archetype by
+  // archetype, instance by instance, in each archetype's own joint order.
+  // None for an Archetype built without joint names.
+  std::vector<JointAddress> JointAddresses() const {
+    std::vector<JointAddress> addresses;
+    for (const Archetype& archetype : archetypes_) {
+      for (std::size_t instance = 0; instance < archetype.root_parents.size();
+           ++instance) {
+        for (const std::string& joint : archetype.joint_names) {
+          addresses.push_back(
+              {.archetype = archetype.name, .joint = joint, .instance = instance
+              }
+          );
+        }
+      }
+    }
+    return addresses;
+  }
+
   // Calls fn(field, first_instance, instance_count, joint_count) for each
   // archetype that has a field named `field_name`, with the global index of
   // its first instance.

@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -26,6 +27,7 @@
 #include "interface/attachment_handle.hpp"
 #include "interface/attachments.hpp"
 #include "interface/sim_config_loader.hpp"
+#include "interface/state_handle.hpp"
 #include "util/io.hpp"
 
 namespace achilles::interface {
@@ -170,6 +172,33 @@ class Simulation {
     );
   }
 
+  // A raw handle on joint `joint`'s value of quantity S, for debugging and
+  // logging: unsynchronized, read in place (interface/state_handle.hpp).
+  // State<const S> reads any quantity a state handle reaches
+  // (interface/state_quantities.hpp); State<S> writes it too, for
+  // one listed ReadWrite -- one listed ReadOnly doesn't compile writable.
+  // E.g. State<input::JointPosition>({"rig", "pan"}). Throws
+  // std::runtime_error before Init(), std::invalid_argument for an unknown
+  // archetype, joint or instance.
+  template <typename S>
+    requires kReadableV<std::remove_const_t<S>>
+  StateHandle<S> State(const JointAddress& joint) const {
+    static_assert(
+        std::is_const_v<S> ||
+            kWritableV<std::remove_const_t<S>>,
+        "this quantity can only be read (interface/state_quantities.hpp): "
+        "ask for State<const S>"
+    );
+    return StateHandle<S>::At(Context("State"), JointRow(joint, "State"));
+  }
+
+  // Every joint of the scene, as the address State() takes:
+  // archetype by archetype, instance by instance. Empty until a .arow is
+  // loaded.
+  std::vector<JointAddress> Joints() const {
+    return archetypes_.JointAddresses();
+  }
+
   // Every sensor and actuator the scene declares, one list per kind (see
   // AttachmentLists), each with its handle and the name and instance
   // Sensor() or Actuator() would find it by. For a caller that keeps every
@@ -214,6 +243,16 @@ class Simulation {
     }
     return state_->context.template ViewFor<ClockView>()
         .template Load<ClockField::kClock, domain::SimClock>(0);
+  }
+
+  // The row of joint `joint` in every field kept per joint. Throws as
+  // Context(caller) does, and std::invalid_argument for an unknown joint.
+  std::size_t JointRow(const JointAddress& joint, const char* caller) const {
+    return archetypes_.RowOf(
+        joint,
+        Context(caller)
+            .template LayoutFor<engine::topology::TopologicalOrdering>()
+    );
   }
 
   // The built sim's context, for a call that needs one; throws before
