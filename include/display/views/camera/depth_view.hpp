@@ -4,13 +4,13 @@
 #include <optional>
 #include <span>
 #include <string_view>
-#include <tuple>
+#include <utility>
 
 #include "display/contract/display.hpp"
 #include "display/contract/frame.hpp"
 #include "display/views/camera/camera_image.hpp"
 #include "domain/sensing/camera.hpp"
-#include "util/tmp.hpp"
+#include "interface/attachment_handle.hpp"
 
 namespace achilles::display {
 
@@ -18,15 +18,17 @@ namespace achilles::display {
 // gray -- white up close, black at the camera's far plane and wherever
 // nothing was hit. The same camera's other output (camera_view.hpp shows its
 // color), for a scene where distance is the point.
-struct DepthView {
-  using Attachments = util::TypeList<domain::sensing::Camera>;
+class DepthView final : public IDisplay {
+ public:
   static constexpr std::string_view kName = "camera depth";
   static constexpr float kWidth = 660.0F;
   static constexpr float kHeight = 540.0F;
 
-  void Draw(const HandlesForT<Attachments>& handles, Frame* out) const {
-    const std::optional<CameraImage> latest =
-        CameraImage::Latest(std::get<0>(handles), out);
+  explicit DepthView(interface::SensorHandle<domain::sensing::Camera> camera)
+      : camera_(std::move(camera)) {}
+
+  void Draw(Frame* out) const override {
+    const std::optional<CameraImage> latest = CameraImage::Latest(camera_, out);
     if (!latest.has_value()) {
       return;
     }
@@ -39,6 +41,9 @@ struct DepthView {
          .scale = latest->config.GetParams().far}
     );
   }
+
+ private:
+  interface::SensorHandle<domain::sensing::Camera> camera_;
 };
 
 }  // namespace achilles::display

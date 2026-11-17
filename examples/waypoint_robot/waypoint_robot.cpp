@@ -35,7 +35,6 @@
 namespace {
 
 using achilles::algorithms::ScalarOperationT;
-using achilles::domain::sensing::Camera;
 using achilles::interface::AngularActuator;
 using achilles::interface::SensorHandle;
 using achilles::interface::Simulation;
@@ -277,7 +276,6 @@ int Run(const Args& args) {
   // the torque each wheel's motor applied and the speed it got the wheel to
   // (each four on one plot), and where that put the chassis.
   achilles::examples::RunInRealTime(
-      sim,
       "Achilles: waypoint robot",
       kDt,
       [&](achilles::display::Renderer& renderer) {
@@ -289,38 +287,41 @@ int Run(const Args& args) {
             "left front", "left rear", "right front", "right rear"
         };
         renderer.Attach(
-            achilles::display::CameraView{},
-            "Overhead camera",
-            sim.Sensor<Camera>("waypoint_robot_camera")
+            achilles::display::CameraView(
+                sim.Sensor<achilles::domain::sensing::Camera>(
+                    "waypoint_robot_camera"
+                )
+            ),
+            "Overhead camera"
         );
         renderer.Attach(
-            ReadingView<truth::Torque, 4>{
-                .channels = {EffortChannel::kEffort}, .names = kWheels
-            },
-            "Wheel torques",
-            sim.Actuator<truth::Torque>("left_front_motor"),
-            sim.Actuator<truth::Torque>("left_rear_motor"),
-            sim.Actuator<truth::Torque>("right_front_motor"),
-            sim.Actuator<truth::Torque>("right_rear_motor")
+            ReadingView<truth::Torque, 4>(
+                {sim.Actuator<truth::Torque>("left_front_motor"),
+                 sim.Actuator<truth::Torque>("left_rear_motor"),
+                 sim.Actuator<truth::Torque>("right_front_motor"),
+                 sim.Actuator<truth::Torque>("right_rear_motor")},
+                {.channels = {EffortChannel::kEffort}, .names = kWheels}
+            ),
+            "Wheel torques"
         );
         renderer.Attach(
-            ReadingView<truth::JointVelocity, 4>{
-                .channels = {MotionChannel::kAngularX}, .names = kWheels
-            },
-            "Wheel speeds",
-            sim.Sensor<truth::JointVelocity>("left_front_speed"),
-            sim.Sensor<truth::JointVelocity>("left_rear_speed"),
-            sim.Sensor<truth::JointVelocity>("right_front_speed"),
-            sim.Sensor<truth::JointVelocity>("right_rear_speed")
+            ReadingView<truth::JointVelocity, 4>(
+                {sim.Sensor<truth::JointVelocity>("left_front_speed"),
+                 sim.Sensor<truth::JointVelocity>("left_rear_speed"),
+                 sim.Sensor<truth::JointVelocity>("right_front_speed"),
+                 sim.Sensor<truth::JointVelocity>("right_rear_speed")},
+                {.channels = {MotionChannel::kAngularX}, .names = kWheels}
+            ),
+            "Wheel speeds"
         );
         // On the ground (+y up): where it is across it, and its heading.
         renderer.Attach(
-            ReadingView<truth::WorldTransform>{
-                .channels =
-                    {PoseChannel::kX, PoseChannel::kZ, PoseChannel::kTurnY}
-            },
-            "Chassis pose",
-            sim.Sensor<truth::WorldTransform>("chassis_pose")
+            ReadingView<truth::WorldTransform>(
+                sim.Sensor<truth::WorldTransform>("chassis_pose"),
+                {.channels =
+                     {PoseChannel::kX, PoseChannel::kZ, PoseChannel::kTurnY}}
+            ),
+            "Chassis pose"
         );
       },
       tick,

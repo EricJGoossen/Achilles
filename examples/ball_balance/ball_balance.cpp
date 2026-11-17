@@ -56,7 +56,6 @@
 namespace {
 
 using achilles::algorithms::ScalarOperationT;
-using achilles::domain::sensing::Camera;
 using achilles::interface::AngularActuator;
 using achilles::interface::SensorHandle;
 using achilles::interface::Simulation;
@@ -450,39 +449,39 @@ int Run(const Args& args) {
   // Real time, with the plate and ball from in front, where the ball truly is,
   // and the plate's tilt about each pivot.
   achilles::examples::RunInRealTime(
-      sim,
       "Achilles: ball balance",
       kDt,
       [&](achilles::display::Renderer& renderer) {
         using achilles::display::ReadingView;
         using achilles::display::PoseChannel;
         renderer.Attach(
-            achilles::display::CameraView{},
-            "Plate camera",
-            sim.Sensor<Camera>("plate_camera")
+            achilles::display::CameraView(
+                sim.Sensor<achilles::domain::sensing::Camera>("plate_camera")
+            ),
+            "Plate camera"
         );
         // Where the ball truly is across the plate (the world is z-up).
         renderer.Attach(
-            ReadingView<truth::WorldTransform>{
-                .channels = {PoseChannel::kX, PoseChannel::kY}
-            },
-            "Ball position",
-            sim.Sensor<truth::WorldTransform>("ball_pose")
+            ReadingView<truth::WorldTransform>(
+                sim.Sensor<truth::WorldTransform>("ball_pose"),
+                {.channels = {PoseChannel::kX, PoseChannel::kY}}
+            ),
+            "Ball position"
         );
         // What the controller does about it: each pivot's tilt.
         renderer.Attach(
-            ReadingView<truth::JointPosition>{
-                .channels = {PoseChannel::kTurnX}
-            },
-            "Gimbal tilt",
-            sim.Sensor<truth::JointPosition>("gimbal_angle")
+            ReadingView<truth::JointPosition>(
+                sim.Sensor<truth::JointPosition>("gimbal_angle"),
+                {.channels = {PoseChannel::kTurnX}}
+            ),
+            "Gimbal tilt"
         );
         renderer.Attach(
-            ReadingView<truth::JointPosition>{
-                .channels = {PoseChannel::kTurnZ}
-            },
-            "Plate tilt",
-            sim.Sensor<truth::JointPosition>("plate_angle")
+            ReadingView<truth::JointPosition>(
+                sim.Sensor<truth::JointPosition>("plate_angle"),
+                {.channels = {PoseChannel::kTurnZ}}
+            ),
+            "Plate tilt"
         );
       },
       tick,

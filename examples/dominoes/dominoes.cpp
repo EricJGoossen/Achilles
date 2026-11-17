@@ -14,6 +14,7 @@
 // (scripts/run-dominoes.sh passes this folder's files). Headless runs print
 // every domino's tilt once per simulated second instead, for N seconds
 // (default 10).
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
@@ -23,7 +24,7 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <vector>
+#include <utility>
 
 #include "../shared/real_time.hpp"
 #include "display/renderer.hpp"
@@ -35,7 +36,6 @@
 
 namespace {
 
-using achilles::domain::sensing::Camera;
 using achilles::interface::Simulation;
 namespace truth = achilles::interface::truth;
 
@@ -81,12 +81,13 @@ int Run(const Args& args) {
   }
   // Semi-implicit Euler: the integrator with collision.
   sim.SetIntegrator(Simulation::Integrator::kSemiImplicitEuler);
-  std::vector<achilles::interface::SensorHandle<truth::WorldTransform>> poses;
-  for (std::size_t i = 1; i <= kDominoes; ++i) {
-    poses.push_back(sim.Sensor<truth::WorldTransform>(
-        "domino_" + std::to_string(i) + "_pose"
-    ));
-  }
+  // Every domino's pose, domino_1_pose on: an array, as one display shows
+  // them all.
+  const auto poses = [&]<std::size_t... Is>(std::index_sequence<Is...>) {
+    return std::array{sim.Sensor<truth::WorldTransform>(
+        "domino_" + std::to_string(Is + 1) + "_pose"
+    )...};
+  }(std::make_index_sequence<kDominoes>{});
 
   float sim_time = 0.0F;
   float next_report = 0.0F;
@@ -119,31 +120,22 @@ int Run(const Args& args) {
   // Real time, with the chain through its camera, and every domino's tilt
   // on one plot.
   achilles::examples::RunInRealTime(
-      sim,
       "Achilles: dominoes",
       kDt,
       [&](achilles::display::Renderer& renderer) {
         renderer.Attach(
-            achilles::display::CameraView{},
-            "Domino camera",
-            sim.Sensor<Camera>("dominoes_camera")
+            achilles::display::CameraView(
+                sim.Sensor<achilles::domain::sensing::Camera>("dominoes_camera")
+            ),
+            "Domino camera"
         );
         renderer.Attach(
-            achilles::display::ReadingView<truth::WorldTransform, kDominoes>{
-                .channels = {achilles::display::PoseChannel::kTurnZ},
-                .names = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}
-            },
-            "Domino tilt",
-            poses[0],
-            poses[1],
-            poses[2],
-            poses[3],
-            poses[4],
-            poses[5],
-            poses[6],
-            poses[7],
-            poses[8],
-            poses[9]
+            achilles::display::ReadingView<truth::WorldTransform, kDominoes>(
+                poses,
+                {.channels = {achilles::display::PoseChannel::kTurnZ},
+                 .names = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}}
+            ),
+            "Domino tilt"
         );
       },
       tick,

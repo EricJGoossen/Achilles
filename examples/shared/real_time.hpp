@@ -12,7 +12,6 @@
 
 #include "achilles/build_config.hpp"
 #include "display/renderer.hpp"
-#include "interface/simulation.hpp"
 
 namespace achilles::examples {
 
@@ -30,7 +29,6 @@ template <
     typename TickFn,
     typename DoneFn>
 void RunInRealTime(
-    const interface::Simulation& sim,
     std::string_view title,
     float dt,
     const AttachFn& attach,
@@ -64,7 +62,7 @@ void RunInRealTime(
     while (running && accumulator >= dt) {
       if constexpr (WithDisplay) {
         if (renderer.has_value()) {
-          renderer->ApplyEfforts();
+          renderer->ApplyWrites();
         }
       }
       running = tick();

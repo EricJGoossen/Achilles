@@ -3,14 +3,13 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <vector>
 
-// What a window hands back to its display each frame: the other half of the
-// contract between the two (frame.hpp is what the display hands the window).
+// What a window hands back each frame, for its controllers: the other half of
+// the contract with it (frame.hpp is what its display hands the window).
 // Plain data -- no GL, no GUI library.
 namespace achilles::display {
 
-// A key a display can ask about: the ones a view is steered by. To ask
+// A key a controller can ask about: the ones a view is steered by. To ask
 // about another, add it here and to window.cpp's table of them.
 enum class Key : std::uint8_t {
   kW,
@@ -38,7 +37,7 @@ inline constexpr std::size_t kButtonCount = 3;
 
 // The mouse, as it met a window's drawing area this frame, in the frame's
 // own coordinates: [0, 1] across the area from its top-left, y down, so a
-// display never sees the window's pixels.
+// controller never sees the window's pixels.
 struct Pointer {
   // Public on purpose: plain data.
   // Whether it's over the drawing area. A button pressed there keeps the
@@ -65,23 +64,21 @@ struct Pointer {
   }
 };
 
-// What a window hands back each frame: what its controls were left at, one
-// value per slider of the frame it drew, in order; and, while it's the
-// focused window, the keyboard, and the mouse over its drawing area. A
-// window that isn't focused reports no keys, and the mouse only while it's
-// over its area.
+// What a window hands back each frame: how long the frame took; and, while
+// it's the focused window, the keyboard, and the mouse over its drawing area.
+// A window that isn't focused reports no keys, and the mouse only while it's
+// over its area. What it's handed to is the window's controllers
+// (controller.hpp): a display only draws.
 struct Input {
   // Public on purpose: plain data, which its methods only read.
-  std::vector<float> values;
+  // Wall-clock seconds since the window's last frame, so what's steered by
+  // a key held moves at the same speed whatever the frame rate.
+  float seconds = 0.0F;
   bool focused = false;
   std::array<bool, kKeyCount> keys_held{};
   std::array<bool, kKeyCount> keys_pressed{};
   Pointer pointer;
 
-  // The value of slider `index`, or 0 for one the window hasn't drawn yet.
-  float Value(std::size_t index) const {
-    return index < values.size() ? values[index] : 0.0F;
-  }
   // Whether `key` is down, or went down this frame.
   bool Held(Key key) const { return keys_held[Index(key)]; }
   bool Pressed(Key key) const { return keys_pressed[Index(key)]; }

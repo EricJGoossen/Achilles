@@ -6,7 +6,7 @@
 #include <optional>
 #include <span>
 #include <string_view>
-#include <tuple>
+#include <utility>
 
 #include "display/contract/display.hpp"
 #include "display/contract/frame.hpp"
@@ -14,7 +14,7 @@
 #include "domain/math/vector3.hpp"
 #include "domain/sensing/camera.hpp"
 #include "domain/spatial/transform.hpp"
-#include "util/tmp.hpp"
+#include "interface/attachment_handle.hpp"
 
 namespace achilles::display {
 
@@ -22,19 +22,31 @@ namespace achilles::display {
 // ShowAxes also draws the world's axes, `axis_length` meters each, through
 // the camera's own lens. Its depth is its own view (depth_view.hpp).
 template <bool ShowAxes>
-struct BasicCameraView {
-  using Attachments = util::TypeList<domain::sensing::Camera>;
+class BasicCameraView final : public IDisplay {
+ public:
   static constexpr std::string_view kName =
       ShowAxes ? "camera with axes" : "camera";
   static constexpr float kWidth = 660.0F;
   static constexpr float kHeight = 540.0F;
 
-  // A display's settings: public on purpose (see display.hpp).
-  float axis_length = 2.0F;
+  struct Settings {
+    // Public on purpose: a display's settings (see display.hpp).
+    float axis_length = 2.0F;
+  };
 
-  void Draw(const HandlesForT<Attachments>& handles, Frame* out) const {
-    const std::optional<CameraImage> latest =
-        CameraImage::Latest(std::get<0>(handles), out);
+  explicit BasicCameraView(
+      interface::SensorHandle<domain::sensing::Camera> camera
+  )
+      : BasicCameraView(std::move(camera), Settings{}) {}
+  BasicCameraView(
+      interface::SensorHandle<domain::sensing::Camera> camera, Settings settings
+  )
+      : settings(settings), camera_(std::move(camera)) {}
+
+  Settings settings;
+
+  void Draw(Frame* out) const override {
+    const std::optional<CameraImage> latest = CameraImage::Latest(camera_, out);
     if (!latest.has_value()) {
       return;
     }
@@ -49,7 +61,7 @@ struct BasicCameraView {
     );
     if constexpr (ShowAxes) {
       DrawWorldAxes(
-          latest->frame, latest->config, axis_length, kWholeArea, out
+          latest->frame, latest->config, settings.axis_length, kWholeArea, out
       );
     }
   }
@@ -138,6 +150,8 @@ struct BasicCameraView {
     draw(Vector3(0.0F, length, 0.0F), {0.25F, 0.85F, 0.25F});
     draw(Vector3(0.0F, 0.0F, length), {0.25F, 0.45F, 0.95F});
   }
+
+  interface::SensorHandle<domain::sensing::Camera> camera_;
 };
 
 using CameraView = BasicCameraView<false>;

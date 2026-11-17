@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
-#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -19,7 +18,7 @@
 #include "domain/math/vector3.hpp"
 #include "domain/sensing/encoder.hpp"
 #include "domain/spatial/transform.hpp"
-#include "util/tmp.hpp"
+#include "interface/attachment_handle.hpp"
 
 namespace achilles::display {
 
@@ -171,39 +170,51 @@ concept HasChannels =
 // pushed on: this display only shows. A camera's image and a lidar's scan
 // have their own views.
 //
-// Its settings pick what to show: `channels`, which of its reading's
+// It's made with one attachment's handle, or N attachments' of the kind at
+// once. Its settings pick what to show: `channels`, which of its reading's
 // channels to plot (its own type's Channel, in any order -- every one by
-// default); and, for N attachments of
-// the kind at once, `names`, what to call each. With N > 1 each channel is
-// one plot, a line per attachment, so they can be told apart at a glance.
+// default); and, for N attachments, `names`, what to call each. With N > 1
+// each channel is one plot, a line per attachment, so they can be told apart
+// at a glance.
 template <domain::attachment::AttachmentLike K, std::size_t N = 1>
   requires(N > 0 && HasChannels<K>)
-struct ReadingView {
+class ReadingView final : public IDisplay {
   using Channels = ReadingChannels<typename K::Output>;
+
+ public:
   // The channels its reading has: what `channels` lists.
   using Channel = typename Channels::Channel;
+  using Handle = interface::AttachmentHandle<K>;
 
-  using Attachments = util::RepeatListT<util::TypeList<K>, N>;
   static constexpr std::string_view kName = K::kListName;
   static constexpr float kWidth = 440.0F;
   static constexpr float kHeight = 330.0F;
 
-  // A display's settings: public on purpose (see display.hpp).
-  std::vector<Channel> channels{Channels::kAll.begin(), Channels::kAll.end()};
-  std::array<std::string_view, N> names{};
+  struct Settings {
+    // Public on purpose: a display's settings (see display.hpp).
+    std::vector<Channel> channels{Channels::kAll.begin(), Channels::kAll.end()};
+    std::array<std::string_view, N> names{};
+  };
 
-  void Draw(const HandlesForT<Attachments>& handles, Frame* frame) const {
-    DrawEach(handles, frame, std::make_index_sequence<N>{});
-  }
+  // One attachment's readings.
+  explicit ReadingView(Handle handle)
+    requires(N == 1)
+      : ReadingView(std::array<Handle, 1>{std::move(handle)}, Settings{}) {}
+  ReadingView(Handle handle, Settings settings)
+    requires(N == 1)
+      : ReadingView(
+            std::array<Handle, 1>{std::move(handle)}, std::move(settings)
+        ) {}
+  // N attachments' readings, on shared plots.
+  explicit ReadingView(std::array<Handle, N> handles)
+      : ReadingView(std::move(handles), Settings{}) {}
+  ReadingView(std::array<Handle, N> handles, Settings settings)
+      : settings(std::move(settings)), handles_(std::move(handles)) {}
 
- private:
-  template <std::size_t... Is>
-  void DrawEach(
-      const HandlesForT<Attachments>& handles,
-      Frame* frame,
-      std::index_sequence<Is...> /*indices*/
-  ) const {
-    const auto first = std::get<0>(handles).Read();
+  Settings settings;
+
+  void Draw(Frame* frame) const override {
+    const auto first = handles_[0].Read();
     frame->text.push_back(
         std::string(K::kListName) + ", " +
         (first.sequence == 0
@@ -211,14 +222,18 @@ struct ReadingView {
              : "sampled at " + Fixed(static_cast<float>(first.sample_time)) +
                    " s")
     );
-    (DrawOne(std::get<Is>(handles).Read(), Is, frame), ...);
+    for (std::size_t i = 0; i < N; ++i) {
+      DrawOne(handles_[i].Read(), i, frame);
+    }
   }
 
+ private:
   void DrawOne(const auto& reading, std::size_t index, Frame* frame) const {
     Channels::Emit(
         reading.value,
         [&](Channel channel, std::string_view label, float value) {
-          if (std::ranges::find(channels, channel) != channels.end()) {
+          if (std::ranges::find(settings.channels, channel) !=
+              settings.channels.end()) {
             if constexpr (N == 1) {
               frame->traces.push_back(
                   {.label = std::string(label),
@@ -239,9 +254,11 @@ struct ReadingView {
   }
 
   std::string Name(std::size_t index) const {
-    return names[index].empty() ? "#" + std::to_string(index + 1)
-                                : std::string(names[index]);
+    return settings.names[index].empty() ? "#" + std::to_string(index + 1)
+                                         : std::string(settings.names[index]);
   }
+
+  std::array<Handle, N> handles_;
 };
 
 }  // namespace achilles::display

@@ -2,9 +2,9 @@
 // sim_config.yaml), runs it in real time like every other example
 // (examples/shared/real_time.hpp), and opens one window for every sensor
 // that has a display -- a camera its image, a lidar its scan, and any other
-// sensor its readings over time -- and for every actuator that takes an
-// effort, a slider to push it by hand: each titled by its name. For a scene
-// without a program of its own, or one being built.
+// sensor its readings over time -- each titled by its name. Actuators get
+// none: a scene's own program drives them. For a scene without a program of
+// its own, or one being built.
 //
 // Usage: viewer <scene.arow> [sim_config.yaml] [--dt seconds]
 //               [--integrator NAME] [--seconds N]
@@ -32,7 +32,6 @@
 #include "display/contract/display.hpp"
 #include "display/renderer.hpp"
 #include "display/views/camera/camera_view.hpp"
-#include "display/views/effort_control.hpp"
 #include "display/views/lidar_view.hpp"
 #include "display/views/reading_view.hpp"
 #include "domain/attachment/attachment_kind.hpp"
@@ -113,8 +112,7 @@ std::string Label(std::string_view name, std::size_t instance) {
 
 // Puts up, for every sensor of `sim`, the display that shows it: a camera
 // its image, a lidar its scan, and any other sensor whose reading has
-// channels its readings over time; and for every actuator taking an effort,
-// a slider driving it. Returns how many it put up.
+// channels its readings over time. Returns how many it put up.
 std::size_t AttachDisplays(
     achilles::display::Renderer& renderer, const Simulation& sim
 ) {
@@ -122,12 +120,10 @@ std::size_t AttachDisplays(
   namespace sensing = achilles::domain::sensing;
   std::size_t attached = 0;
   const auto attach = [&](auto shown, const auto& attachment) {
-    renderer.Attach(
-        std::move(shown),
-        Label(attachment.name, attachment.instance),
-        attachment.handle
-    );
     ++attached;
+    return renderer.Attach(
+        std::move(shown), Label(attachment.name, attachment.instance)
+    );
   };
   std::apply(
       [&](const auto&... lists) {
@@ -138,15 +134,15 @@ std::size_t AttachDisplays(
                     typename std::remove_cvref_t<decltype(attachment.handle
                     )>::Kind;
                 if constexpr (std::same_as<K, sensing::Camera>) {
-                  attach(display::CameraView{}, attachment);
+                  attach(display::CameraView(attachment.handle), attachment);
                 } else if constexpr (std::same_as<K, sensing::Lidar>) {
-                  attach(display::LidarView{}, attachment);
-                } else if constexpr (display::EffortActuator<K>) {
-                  attach(display::EffortControl<K>{}, attachment);
+                  attach(display::LidarView(attachment.handle), attachment);
                 } else if constexpr (achilles::domain::attachment::SensorLike<
                                          K> &&
                                      display::HasChannels<K>) {
-                  attach(display::ReadingView<K>{}, attachment);
+                  attach(
+                      display::ReadingView<K>(attachment.handle), attachment
+                  );
                 }
               }
             }(),
@@ -169,7 +165,6 @@ int Run(const Args& args) {
 
   float sim_time = 0.0F;
   achilles::examples::RunInRealTime(
-      sim,
       "Achilles: " + args.arow_path,
       args.dt,
       [&](achilles::display::Renderer& renderer) {

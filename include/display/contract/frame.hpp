@@ -6,7 +6,6 @@
 #include <cstdint>
 #include <span>
 #include <string>
-#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -57,16 +56,6 @@ struct Lines {
   std::vector<float> xy;
 };
 
-// A control the window shows below the drawing: a slider from min to max.
-// One that springs goes back to 0 when let go, so an effort lasts only as
-// long as it's held. Its value comes back in Input, by its index here.
-struct Slider {
-  std::string_view label;
-  float min = -1.0F;
-  float max = 1.0F;
-  bool spring = true;
-};
-
 // One channel of a reading, plotted over time: its value this frame, and
 // the sim time it was sampled at. The window keeps each trace's recent
 // values -- the n-th trace is the same channel every frame -- and adds one
@@ -84,8 +73,7 @@ struct Trace {
 // One frame of a display. The drawing area's coordinates run [0, 1] x
 // [0, 1] from its top-left, y down, laid out for `aspect` (width over
 // height), which the window keeps by letterboxing; aspect 0 means no drawing
-// area at all, only text and controls. A display's window keeps the same
-// controls frame to frame: the n-th slider is the same control every frame.
+// area at all, only text and plots.
 struct Frame {
   // Public on purpose: plain data, which Clear() only resets.
   float aspect = 0.0F;
@@ -95,7 +83,6 @@ struct Frame {
   std::vector<Points> points;
   std::vector<Lines> lines;
   std::vector<Trace> traces;
-  std::vector<Slider> sliders;
 
   // Empties it for the next frame, keeping its capacity.
   void Clear() {
@@ -106,7 +93,6 @@ struct Frame {
     points.clear();
     lines.clear();
     traces.clear();
-    sliders.clear();
   }
 };
 

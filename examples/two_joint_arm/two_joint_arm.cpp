@@ -36,7 +36,6 @@
 
 namespace {
 
-using achilles::domain::sensing::Camera;
 using achilles::interface::Simulation;
 namespace truth = achilles::interface::truth;
 
@@ -124,7 +123,6 @@ int Run(const Args& args) {
   // Real time, with the arm through its camera, and both joints' angles and
   // rates, each pair on one plot.
   achilles::examples::RunInRealTime(
-      sim,
       "Achilles: double pendulum",
       kDt,
       [&](achilles::display::Renderer& renderer) {
@@ -132,27 +130,27 @@ int Run(const Args& args) {
         using achilles::display::MotionChannel;
         using achilles::display::PoseChannel;
         renderer.Attach(
-            achilles::display::CameraView{},
-            "Arm camera",
-            sim.Sensor<Camera>("arm_camera")
+            achilles::display::CameraView(
+                sim.Sensor<achilles::domain::sensing::Camera>("arm_camera")
+            ),
+            "Arm camera"
         );
         renderer.Attach(
-            ReadingView<truth::JointPosition, 2>{
-                .channels = {PoseChannel::kTurnX},
-                .names = {"shoulder", "elbow"}
-            },
-            "Joint angles",
-            shoulder,
-            elbow
+            ReadingView<truth::JointPosition, 2>(
+                {shoulder, elbow},
+                {.channels = {PoseChannel::kTurnX},
+                 .names = {"shoulder", "elbow"}}
+            ),
+            "Joint angles"
         );
         renderer.Attach(
-            ReadingView<truth::JointVelocity, 2>{
-                .channels = {MotionChannel::kAngularX},
-                .names = {"shoulder", "elbow"}
-            },
-            "Joint rates",
-            sim.Sensor<truth::JointVelocity>("shoulder_rate"),
-            sim.Sensor<truth::JointVelocity>("elbow_rate")
+            ReadingView<truth::JointVelocity, 2>(
+                {sim.Sensor<truth::JointVelocity>("shoulder_rate"),
+                 sim.Sensor<truth::JointVelocity>("elbow_rate")},
+                {.channels = {MotionChannel::kAngularX},
+                 .names = {"shoulder", "elbow"}}
+            ),
+            "Joint rates"
         );
       },
       tick,

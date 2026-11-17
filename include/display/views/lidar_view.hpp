@@ -5,12 +5,12 @@
 #include <cstdint>
 #include <numbers>
 #include <string_view>
-#include <tuple>
+#include <utility>
 
 #include "display/contract/display.hpp"
 #include "display/contract/frame.hpp"
 #include "domain/sensing/lidar.hpp"
-#include "util/tmp.hpp"
+#include "interface/attachment_handle.hpp"
 
 namespace achilles::display {
 
@@ -18,15 +18,17 @@ namespace achilles::display {
 // window, left (+y) to the left, a point per beam that hit something --
 // each channel flattened onto the horizontal plane -- inside range rings at
 // every quarter of its max range.
-struct LidarView {
-  using Attachments = util::TypeList<domain::sensing::Lidar>;
+class LidarView final : public IDisplay {
+ public:
   static constexpr std::string_view kName = "lidar";
   static constexpr float kWidth = 480.0F;
   static constexpr float kHeight = 520.0F;
 
-  void Draw(const HandlesForT<Attachments>& handles, Frame* out) const {
-    const auto& lidar = std::get<0>(handles);
-    const domain::sensing::Lidar::Params params = lidar.Config().GetParams();
+  explicit LidarView(interface::SensorHandle<domain::sensing::Lidar> lidar)
+      : lidar_(std::move(lidar)) {}
+
+  void Draw(Frame* out) const override {
+    const domain::sensing::Lidar::Params params = lidar_.Config().GetParams();
     out->aspect = 1.0F;
     // The plot spans the max range from its center to each edge.
     const float scale = 0.5F / params.max_range;
@@ -56,7 +58,7 @@ struct LidarView {
     );
 
     // Beam i's direction, as the lidar aims it (Lidar::AimBeams).
-    const domain::sensing::LidarScan scan = lidar.Read().value;
+    const domain::sensing::LidarScan scan = lidar_.Read().value;
     Points& hits = out->points.emplace_back(
         Points{.color = {0.35F, 0.85F, 0.45F}, .size = 3.0F}
     );
@@ -89,6 +91,9 @@ struct LidarView {
         Fixed(params.max_range / 4.0F, 1) + " m"
     );
   }
+
+ private:
+  interface::SensorHandle<domain::sensing::Lidar> lidar_;
 };
 
 }  // namespace achilles::display

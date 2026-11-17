@@ -152,7 +152,6 @@ Window::Window(Window&& other) noexcept
       height_(other.height_),
       placed_(other.placed_),
       open_(other.open_),
-      values_(std::move(other.values_)),
       pointer_(other.pointer_),
       histories_(std::move(other.histories_)),
       textures_(std::move(other.textures_)),
@@ -169,7 +168,6 @@ Window& Window::operator=(Window&& other) noexcept {
     height_ = other.height_;
     placed_ = other.placed_;
     open_ = other.open_;
-    values_ = std::move(other.values_);
     pointer_ = other.pointer_;
     histories_ = std::move(other.histories_);
     textures_ = std::move(other.textures_);
@@ -216,7 +214,6 @@ void Window::Upload(std::size_t index, const Image& image) {
 }
 
 Input Window::Present(const Frame& frame) {
-  values_.resize(frame.sliders.size(), 0.0F);
   pointer_ = Pointer{};
   if (!placed_) {
     ImGui::SetNextWindowPos(Place(width_, height_));
@@ -232,6 +229,7 @@ Input Window::Present(const Frame& frame) {
   const bool shown = ImGui::Begin(label_.c_str(), &open, kFlags);
   open_ = open;
   Input input;
+  input.seconds = ImGui::GetIO().DeltaTime;
   input.focused =
       shown && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
   if (input.focused) {
@@ -248,29 +246,18 @@ Input Window::Present(const Frame& frame) {
       DrawArea(frame);
     }
     DrawTraces(frame);
-    DrawControls(frame);
-  } else {
-    // Minimized: nothing is held, so springing controls let go.
-    for (std::size_t i = 0; i < frame.sliders.size(); ++i) {
-      if (frame.sliders[i].spring) {
-        values_[i] = 0.0F;
-      }
-    }
   }
   ImGui::End();
-  input.values = values_;
   input.pointer = pointer_;
   return input;
 }
 
 void Window::DrawArea(const Frame& frame) {
-  // Whatever room the controls leave, letterboxed to the frame's aspect and
+  // The room left below the text, letterboxed to the frame's aspect and
   // centered.
-  const float controls = static_cast<float>(frame.sliders.size()) *
-                         ImGui::GetFrameHeightWithSpacing();
   const ImVec2 room = ImGui::GetContentRegionAvail();
   const float room_width = std::max(room.x, 1.0F);
-  const float room_height = std::max(room.y - controls, 1.0F);
+  const float room_height = std::max(room.y, 1.0F);
   float width = room_width;
   float height = room_width / frame.aspect;
   if (height > room_height) {
@@ -321,9 +308,9 @@ void Window::DrawArea(const Frame& frame) {
       );
     }
   }
-  // Claims the area, so the controls go below it -- as a button for every
-  // mouse button, so a drag on it is the display's, never a move of the
-  // window.
+  // Claims the area, so the plots go below it -- as a button for every
+  // mouse button, so a drag on it is the window's controllers', never a move
+  // of the window.
   ImGui::InvisibleButton(
       "area",
       ImVec2(room_width, height),
@@ -507,21 +494,6 @@ void Window::DrawSharedPlot(
     );
     ImGui::TextUnformatted(entry.c_str());
     ImGui::PopStyleColor();
-  }
-}
-
-void Window::DrawControls(const Frame& frame) {
-  for (std::size_t i = 0; i < frame.sliders.size(); ++i) {
-    const Slider& slider = frame.sliders[i];
-    const std::string label(slider.label);
-    ImGui::PushID(static_cast<int>(i));
-    ImGui::SliderFloat(
-        label.c_str(), &values_[i], slider.min, slider.max, "%.2f"
-    );
-    if (slider.spring && !ImGui::IsItemActive()) {
-      values_[i] = 0.0F;
-    }
-    ImGui::PopID();
   }
 }
 

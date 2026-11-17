@@ -60,7 +60,6 @@
 namespace {
 
 using achilles::algorithms::ScalarOperationT;
-using achilles::domain::sensing::Camera;
 using achilles::domain::sensing::Encoder;
 using achilles::domain::sensing::Gyroscope;
 using achilles::domain::sensing::Lidar;
@@ -641,38 +640,40 @@ int Run(const Args& args) {
   // by: the lidar's scan, the gyroscope's yaw rate and the four wheels'
   // encoder speeds, on one plot.
   achilles::examples::RunInRealTime(
-      sim,
       "Achilles: maze",
       kDt,
       [&](achilles::display::Renderer& renderer) {
         using achilles::display::ReadingView;
         renderer.Attach(
-            achilles::display::CameraView{},
-            "Overhead camera",
-            sim.Sensor<Camera>("overhead_camera")
+            achilles::display::CameraView(
+                sim.Sensor<achilles::domain::sensing::Camera>("overhead_camera")
+            ),
+            "Overhead camera"
         );
         renderer.Attach(
-            achilles::display::LidarView{}, "Lidar", sim.Sensor<Lidar>("lidar")
+            achilles::display::LidarView(sim.Sensor<Lidar>("lidar")), "Lidar"
         );
         using achilles::display::EncoderChannel;
         using achilles::display::VectorChannel;
         // Yaw: about the robot's own up, its +y.
         renderer.Attach(
-            ReadingView<Gyroscope>{.channels = {VectorChannel::kY}},
-            "Gyroscope yaw rate",
-            sim.Sensor<Gyroscope>("gyroscope")
+            ReadingView<Gyroscope>(
+                sim.Sensor<Gyroscope>("gyroscope"),
+                {.channels = {VectorChannel::kY}}
+            ),
+            "Gyroscope yaw rate"
         );
         renderer.Attach(
-            ReadingView<Encoder, 4>{
-                .channels = {EncoderChannel::kVelocity},
-                .names =
-                    {"left front", "left rear", "right front", "right rear"}
-            },
-            "Wheel encoders",
-            sim.Sensor<Encoder>("left_front_encoder"),
-            sim.Sensor<Encoder>("left_rear_encoder"),
-            sim.Sensor<Encoder>("right_front_encoder"),
-            sim.Sensor<Encoder>("right_rear_encoder")
+            ReadingView<Encoder, 4>(
+                {sim.Sensor<Encoder>("left_front_encoder"),
+                 sim.Sensor<Encoder>("left_rear_encoder"),
+                 sim.Sensor<Encoder>("right_front_encoder"),
+                 sim.Sensor<Encoder>("right_rear_encoder")},
+                {.channels = {EncoderChannel::kVelocity},
+                 .names =
+                     {"left front", "left rear", "right front", "right rear"}}
+            ),
+            "Wheel encoders"
         );
       },
       tick,

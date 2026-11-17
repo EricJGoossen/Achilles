@@ -39,8 +39,8 @@ int main(int argc, char** argv) {
     using achilles::domain::sensing::Camera;
     achilles::display::Renderer renderer("Achilles: pan-tilt camera");
     const auto camera = sim.Sensor<Camera>("rig_camera");
-    renderer.Attach(achilles::display::CameraView{}, "Rig camera", camera);
-    renderer.Attach(achilles::display::DepthView{}, "Rig camera depth", camera);
+    renderer.Attach(achilles::display::CameraView(camera), "Rig camera");
+    renderer.Attach(achilles::display::DepthView(camera), "Rig camera depth");
 
     // Real time: each frame, as many fixed steps as the wall clock covers,
     // clamped so a hitch doesn't turn into a burst.
@@ -56,7 +56,7 @@ int main(int argc, char** argv) {
       );
       last = now;
       while (running && behind >= kDt) {
-        renderer.ApplyEfforts();
+        renderer.ApplyWrites();
         running = sim.Step(kDt);
         behind -= kDt;
       }

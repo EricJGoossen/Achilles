@@ -13,11 +13,11 @@ namespace achilles::display {
 
 // One display's window: its own window on the desktop, moved, resized and
 // closed there, drawing whatever Frame it's handed. It holds no display -- a
-// display set pairs each display with one -- only what drawing needs between
-// frames: its textures, its controls' values, whether its user has closed
-// it. Every window is this one type, whatever it shows. The GUI makes its
-// desktop window when it first draws, and takes it down once it's closed
-// or destroyed.
+// window set pairs each with its display and controllers -- only what drawing
+// needs between frames: its textures, its plots' histories, whether its user
+// has closed it. Every window is this one type, whatever it shows. The GUI
+// makes its desktop window when it first draws, and takes it down once it's
+// closed or destroyed.
 //
 // Present() runs only between the screen's (screen.hpp) BeginFrame() and
 // EndFrame(); the textures it makes belong to the screen's shared GL
@@ -35,9 +35,9 @@ class Window {
   Window& operator=(Window&& other) noexcept;
 
   // Draws `frame` as this window's contents this frame: its text, its
-  // drawing area letterboxed to its aspect, its traces' plots, then its
-  // controls. Returns what the controls were left at, one value per slider
-  // of `frame`, and the keyboard and mouse as they met this window.
+  // drawing area letterboxed to its aspect, then its traces' plots. Returns
+  // how long the frame took, and the keyboard and mouse as they met this
+  // window.
   Input Present(const Frame& frame);
 
   // False once its user has closed it.
@@ -48,13 +48,12 @@ class Window {
  private:
   void FreeTextures();
   void Upload(std::size_t index, const Image& image);
-  // The frame's drawing area, its traces, then its controls (sliders).
+  // The frame's drawing area.
   void DrawArea(const Frame& frame);
   // Records the mouse over the area just claimed -- `width` by `height`
   // from (`left`, `top`), on the screen -- as pointer_.
   void TrackPointer(float left, float top, float width, float height);
   void DrawTraces(const Frame& frame);
-  void DrawControls(const Frame& frame);
 
   // One trace's recent values, oldest first from `next` once full: a ring
   // of kTraceSamples samples -- about ten seconds of a sensor sampled every
@@ -86,7 +85,6 @@ class Window {
   // opens is worked out when it first draws (see window.cpp's Place).
   bool placed_ = false;
   bool open_ = true;
-  std::vector<float> values_;
   // The mouse over the drawing area, as DrawArea() last found it.
   Pointer pointer_;
   std::vector<History> histories_;
