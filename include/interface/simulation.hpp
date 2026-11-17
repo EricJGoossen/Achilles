@@ -184,8 +184,7 @@ class Simulation {
     requires kReadableV<std::remove_const_t<S>>
   StateHandle<S> State(const JointAddress& joint) const {
     static_assert(
-        std::is_const_v<S> ||
-            kWritableV<std::remove_const_t<S>>,
+        std::is_const_v<S> || kWritableV<std::remove_const_t<S>>,
         "this quantity can only be read (interface/state_quantities.hpp): "
         "ask for State<const S>"
     );

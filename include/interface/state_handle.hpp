@@ -31,8 +31,7 @@ struct FieldOfBound {
 template <typename Quantity>
 struct FieldOfBound<algorithms::attachment::OwnInput<Quantity>> {
   using Source = algorithms::attachment::AttachmentAlgorithm;
-  static constexpr auto kField =
-      algorithms::attachment::kOwnFieldOf<Quantity>;
+  static constexpr auto kField = algorithms::attachment::kOwnFieldOf<Quantity>;
 };
 template <typename Q>
 using FieldOfT = FieldOfBound<algorithms::attachment::BoundInputT<Q>>;
@@ -92,8 +91,7 @@ class StateHandle {
   template <typename Other>
     requires(!kWritable && std::same_as<const Other, S> &&
              !std::is_const_v<Other>)
-  // NOLINTNEXTLINE(google-explicit-constructor) -- as T* converts to const T*.
-  StateHandle(const StateHandle<Other>& writable)
+  explicit StateHandle(const StateHandle<Other>& writable)
       : view_(writable.view_), row_(writable.row_) {}
 
   // The value, as the last Step() left it.
