@@ -417,6 +417,23 @@ joints:
   EXPECT_THROW(LoadArchetypes(file), ArchetypeLoadError);
 }
 
+// The same, the other way round: a field the first joint lacks still has to
+// be on every joint, never dropped from all of them.
+TEST(LoadArchetypes, ThrowsWhenFieldIsMissingOnlyFromTheFirstJoint) {
+  TempDir dir;
+  auto file = dir.Write("root.arow", R"(
+archetype: base
+joints:
+  - name: a
+    fields: {}
+  - name: b
+    parent: a
+    fields: { x: [0] }
+)");
+
+  EXPECT_THROW(LoadArchetypes(file), ArchetypeLoadError);
+}
+
 TEST(LoadArchetypes, ThrowsOnIncludeCycle) {
   TempDir dir;
   dir.Write("a.arow", R"(

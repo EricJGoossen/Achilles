@@ -128,8 +128,11 @@ TEST_F(Arms, AttachmentsListsEachOnceByKindWithItsNameAndInstance) {
   const AttachmentLists lists = sim.Attachments();
   const auto described = [](const auto& list) {
     std::vector<std::string> out;
+    out.reserve(list.size());
     for (const auto& attachment : list) {
-      out.push_back(attachment.name + " " + std::to_string(attachment.instance));
+      out.push_back(
+          attachment.name + " " + std::to_string(attachment.instance)
+      );
     }
     return out;
   };
