@@ -17,6 +17,7 @@
 #include "domain/archetype/archetype_set.hpp"
 #include "domain/joint_layout.hpp"
 #include "domain/joint_topology.hpp"
+#include "domain/math/vector3.hpp"
 #include "domain/random/seed.hpp"
 #include "domain/sensing/truth_sensor.hpp"
 #include "domain/sim_clock.hpp"
@@ -198,12 +199,26 @@ class Simulation {
     return archetypes_.JointAddresses();
   }
 
+  // The world's up: straight against gravity -- the base's acceleration
+  // (base_acceleration, minus gravity), as a unit vector -- or +z for a world
+  // without gravity. What a FlyCamera rises along.
+  domain::math::Vector3<float> Up() const {
+    // Every lane of the config holds the same value: the first's.
+    const auto linear = config_.base_acceleration.Linear();
+    const domain::math::Vector3<float> against(
+        linear.X().get(0), linear.Y().get(0), linear.Z().get(0)
+    );
+    const float length = against.Norm();
+    return length > 0.0F ? against * (1.0F / length)
+                         : domain::math::Vector3<float>(0.0F, 0.0F, 1.0F);
+  }
+
   // Every sensor and actuator the scene declares, one list per kind (see
-  // AttachmentLists), each with its handle and the name and instance
-  // Sensor() or Actuator() would find it by. For a caller that keeps every
-  // handle, such as a display: the .arow declares them all, so one call after
-  // Init() has each one, and the handles stay valid until the next Init().
-  // Throws std::runtime_error before Init().
+  // AttachmentLists), each with its handle, the name and instance Sensor() or
+  // Actuator() would find it by, and the joint it's attached to. For a caller
+  // that keeps every handle, such as a display: the .arow declares them all, so
+  // one call after Init() has each one, and the handles stay valid until the
+  // next Init(). Throws std::runtime_error before Init().
   AttachmentLists Attachments() const {
     const auto& context = Context("Attachments");
     AttachmentLists lists;
@@ -213,7 +228,8 @@ class Simulation {
             std::size_t /*instance*/,
             std::size_t local_instance,
             std::size_t entry,
-            std::uint64_t /*stream*/) {
+            std::uint64_t /*stream*/,
+            const domain::archetype::Archetype& archetype) {
           // Init() configured every attachment, so its kind is registered.
           detail::WithKindNamed(
               detail::AttachmentHandles{},
@@ -223,7 +239,14 @@ class Simulation {
                     .push_back(
                         {.name = attachment.name,
                          .instance = local_instance,
-                         .handle = Handle::Find(context, entry)}
+                         .handle = Handle::Find(context, entry),
+                         .joint =
+                             {.archetype = archetype.name,
+                              .joint =
+                                  archetype.joint_names.empty()
+                                      ? std::string()
+                                      : archetype.joint_names[attachment.joint],
+                              .instance = local_instance}}
                     );
               }
           );

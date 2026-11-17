@@ -17,6 +17,7 @@
 #include "interface/simulation.hpp"
 #include "interface/state_handle.hpp"
 #include "interface/state_quantities.hpp"
+#include "interface/writable_handle.hpp"
 #include "support/sensing_scene.hpp"
 #include "support/temp_dir.hpp"
 
@@ -24,6 +25,7 @@ using achilles::domain::JointAddress;
 using achilles::domain::math::Vector3;
 using achilles::interface::Simulation;
 using achilles::interface::StateHandle;
+using achilles::interface::WritableHandle;
 using achilles::test_support::Archetype;
 using achilles::test_support::kZUpConfig;
 using achilles::test_support::SceneJoint;
@@ -39,11 +41,8 @@ static_assert(!achilles::interface::kWritableV<input::WorldTransform>);
 
 // A const handle only reads; a writable one makes one, explicitly, never
 // back.
-template <typename H>
-concept Writes =
-    requires(const H& handle, typename H::Value value) { handle.Write(value); };
-static_assert(Writes<StateHandle<input::JointPosition>>);
-static_assert(!Writes<StateHandle<const input::JointPosition>>);
+static_assert(WritableHandle<StateHandle<input::JointPosition>>);
+static_assert(!WritableHandle<StateHandle<const input::JointPosition>>);
 static_assert(std::is_constructible_v<
               StateHandle<const input::JointPosition>,
               StateHandle<input::JointPosition>>);

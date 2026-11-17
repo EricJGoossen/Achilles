@@ -19,10 +19,12 @@
 #include "domain/archetype/archetype_set.hpp"
 #include "domain/joint_data.hpp"
 #include "domain/math/vector3.hpp"
+#include "domain/sensing/encoder.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/orderings.hpp"
 #include "interface/attachment_handle.hpp"
 #include "interface/attachments.hpp"
+#include "interface/writable_handle.hpp"
 
 // Covers interface::ActuatorHandle: a truth actuator's effort projected onto a
 // joint's generalized coordinates (effort * S^T e), the errors Configure raises
@@ -51,6 +53,14 @@ using achilles::engine::topology::TopologicalOrdering;
 using achilles::interface::AngularActuator;
 using achilles::interface::ConfigureAttachments;
 using achilles::interface::LinearActuator;
+using achilles::interface::WritableHandle;
+
+// An actuator's handle is written with its command, as a writable state
+// handle is with its value; a sensor's has nothing to write.
+static_assert(WritableHandle<LinearActuator>);
+static_assert(WritableHandle<AngularActuator>);
+static_assert(!WritableHandle<achilles::interface::SensorHandle<
+                  achilles::domain::sensing::Encoder>>);
 
 namespace {
 

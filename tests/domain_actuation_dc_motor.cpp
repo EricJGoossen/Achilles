@@ -190,7 +190,7 @@ TEST(Motor, TheSimDrivesTheJoint) {
       "  resistance: 0.2\n  bus_voltage: 24\n  max_current: 20\n"
       "  gear_ratio: 0.1\n  gearbox_efficiency: 0.9\n"
   ));
-  sim.Actuator<DcMotor>("shaft_motor").Command(DcMotorCommand::Current(1.0F));
+  sim.Actuator<DcMotor>("shaft_motor").Write(DcMotorCommand::Current(1.0F));
   for (int i = 0; i < 10; ++i) {
     ASSERT_TRUE(sim.Step(0.002F));
   }

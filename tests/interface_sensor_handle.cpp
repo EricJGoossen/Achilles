@@ -119,6 +119,8 @@ TEST(SensorHandleBeforeInit, SensorThrows) {
 // Listing every attachment
 // ---------------------------------------------------------------------------
 
+// Each with its name and instance, and the joint it's attached to -- of its
+// own instance.
 TEST_F(Arms, AttachmentsListsEachOnceByKindWithItsNameAndInstance) {
   dir_.Write("enc.arow", SensorFile("enc", "encoder", "arm", "link"));
   Write({}, {"enc.arow"});
@@ -131,18 +133,24 @@ TEST_F(Arms, AttachmentsListsEachOnceByKindWithItsNameAndInstance) {
     out.reserve(list.size());
     for (const auto& attachment : list) {
       out.push_back(
-          attachment.name + " " + std::to_string(attachment.instance)
+          attachment.name + " " + std::to_string(attachment.instance) + " " +
+          attachment.joint.archetype + "/" + attachment.joint.joint + " " +
+          std::to_string(attachment.joint.instance)
       );
     }
     return out;
   };
   EXPECT_EQ(
       described(std::get<NamedAttachments<Gyroscope>>(lists)),
-      (std::vector<std::string>{"gyro 0", "gyro 1", "gyro 2"})
+      (std::vector<std::string>{
+          "gyro 0 arm/link 0", "gyro 1 arm/link 1", "gyro 2 arm/link 2"
+      })
   );
   EXPECT_EQ(
       described(std::get<NamedAttachments<Encoder>>(lists)),
-      (std::vector<std::string>{"enc 0", "enc 1", "enc 2"})
+      (std::vector<std::string>{
+          "enc 0 arm/link 0", "enc 1 arm/link 1", "enc 2 arm/link 2"
+      })
   );
   // Nothing else: every other kind's list is empty.
   const std::size_t total = std::apply(

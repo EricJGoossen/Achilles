@@ -57,7 +57,7 @@ TEST(ActuatorKinds, ReadReportsTheEffortAndTheKindsOwnFeedback) {
   Simulation sim;
   ASSERT_TRUE(LoadShaft(dir, sim, "dc_motor", kMotor));
   const auto motor = sim.Actuator<DcMotor>("shaft_motor");
-  motor.Command(DcMotorCommand::Current(1.0F));
+  motor.Write(DcMotorCommand::Current(1.0F));
   Steps(sim, 1);
   const auto reading = motor.Read();
   EXPECT_EQ(reading.sequence, 1U);
@@ -72,7 +72,7 @@ TEST(ActuatorKinds, AMotorHoldsItsLastCommand) {
   Simulation sim;
   ASSERT_TRUE(LoadShaft(dir, sim, "dc_motor", kMotor));
   const auto motor = sim.Actuator<DcMotor>("shaft_motor");
-  motor.Command(DcMotorCommand::Current(1.0F));
+  motor.Write(DcMotorCommand::Current(1.0F));
   Steps(sim, 5);
   EXPECT_EQ(motor.Read().sequence, 5U);
   EXPECT_FLOAT_EQ(motor.Read().value.current, 1.0F);
@@ -97,11 +97,11 @@ TEST(ActuatorKinds, APeriodHoldsTheEffortBetweenUpdates) {
   Simulation sim;
   ASSERT_TRUE(LoadShaft(dir, sim, "dc_motor", kMotor + "  period: 0.01\n"));
   const auto motor = sim.Actuator<DcMotor>("shaft_motor");
-  motor.Command(DcMotorCommand::Current(1.0F));
+  motor.Write(DcMotorCommand::Current(1.0F));
   Steps(sim, 1);
   EXPECT_EQ(motor.Read().sequence, 1U);
 
-  motor.Command(DcMotorCommand::Current(2.0F));
+  motor.Write(DcMotorCommand::Current(2.0F));
   const float rate_before = ShaftRate(sim);
   Steps(sim, 4);
   EXPECT_EQ(motor.Read().sequence, 1U);
@@ -118,7 +118,7 @@ TEST(ActuatorKinds, AKindsErrorReachesTheJoint) {
   Simulation sim;
   ASSERT_TRUE(LoadShaft(dir, sim, "dc_motor", kMotor + "  bias: 1\n"));
   const auto motor = sim.Actuator<DcMotor>("shaft_motor");
-  motor.Command(DcMotorCommand::Current(1.0F));
+  motor.Write(DcMotorCommand::Current(1.0F));
   Steps(sim, 1);
   EXPECT_NEAR(motor.Read().value.effort, kOneAmpStall + 1.0F, 1e-4F);
 }
@@ -143,7 +143,7 @@ TEST(ActuatorKinds, SetConfigStartsAnActuatorOver) {
   Simulation sim;
   ASSERT_TRUE(LoadShaft(dir, sim, "dc_motor", kMotor));
   const auto motor = sim.Actuator<DcMotor>("shaft_motor");
-  motor.Command(DcMotorCommand::Current(1.0F));
+  motor.Write(DcMotorCommand::Current(1.0F));
   Steps(sim, 3);
 
   motor.SetConfig(motor.Config());

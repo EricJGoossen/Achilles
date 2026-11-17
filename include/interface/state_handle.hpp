@@ -84,6 +84,8 @@ class StateHandle {
   // The field's value, as the sim keeps it (e.g. Transform<float> for a
   // joint's position).
   using Value = engine::AssembledT<typename Traits::Type::Assembler>;
+  // What Write() takes (writable_handle.hpp): the value itself.
+  using Written = Value;
   // Whether this handle may write.
   static constexpr bool kWritable = !std::is_const_v<S>;
 

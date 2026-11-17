@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "algorithms/attachment_kinds/attachment_kinds.hpp"
+#include "domain/archetype/archetype.hpp"
 #include "domain/joint_data.hpp"
 #include "engine/pass/sim_context.hpp"
 #include "interface/attachment_handle.hpp"
@@ -20,12 +21,14 @@
 namespace achilles::interface {
 
 // One sensor or actuator as Simulation::Attachments() lists it: its handle,
-// and the name and instance Sensor() or Actuator() would find it by.
+// the name and instance Sensor() or Actuator() would find it by, and the
+// joint it's attached to (what Simulation::State() finds that joint by).
 template <domain::attachment::AttachmentLike K>
 struct NamedAttachment {
   std::string name;
   std::size_t instance = 0;
   AttachmentHandle<K> handle;
+  domain::JointAddress joint;
 };
 
 template <domain::attachment::AttachmentLike K>
@@ -74,7 +77,8 @@ void ConfigureAttachments(
           std::size_t instance,
           std::size_t /*local_instance*/,
           std::size_t entry,
-          std::uint64_t stream) {
+          std::uint64_t stream,
+          const domain::archetype::Archetype& /*archetype*/) {
         const bool known = detail::WithKindNamed(
             detail::AttachmentHandles{},
             attachment.list,
