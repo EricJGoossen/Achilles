@@ -103,6 +103,11 @@ window for every sensor it has (built with the display):
 build/viewer <scene.arow> [sim_config.yaml] [--dt seconds] [--integrator name] [--seconds N]
 ```
 
+Every camera's window, in the viewer and in each example, flies the camera:
+W/A/S/D to move, E/Q up and down, Shift for faster, and a drag to look
+around. It sets the pose of the joint the camera is attached to outright, so
+each example's camera sits on a welded `camera_mount` of its own.
+
 ### Scene files (`.arow`)
 
 A `.arow` file names an archetype and lists its joints. Each joint has a

@@ -44,13 +44,12 @@
 #include <utility>
 #include <vector>
 
+#include "../shared/flying_camera.hpp"
 #include "../shared/real_time.hpp"
 #include "algorithms/conventions.hpp"
 #include "display/renderer.hpp"
-#include "display/views/camera/camera_view.hpp"
 #include "display/views/lidar_view.hpp"
 #include "display/views/reading_view.hpp"
-#include "domain/sensing/camera.hpp"
 #include "domain/sensing/encoder.hpp"
 #include "domain/sensing/gyroscope.hpp"
 #include "domain/sensing/lidar.hpp"
@@ -644,11 +643,8 @@ int Run(const Args& args) {
       kDt,
       [&](achilles::display::Renderer& renderer) {
         using achilles::display::ReadingView;
-        renderer.Attach(
-            achilles::display::CameraView(
-                sim.Sensor<achilles::domain::sensing::Camera>("overhead_camera")
-            ),
-            "Overhead camera"
+        achilles::examples::AttachFlyingCamera(
+            renderer, sim, "overhead_camera", "Overhead camera"
         );
         renderer.Attach(
             achilles::display::LidarView(sim.Sensor<Lidar>("lidar")), "Lidar"

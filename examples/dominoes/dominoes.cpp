@@ -26,11 +26,10 @@
 #include <string_view>
 #include <utility>
 
+#include "../shared/flying_camera.hpp"
 #include "../shared/real_time.hpp"
 #include "display/renderer.hpp"
-#include "display/views/camera/camera_view.hpp"
 #include "display/views/reading_view.hpp"
-#include "domain/sensing/camera.hpp"
 #include "interface/attachment_handle.hpp"
 #include "interface/simulation.hpp"
 
@@ -123,11 +122,8 @@ int Run(const Args& args) {
       "Achilles: dominoes",
       kDt,
       [&](achilles::display::Renderer& renderer) {
-        renderer.Attach(
-            achilles::display::CameraView(
-                sim.Sensor<achilles::domain::sensing::Camera>("dominoes_camera")
-            ),
-            "Domino camera"
+        achilles::examples::AttachFlyingCamera(
+            renderer, sim, "dominoes_camera", "Domino camera"
         );
         renderer.Attach(
             achilles::display::ReadingView<truth::WorldTransform, kDominoes>(

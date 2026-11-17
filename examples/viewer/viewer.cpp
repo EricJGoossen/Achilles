@@ -12,7 +12,10 @@
 // so a body resting on the ground stays on it. A scene without contact
 // (the arms) can ask for --integrator rk4 to keep its energy far better.
 // --seconds stops after N simulated seconds; otherwise it runs until every
-// window is closed.
+// window is closed. Every camera's window flies it (display::FlyCamera):
+// W/A/S/D to move, E/Q up and down, Shift for faster, a drag to look around
+// -- by setting the pose of the joint it's attached to outright, so a camera
+// to fly wants a welded joint of its own (each example's camera_mount).
 #include <concepts>
 #include <cstddef>
 #include <cstdlib>
@@ -27,6 +30,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "../shared/flying_camera.hpp"
 #include "../shared/real_time.hpp"
 #include "algorithms/integrators.hpp"
 #include "display/contract/display.hpp"
@@ -112,7 +116,8 @@ std::string Label(std::string_view name, std::size_t instance) {
 
 // Puts up, for every sensor of `sim`, the display that shows it: a camera
 // its image, a lidar its scan, and any other sensor whose reading has
-// channels its readings over time. Returns how many it put up.
+// channels its readings over time -- each camera flown by its window.
+// Returns how many it put up.
 std::size_t AttachDisplays(
     achilles::display::Renderer& renderer, const Simulation& sim
 ) {
@@ -134,7 +139,12 @@ std::size_t AttachDisplays(
                     typename std::remove_cvref_t<decltype(attachment.handle
                     )>::Kind;
                 if constexpr (std::same_as<K, sensing::Camera>) {
-                  attach(display::CameraView(attachment.handle), attachment);
+                  const display::WindowId window = attach(
+                      display::CameraView(attachment.handle), attachment
+                  );
+                  renderer.Control(
+                      window, achilles::examples::FlyCameraFor(sim, attachment)
+                  );
                 } else if constexpr (std::same_as<K, sensing::Lidar>) {
                   attach(display::LidarView(attachment.handle), attachment);
                 } else if constexpr (achilles::domain::attachment::SensorLike<

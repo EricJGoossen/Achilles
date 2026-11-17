@@ -2,9 +2,10 @@
 // by a camera on a pan-tilt rig (rig.arow): the camera sensor's own demo, so
 // both of what it outputs, each in its own window -- its color image
 // (display::CameraView) and its depth (display::DepthView) -- both bound to
-// the camera's one handle. The rig's
-// joints aren't driven yet: they're for setting the camera's pose once joint
-// state can be written from outside the sim. Closing the windows ends the
+// the camera's one handle. Either window flies the camera
+// (display::FlyCamera): W/A/S/D to move, E/Q up and down, Shift for faster,
+// a drag to look around -- setting the pose of the rig's tilt joint, which
+// carries nothing but the camera, outright. Closing the windows ends the
 // run.
 //
 // Usage: pan_tilt <pan_tilt.arow> <sim_config.yaml>
@@ -15,11 +16,13 @@
 #include <iostream>
 #include <span>
 #include <string>
+#include <tuple>
 
+#include "../shared/flying_camera.hpp"
 #include "display/renderer.hpp"
-#include "display/views/camera/camera_view.hpp"
 #include "display/views/camera/depth_view.hpp"
 #include "domain/sensing/camera.hpp"
+#include "interface/attachments.hpp"
 #include "interface/simulation.hpp"
 
 int main(int argc, char** argv) {
@@ -38,9 +41,19 @@ int main(int argc, char** argv) {
   try {
     using achilles::domain::sensing::Camera;
     achilles::display::Renderer renderer("Achilles: pan-tilt camera");
-    const auto camera = sim.Sensor<Camera>("rig_camera");
-    renderer.Attach(achilles::display::CameraView(camera), "Rig camera");
-    renderer.Attach(achilles::display::DepthView(camera), "Rig camera depth");
+    achilles::examples::AttachFlyingCamera(
+        renderer, sim, "rig_camera", "Rig camera"
+    );
+    const auto camera = std::get<achilles::interface::NamedAttachments<Camera>>(
+                            sim.Attachments()
+    )
+                            .front();
+    renderer.Control(
+        renderer.Attach(
+            achilles::display::DepthView(camera.handle), "Rig camera depth"
+        ),
+        achilles::examples::FlyCameraFor(sim, camera)
+    );
 
     // Real time: each frame, as many fixed steps as the wall clock covers,
     // clamped so a hitch doesn't turn into a burst.

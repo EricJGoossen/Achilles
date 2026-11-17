@@ -11,6 +11,7 @@
 #include "display/contract/display.hpp"
 #include "display/contract/frame.hpp"
 #include "display/contract/input.hpp"
+#include "display/controllers/fly_camera.hpp"
 #include "display/views/camera/camera_view.hpp"
 #include "display/views/camera/depth_view.hpp"
 #include "display/views/lidar_view.hpp"
@@ -81,7 +82,8 @@ static_assert(!std::is_constructible_v<
 // None is made without its handles.
 static_assert(!std::is_default_constructible_v<achilles::display::CameraView>);
 
-// A display isn't a controller.
+// A controller is one; a display isn't.
+static_assert(ControllerLike<achilles::display::FlyCamera>);
 static_assert(!ControllerLike<Shows>);
 
 }  // namespace

@@ -8,6 +8,10 @@
 // It watches the arm through its camera, and plots what makes the motion
 // chaotic: both joints' angles on one plot and both joints' rates on
 // another, from the arm's truth sensors (shoulder_angle.arow and the rest).
+// The camera can be flown, with its window focused: W/A/S/D to move, E/Q up
+// and down, Shift for faster, and a drag to look around
+// (display::FlyCamera, which sets its welded mount's pose outright), as
+// every example's camera can.
 //
 // Usage: two_joint_arm <two_joint_arm.arow> <sim_config.yaml> [--headless]
 //                      [--seconds N] [--integrator NAME]
@@ -25,12 +29,11 @@
 #include <string>
 #include <string_view>
 
+#include "../shared/flying_camera.hpp"
 #include "../shared/real_time.hpp"
 #include "algorithms/integrators.hpp"
 #include "display/renderer.hpp"
-#include "display/views/camera/camera_view.hpp"
 #include "display/views/reading_view.hpp"
-#include "domain/sensing/camera.hpp"
 #include "interface/attachment_handle.hpp"
 #include "interface/simulation.hpp"
 
@@ -129,11 +132,8 @@ int Run(const Args& args) {
         using achilles::display::ReadingView;
         using achilles::display::MotionChannel;
         using achilles::display::PoseChannel;
-        renderer.Attach(
-            achilles::display::CameraView(
-                sim.Sensor<achilles::domain::sensing::Camera>("arm_camera")
-            ),
-            "Arm camera"
+        achilles::examples::AttachFlyingCamera(
+            renderer, sim, "arm_camera", "Arm camera"
         );
         renderer.Attach(
             ReadingView<truth::JointPosition, 2>(

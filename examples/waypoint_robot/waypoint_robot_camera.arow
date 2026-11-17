@@ -1,11 +1,11 @@
-# The robot's loop from above: a camera on the welded world root, 5 m over
+# The robot's loop from above: a camera on its own welded mount, 5 m over
 # the middle of its waypoints (waypoint_robot.cpp's kWaypoints, x in [-2.4, 2.4]
 # and z in [0.4, 2.6]), looking straight down -- world +x to the image's
 # right, -z up it. The mount's rotation turns the camera's axes (x forward,
 # y left, z up) onto world -y, -x and -z. 640 x 480 at 30 frames a second.
 sensor: waypoint_robot_camera
 kind: camera
-attach: {archetype: scene, joint: world}
+attach: {archetype: scene, joint: camera_mount}
 config:
   period: 0.0333333
   mount: {translation: [0, 5, 1.5], rotation: [0, 0.70710678, -0.70710678, 0]}

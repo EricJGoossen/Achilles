@@ -23,12 +23,11 @@
 #include <string>
 #include <string_view>
 
+#include "../shared/flying_camera.hpp"
 #include "../shared/real_time.hpp"
 #include "algorithms/conventions.hpp"
 #include "display/renderer.hpp"
-#include "display/views/camera/camera_view.hpp"
 #include "display/views/reading_view.hpp"
-#include "domain/sensing/camera.hpp"
 #include "interface/attachment_handle.hpp"
 #include "interface/simulation.hpp"
 
@@ -286,13 +285,8 @@ int Run(const Args& args) {
         constexpr std::array<std::string_view, 4> kWheels = {
             "left front", "left rear", "right front", "right rear"
         };
-        renderer.Attach(
-            achilles::display::CameraView(
-                sim.Sensor<achilles::domain::sensing::Camera>(
-                    "waypoint_robot_camera"
-                )
-            ),
-            "Overhead camera"
+        achilles::examples::AttachFlyingCamera(
+            renderer, sim, "waypoint_robot_camera", "Overhead camera"
         );
         renderer.Attach(
             ReadingView<truth::Torque, 4>(

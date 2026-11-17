@@ -44,12 +44,11 @@
 #include <string>
 #include <string_view>
 
+#include "../shared/flying_camera.hpp"
 #include "../shared/real_time.hpp"
 #include "algorithms/conventions.hpp"
 #include "display/renderer.hpp"
-#include "display/views/camera/camera_view.hpp"
 #include "display/views/reading_view.hpp"
-#include "domain/sensing/camera.hpp"
 #include "interface/attachment_handle.hpp"
 #include "interface/simulation.hpp"
 
@@ -454,11 +453,8 @@ int Run(const Args& args) {
       [&](achilles::display::Renderer& renderer) {
         using achilles::display::ReadingView;
         using achilles::display::PoseChannel;
-        renderer.Attach(
-            achilles::display::CameraView(
-                sim.Sensor<achilles::domain::sensing::Camera>("plate_camera")
-            ),
-            "Plate camera"
+        achilles::examples::AttachFlyingCamera(
+            renderer, sim, "plate_camera", "Plate camera"
         );
         // Where the ball truly is across the plate (the world is z-up).
         renderer.Attach(

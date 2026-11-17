@@ -1,4 +1,4 @@
-# The whole maze from above: a camera on the welded world root, 10 m over the
+# The whole maze from above: a camera on its own welded mount, 10 m over the
 # maze's center, looking straight down, so the image matches maze.arow's
 # drawing -- world +x to the right, +y up. The mount's rotation turns the
 # camera's axes (x forward, y left, z up) onto world -z, -x and +y. 640 x 480
@@ -6,7 +6,7 @@
 # the exit beyond its top wall.
 sensor: overhead_camera
 kind: camera
-attach: {archetype: scene, joint: world}
+attach: {archetype: scene, joint: camera_mount}
 config:
   period: 0.0333333
   mount: {translation: [0, 0, 10], rotation: [0.5, -0.5, 0.5, 0.5]}

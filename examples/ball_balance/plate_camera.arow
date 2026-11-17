@@ -1,11 +1,11 @@
-# The plate and ball from in front and above: a camera on the welded world
-# root at (0, -0.9, 1.2), looking down at the plate's pivot (0, 0, 0.5) --
+# The plate and ball from in front and above: a camera on its own welded
+# mount at (0, -0.9, 1.2), looking down at the plate's pivot (0, 0, 0.5) --
 # world +x to the image's right. The mount's rotation turns the camera's axes
 # (x forward, y left, z up) onto that line of sight, -x, and the up it leaves
 # square to both. 640 x 480 at 30 frames a second.
 sensor: plate_camera
 kind: camera
-attach: {archetype: scene, joint: world}
+attach: {archetype: scene, joint: camera_mount}
 config:
   period: 0.0333333
   mount: {translation: [0, -0.9, 1.2], rotation: [0.6688, -0.2295, 0.2295, 0.6688]}
