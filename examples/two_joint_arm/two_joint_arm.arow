@@ -9,8 +9,8 @@
 # Z-axis (yaw) joint under Z-axis gravity would never move at all.
 #
 # Build+run: scripts/run-double-pendulum.sh (this folder's two_joint_arm.cpp),
-# or as a plain scene:
-#   ./build/achilles examples/two_joint_arm/two_joint_arm.arow examples/two_joint_arm/sim_config.yaml
+# or as a plain scene, in the viewer:
+#   ./build/viewer examples/two_joint_arm/two_joint_arm.arow examples/two_joint_arm/sim_config.yaml
 archetype: arm
 # Hung from the camera rig's welded joint at the world origin -- the scene's
 # fixed root, carrying the camera the arm is watched through -- so it sits

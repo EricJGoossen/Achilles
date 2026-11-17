@@ -10,7 +10,7 @@ project(achilles LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-option(ACHILLES_BUILD_EXAMPLES "Build the examples and the achilles runner" ${PROJECT_IS_TOP_LEVEL})
+option(ACHILLES_BUILD_EXAMPLES "Build the example programs" ${PROJECT_IS_TOP_LEVEL})
 # BUILD_TESTS is the old name, still honoured.
 if (DEFINED BUILD_TESTS)
     set(_achilles_tests_default ${BUILD_TESTS})
@@ -77,6 +77,18 @@ include(FetchContent)
 set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 set(BUILD_TESTING OFF)
 
+# A fetched dependency's headers are system headers to every target using
+# it, so neither Achilles's warnings nor its clang-tidy run (scripts/
+# check-tidy.sh) ever report on them: what's checked is Achilles's own code.
+function(achilles_mark_system target)
+    get_target_property(_dirs ${target} INTERFACE_INCLUDE_DIRECTORIES)
+    if (_dirs)
+        set_target_properties(${target} PROPERTIES
+            INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_dirs}"
+        )
+    endif ()
+endfunction()
+
 # xsimd (header-only) backs the SIMD activation masks
 # (domain/math/activation_mask.hpp). The devcontainer installs 13.0.0;
 # anywhere else it's fetched.
@@ -93,6 +105,7 @@ if (NOT xsimd_FOUND)
     set(BUILD_TESTS OFF)
     FetchContent_MakeAvailable(xsimd)
     unset(BUILD_TESTS)
+    achilles_mark_system(xsimd)
 endif ()
 
 # yaml-cpp backs the .arow archetype loader (engine/topology/archetype_loader.hpp)
@@ -108,6 +121,7 @@ set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_CONTRIB OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_INSTALL OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(yaml-cpp)
+achilles_mark_system(yaml-cpp)
 
 # OpenGL through EGL (libglvnd's libOpenGL + libEGL, no GLX): the camera
 # sensors render on it headless (src/util/gl/gpu_egl.cpp). On Linux
@@ -137,7 +151,6 @@ configure_file(
 file(GLOB_RECURSE ACHILLES_LIB_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
 )
-list(FILTER ACHILLES_LIB_SOURCES EXCLUDE REGEX ".*/main\\.cpp$")
 # The display is its own library (below), never part of the sim's.
 list(FILTER ACHILLES_LIB_SOURCES EXCLUDE REGEX ".*/src/display/.*")
 # The GL helpers and the camera's GPU backend with the GPU; only its
@@ -182,6 +195,7 @@ if (ACHILLES_WITH_DISPLAY)
     set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_X11 ON CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(glfw)
+    achilles_mark_system(glfw)
 
     # Dear ImGui draws everything in it. It ships no CMake build of its own:
     # its sources and the two backends used (GLFW, OpenGL 3) are built here.
@@ -219,29 +233,27 @@ if (ACHILLES_WITH_DISPLAY)
 endif ()
 
 if (ACHILLES_BUILD_EXAMPLES)
-    add_executable(achilles "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
-    target_link_libraries(achilles PRIVATE achilles_lib)
-    if (ACHILLES_WITH_DISPLAY)
-        target_link_libraries(achilles PRIVATE achilles_display)
-        # The pan-tilt camera: a camera you steer from its display.
-        add_executable(pan_tilt
-            "${CMAKE_CURRENT_SOURCE_DIR}/examples/pan_tilt/pan_tilt.cpp"
-        )
-        target_link_libraries(pan_tilt PRIVATE achilles_display)
-    endif ()
-
-    # Examples that bring their own program (a controller, a custom loop) --
-    # each is its own executable on the library, like achilles itself.
+    # Achilles is a library: each example is its own program on it, driving
+    # the sim from code.
     foreach (_example two_joint_arm dominoes waypoint_robot ball_balance maze)
         add_executable(${_example}
             "${CMAKE_CURRENT_SOURCE_DIR}/examples/${_example}/${_example}.cpp"
         )
         target_link_libraries(${_example} PRIVATE achilles_lib)
+        # Each shows its camera and the sensors it steers by when there's a
+        # display (examples/shared/real_time.hpp).
+        if (ACHILLES_WITH_DISPLAY)
+            target_link_libraries(${_example} PRIVATE achilles_display)
+        endif ()
     endforeach ()
-    # Each shows its camera and the sensors it steers by when there's a
-    # display (examples/shared/real_time.hpp).
+    # Only with a display: what they're for is watching.
     if (ACHILLES_WITH_DISPLAY)
-        foreach (_example two_joint_arm dominoes waypoint_robot ball_balance maze)
+        # The pan-tilt camera: a camera's color and depth side by side.
+        # The viewer: any scene, a window per sensor.
+        foreach (_example pan_tilt viewer)
+            add_executable(${_example}
+                "${CMAKE_CURRENT_SOURCE_DIR}/examples/${_example}/${_example}.cpp"
+            )
             target_link_libraries(${_example} PRIVATE achilles_display)
         endforeach ()
     endif ()

@@ -83,15 +83,10 @@ CMake options:
 
 ## Usage
 
-```
-achilles <scene.arow> [sim_config.yaml] [--dt seconds] [--integrator name]
-```
-
-The binary loads the scene, applies the optional config, and steps the
-simulation headless in real time at a fixed timestep. You can also drive a
-simulation from code through
+Achilles is a library: a program drives a simulation from code through
 `achilles::interface::Simulation`
-([include/interface/simulation.hpp](include/interface/simulation.hpp)):
+([include/interface/simulation.hpp](include/interface/simulation.hpp)), as
+every example under [examples/](examples/) does:
 
 ```cpp
 achilles::interface::Simulation sim;
@@ -99,6 +94,13 @@ sim.LoadArowFile("scene.arow");
 sim.LoadConfigFile("sim_config.yaml");  // optional
 sim.Init();
 while (sim.Step(1.0F / 120.0F)) {}
+```
+
+To watch any scene without writing a program, the viewer example opens a
+window for every sensor it has (built with the display):
+
+```
+build/viewer <scene.arow> [sim_config.yaml] [--dt seconds] [--integrator name] [--seconds N]
 ```
 
 ### Scene files (`.arow`)

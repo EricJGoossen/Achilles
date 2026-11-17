@@ -20,7 +20,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(ACHILLES_WITH_GPU "Render Achilles's camera sensors on the GPU" OFF)
 add_subdirectory(../.. achilles EXCLUDE_FROM_ALL)
 
-if (TARGET achilles OR TARGET maze OR TARGET algorithms_integrators)
+if (TARGET viewer OR TARGET maze OR TARGET algorithms_integrators)
     message(FATAL_ERROR "Achilles built its examples or tests inside another project")
 endif ()
 
