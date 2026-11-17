@@ -4,9 +4,9 @@
 #include <string_view>
 #include <utility>
 
-#include "display/display.hpp"
+#include "display/contract/display.hpp"
 #include "display/display_set.hpp"
-#include "display/screen.hpp"
+#include "display/window/screen.hpp"
 
 namespace achilles::display {
 

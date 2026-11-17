@@ -2,7 +2,7 @@
 
 #include <optional>
 
-#include "display/frame.hpp"
+#include "display/contract/frame.hpp"
 #include "domain/sensing/camera.hpp"
 #include "interface/attachment_handle.hpp"
 

@@ -6,8 +6,8 @@
 #include <string_view>
 #include <vector>
 
-#include "display/frame.hpp"
-#include "display/input.hpp"
+#include "display/contract/frame.hpp"
+#include "display/contract/input.hpp"
 
 namespace achilles::display {
 

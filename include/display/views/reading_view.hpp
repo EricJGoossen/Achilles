@@ -11,8 +11,8 @@
 #include <utility>
 #include <vector>
 
-#include "display/display.hpp"
-#include "display/frame.hpp"
+#include "display/contract/display.hpp"
+#include "display/contract/frame.hpp"
 #include "domain/actuation/dc_motor.hpp"
 #include "domain/actuation/truth_actuator.hpp"
 #include "domain/attachment/attachment_kind.hpp"

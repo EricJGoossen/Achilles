@@ -1,4 +1,4 @@
-#include "display/screen.hpp"
+#include "display/window/screen.hpp"
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>

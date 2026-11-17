@@ -7,8 +7,8 @@
 #include <tuple>
 #include <type_traits>
 
-#include "display/frame.hpp"
-#include "display/input.hpp"
+#include "display/contract/frame.hpp"
+#include "display/contract/input.hpp"
 #include "domain/actuation/truth_actuator.hpp"
 #include "domain/attachment/attachment_kind.hpp"
 #include "interface/attachment_handle.hpp"

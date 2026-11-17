@@ -4,9 +4,9 @@
 #include <string_view>
 #include <tuple>
 
-#include "display/display.hpp"
-#include "display/frame.hpp"
-#include "display/input.hpp"
+#include "display/contract/display.hpp"
+#include "display/contract/frame.hpp"
+#include "display/contract/input.hpp"
 #include "domain/actuation/actuator.hpp"
 #include "domain/actuation/truth_actuator.hpp"
 #include "util/tmp.hpp"

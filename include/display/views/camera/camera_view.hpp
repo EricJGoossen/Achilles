@@ -8,9 +8,9 @@
 #include <string_view>
 #include <tuple>
 
-#include "display/camera_image.hpp"
-#include "display/display.hpp"
-#include "display/frame.hpp"
+#include "display/contract/display.hpp"
+#include "display/contract/frame.hpp"
+#include "display/views/camera/camera_image.hpp"
 #include "domain/math/vector3.hpp"
 #include "domain/sensing/camera.hpp"
 #include "domain/spatial/transform.hpp"

@@ -7,8 +7,8 @@
 #include <string_view>
 #include <tuple>
 
-#include "display/display.hpp"
-#include "display/frame.hpp"
+#include "display/contract/display.hpp"
+#include "display/contract/frame.hpp"
 #include "domain/sensing/lidar.hpp"
 #include "util/tmp.hpp"
 

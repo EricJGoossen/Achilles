@@ -1,4 +1,4 @@
-#include "display/window.hpp"
+#include "display/window/window.hpp"
 
 #include <GL/gl.h>
 #include <imgui.h>
@@ -15,8 +15,8 @@
 #include <utility>
 #include <vector>
 
-#include "display/frame.hpp"
-#include "display/input.hpp"
+#include "display/contract/frame.hpp"
+#include "display/contract/input.hpp"
 
 namespace achilles::display {
 

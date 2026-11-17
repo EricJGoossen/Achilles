@@ -11,11 +11,11 @@
 #include <utility>
 #include <vector>
 
-#include "display/attached_display.hpp"
-#include "display/display.hpp"
-#include "display/frame.hpp"
-#include "display/input.hpp"
-#include "display/window.hpp"
+#include "display/contract/attached_display.hpp"
+#include "display/contract/display.hpp"
+#include "display/contract/frame.hpp"
+#include "display/contract/input.hpp"
+#include "display/window/window.hpp"
 #include "util/tmp.hpp"
 
 namespace achilles::display {
