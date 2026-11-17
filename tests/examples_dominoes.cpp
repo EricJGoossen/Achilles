@@ -10,10 +10,12 @@
 #include <cmath>
 #include <cstddef>
 #include <filesystem>
+#include <numbers>
 #include <string>
 #include <vector>
 
 #include "achilles/build_config.hpp"
+#include "domain/attachment/sim_quantities.hpp"
 #include "domain/math/vector3.hpp"
 #include "interface/simulation.hpp"
 #include "interface/state_handle.hpp"
@@ -37,7 +39,8 @@ float Tilt(const StateHandle<const input::WorldTransform>& pose) {
   const auto up = pose.Read().Rotation().Rotate(
       achilles::domain::math::Vector3<float>(0.0F, 1.0F, 0.0F)
   );
-  return std::acos(std::clamp(up.Y(), -1.0F, 1.0F)) * 180.0F / 3.14159265F;
+  return std::acos(std::clamp(up.Y(), -1.0F, 1.0F)) * 180.0F /
+         std::numbers::pi_v<float>;
 }
 
 class Dominoes : public ::testing::Test {

@@ -10,6 +10,7 @@
 #include <string>
 
 #include "achilles/build_config.hpp"
+#include "domain/sensing/camera.hpp"
 #include "domain/sensing/encoder.hpp"
 #include "domain/sensing/gyroscope.hpp"
 #include "domain/sensing/lidar.hpp"
