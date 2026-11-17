@@ -93,7 +93,12 @@ GOOGLETEST_INCLUDE_DIR="$BUILD_DIR/_deps/googletest-src/googletest/include"
 YAML_CPP_INCLUDE_DIR="$BUILD_DIR/_deps/yaml-cpp-src/include"
 # achilles/build_config.hpp, configured into the build tree.
 GENERATED_INCLUDE_DIR="$BUILD_DIR/generated"
-DEP_ARGS=(-x c++ -std=c++20 -I"$ROOT_DIR/src" -I"$ROOT_DIR/include" -isystem"$GOOGLETEST_INCLUDE_DIR" -isystem"$YAML_CPP_INCLUDE_DIR" -I"$GENERATED_INCLUDE_DIR")
+# The display's own dependencies (src/display/, ACHILLES_WITH_DISPLAY): Dear
+# ImGui and GLFW, fetched into the build tree. Without them the dependency
+# scan below fails on src/display/**/*.cpp -- and, under pipefail, stops there.
+IMGUI_INCLUDE_DIR="$BUILD_DIR/_deps/imgui-src"
+GLFW_INCLUDE_DIR="$BUILD_DIR/_deps/glfw-src/include"
+DEP_ARGS=(-x c++ -std=c++20 -I"$ROOT_DIR/src" -I"$ROOT_DIR/include" -isystem"$GOOGLETEST_INCLUDE_DIR" -isystem"$YAML_CPP_INCLUDE_DIR" -isystem"$IMGUI_INCLUDE_DIR" -isystem"$IMGUI_INCLUDE_DIR/backends" -isystem"$GLFW_INCLUDE_DIR" -I"$GENERATED_INCLUDE_DIR")
 
 # Hashes both .clang-tidy configs (root and tests/ -- a tests/*.cpp file
 # resolves tests/.clang-tidy as its nearest config, not the root one) and

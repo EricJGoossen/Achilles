@@ -29,8 +29,15 @@ file(GLOB ACHILLES_TEST_SOURCES CONFIGURE_DEPENDS
 
 foreach(_test_src ${ACHILLES_TEST_SOURCES})
     get_filename_component(target ${_test_src} NAME_WE)
+    # The display's own tests (display_*.cpp) need the display built.
+    if (target MATCHES "^display_" AND NOT ACHILLES_WITH_DISPLAY)
+        continue()
+    endif ()
 
     add_executable(${target} ${_test_src})
+    if (target MATCHES "^display_")
+        target_link_libraries(${target} PRIVATE achilles_display)
+    endif ()
     target_include_directories(${target}
         PRIVATE
             ${PROJECT_SOURCE_DIR}/src
