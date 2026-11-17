@@ -1,0 +1,5 @@
+# How fast the elbow swings: its joint's velocity, exactly (a truth sensor),
+# every tick -- its rate is the angular velocity about the joint's own X.
+sensor: elbow_rate
+kind: joint_velocity
+attach: {archetype: arm, joint: elbow}

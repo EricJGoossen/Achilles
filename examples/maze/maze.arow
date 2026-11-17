@@ -5,12 +5,13 @@
 # the map fills in. Run with scripts/run-maze.sh.
 #
 # This root file is the world: a massless "world" root carrying the welded
-# ground slab and the maze's walls, with the robot
+# ground slab, the maze's walls and a camera looking down on it all
+# (overhead_camera.arow), with the robot
 # (shared/robots/wheeled_robot.arow) attached at robot_mount, whose fixed
 # transform places it in the start cell, stands it up (a quarter turn about
 # x, so its +y is the world's +z) and turns it to face the world's +y. The world is Z-up: the ground's top face
 # is the z = 0 plane and sim_config.yaml's gravity is along -z. Every body
-# is authored +y up, as in box_robot.arow (the viewer draws a box outward
+# is authored +y up, as in waypoint_robot.arow (the viewer draws a box outward
 # along its body's local +y), so each root here gets a quarter turn about
 # x in its fixed transform (the &upright rotation) to stand it up.
 #
@@ -40,6 +41,7 @@
 # group 2, the robot's bodies are group 2 and collide with group 1.
 archetype: scene
 includes:
+  - overhead_camera.arow
   - ../shared/sensors/lidar.arow
   - ../shared/sensors/chassis_pose.arow
   - ../shared/sensors/gyroscope.arow

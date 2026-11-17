@@ -1,0 +1,5 @@
+# Where domino 7 is and how it's turned, exactly (a truth sensor), every
+# tick: its turn about z is how far it has tipped toward the next.
+sensor: domino_7_pose
+kind: world_transform
+attach: {archetype: scene, joint: domino_7}

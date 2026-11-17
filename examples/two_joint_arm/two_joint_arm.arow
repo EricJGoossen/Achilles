@@ -8,7 +8,8 @@
 # produces zero torque about that axis for any mass distribution, so a
 # Z-axis (yaw) joint under Z-axis gravity would never move at all.
 #
-# Build+run: scripts/run-example.sh, or
+# Build+run: scripts/run-double-pendulum.sh (this folder's two_joint_arm.cpp),
+# or as a plain scene:
 #   ./build/achilles examples/two_joint_arm/two_joint_arm.arow examples/two_joint_arm/sim_config.yaml
 archetype: arm
 # Hung from the camera rig's welded joint at the world origin -- the scene's
@@ -19,6 +20,11 @@ attach:
   joint: mount
 includes:
   - camera_rig.arow
+  # What the double pendulum demo plots: each joint's angle and rate.
+  - shoulder_angle.arow
+  - elbow_angle.arow
+  - shoulder_rate.arow
+  - elbow_rate.arow
 joints:
   - name: shoulder
     parent: null

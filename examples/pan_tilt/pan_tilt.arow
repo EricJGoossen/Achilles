@@ -1,0 +1,118 @@
+# The pan-tilt example: the two-joint arm (as in two_joint_arm.arow), hung
+# from the rig's welded base at the world origin, watched by a camera on a
+# pan-tilt rig (rig.arow) 5 m out, whose two joints will set where it looks
+# once joint state can be written from outside the sim.
+#
+# Build+run (needs the display, ACHILLES_WITH_DISPLAY):
+#   ./build/pan_tilt examples/pan_tilt/pan_tilt.arow examples/pan_tilt/sim_config.yaml
+archetype: arm
+attach:
+  archetype: rig
+  joint: base
+includes:
+  - rig.arow
+joints:
+  - name: shoulder
+    parent: null
+    fields:
+      # A single active DOF (angular X, i.e. roll -- row 0 of the 6x6
+      # subspace, see domain::spatial::Dual's own Roll/Pitch/Yaw/X/Y/Z row
+      # order) with every other column left at zero; joint_activation_mask
+      # is the packed bitmask marking column 0 as this joint's only real
+      # DOF (see math::ActivationMaskAssembler's own comment).
+      joint_subspace:
+        [
+          1, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+        ]
+      joint_activation_mask: [1]
+      fixed_joint_transform:
+        translation: [0, 0, 0]
+        rotation: [1, 0, 0, 0]
+      # Center of mass offset 0.3 up the local Y axis (rigid_body_inertia's
+      # h, the second field) rather than sitting at the joint origin -- a
+      # joint can only feel a gravity torque about its own axis when its own
+      # body has mass offset from that axis (see two_joint_arm.arow's own
+      # header comment); with h = 0 here, gravity would only ever be able
+      # to move this joint via the *child's* offset mass (elbow), and the
+      # elbow itself -- having no child of its own to lean on -- would never
+      # feel any torque about its own hinge at all, so it'd hold a constant
+      # world-frame orientation while the shoulder swung under it instead of
+      # swinging along with it. Ixx/Izz (0.18083, about the joint, not the
+      # body's own center of mass) are raised accordingly via the parallel
+      # axis theorem (I_about_joint = I_about_com + mass * offset^2) --
+      # Inertia::IsPhysicallyValid (domain/spatial/inertia.hpp) asserts this
+      # at load time, since an unraised Ixx/Izz here would describe a body
+      # lighter, rotationally, than the offset mass itself requires.
+      rigid_body_inertia: [1.0, 0, 0.3, 0, 0.18083, 0.015, 0.18083, 0, 0, 0]
+      joint_position:
+        translation: [0, 0, 0]
+        rotation: [1, 0, 0, 0]
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.15, 0.5, 0.15]
+      # Collision shape: a sphere-swept box (see
+      # include/algorithms/collision/collision_data.hpp) -- every point within
+      # collision_radius of an inner box with half-extents collision_extents,
+      # placed in the body frame by collision_pose. Zero extents make a
+      # sphere, one nonzero extent a capsule, zero radius a plain box. Here a
+      # rounded box whose outer size matches the visual box.
+      collision_pose:
+        # Half the link length up local Y, so the shape covers the drawn box
+        # (the viewer draws each box from the joint outward, not centered on it).
+        translation: [0, 0.5, 0]
+        rotation: [1, 0, 0, 0]
+      collision_extents: [0.1, 0.45, 0.1]
+      collision_radius: [0.05]
+      # Candidate pairs are found once bounds come within this distance
+      # (MuJoCo's geom margin), not only once they touch.
+      collision_margin: [0.02]
+      # Bullet-style filter bits (16 groups): this body is in group 0 and
+      # collides with every group. A body with no collision_group never
+      # collides with anything. Parent/child pairs (shoulder/elbow here) are
+      # excluded automatically -- no bits needed for that.
+      collision_group: [1]
+      collision_mask: [65535]
+      visual_color: [0.85, 0.3, 0.2]
+  - name: elbow
+    parent: shoulder
+    fields:
+      joint_subspace:
+        [
+          1, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0,
+        ]
+      joint_activation_mask: [1]
+      # Offset 1 unit up shoulder's own local Y from its parent -- this is
+      # where the elbow's own joint frame sits before any rotation.
+      fixed_joint_transform:
+        translation: [0, 1.0, 0]
+        rotation: [1, 0, 0, 0]
+      # Same reasoning as the shoulder's own rigid_body_inertia comment
+      # above: center of mass offset 0.25 up this joint's own local Y axis
+      # (this is a leaf joint, with no child of its own to borrow a lever
+      # arm from, so without its own offset it would never feel any
+      # gravity torque at all), with Ixx/Izz raised to match via the
+      # parallel axis theorem.
+      rigid_body_inertia: [0.4, 0, 0.15, 0, 0.07238, 0.00576, 0.07238, 0, 0, 0]
+      joint_position:
+        translation: [0, 0, 0]
+        rotation: [1, 0, 0, 0]
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.12, 0.4, 0.12]
+      collision_pose:
+        translation: [0, 0.4, 0]
+        rotation: [1, 0, 0, 0]
+      collision_extents: [0.08, 0.36, 0.08]
+      collision_radius: [0.04]
+      collision_margin: [0.02]
+      collision_group: [1]
+      collision_mask: [65535]
+      visual_color: [0.2, 0.55, 0.9]

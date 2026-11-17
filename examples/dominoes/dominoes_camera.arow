@@ -1,0 +1,16 @@
+# The chain from the side, a little above it: a camera on the welded world
+# root at (2.8, 1.6, 6), looking back at (2.6, 0.5, 0), near the middle of
+# the row -- world +x to the image's right, so the chain runs left to right,
+# smallest first, and there's room past the last domino for it to fall. The
+# mount's rotation turns the camera's axes (x forward, y left, z up) onto
+# that line of sight and the world's up. 640 x 480 at 30 frames a second.
+sensor: dominoes_camera
+kind: camera
+attach: {archetype: scene, joint: world}
+config:
+  period: 0.0333333
+  mount: {translation: [2.8, 1.6, 6], rotation: [0.44359, -0.53557, 0.55066, 0.46169]}
+  width: 640
+  height: 480
+  horizontal_fov: 1.1
+  far: 30

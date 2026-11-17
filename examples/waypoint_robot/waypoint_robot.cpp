@@ -1,15 +1,17 @@
-// The actuator demo: a four-wheeled box robot (box_robot.arow) that drives
+// The actuator demo: a four-wheeled robot (waypoint_robot.arow) that drives
 // itself around a loop of waypoints. Everything control-related lives in
 // this file -- the sim only ever sees torques through the actuators it
 // hands out.
 //
-// Usage: box_robot <box_robot.arow> <sim_config.yaml> [--headless]
+// Usage: waypoint_robot <waypoint_robot.arow> <sim_config.yaml> [--headless]
 //                  [--seconds N]
-// (scripts/run-box-robot.sh passes this folder's files). Headless runs
-// print the robot's pose once per simulated second instead of drawing it.
+// (scripts/run-waypoint-robot.sh passes this folder's files). Run in real time,
+// with the display built (ACHILLES_WITH_DISPLAY), it opens a window each for
+// the loop from above (waypoint_robot_camera.arow), the wheels' torques and
+// speeds, and the chassis's pose; closing them stops the run. Headless runs
+// print the robot's pose once per simulated second instead.
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
@@ -21,13 +23,19 @@
 #include <string>
 #include <string_view>
 
+#include "../shared/real_time.hpp"
 #include "algorithms/conventions.hpp"
+#include "display/renderer.hpp"
+#include "display/views/camera/camera_view.hpp"
+#include "display/views/reading_view.hpp"
+#include "domain/sensing/camera.hpp"
 #include "interface/attachment_handle.hpp"
 #include "interface/simulation.hpp"
 
 namespace {
 
 using achilles::algorithms::ScalarOperationT;
+using achilles::domain::sensing::Camera;
 using achilles::interface::AngularActuator;
 using achilles::interface::SensorHandle;
 using achilles::interface::Simulation;
@@ -265,36 +273,74 @@ int Run(const Args& args) {
     return 0;
   }
 
-  // Real time, the same fixed-step accumulator src/main.cpp uses.
-  constexpr float kMaxFrameTime = 0.25F;
-  float accumulator = 0.0F;
-  auto last_time = std::chrono::steady_clock::now();
-  bool running = true;
-  while (running && (args.seconds <= 0.0F || sim_time < args.seconds)) {
-    auto now = std::chrono::steady_clock::now();
-    accumulator += std::min(
-        std::chrono::duration<float>(now - last_time).count(), kMaxFrameTime
-    );
-    last_time = now;
-    while (running && accumulator >= kDt) {
-      running = tick();
-      accumulator -= kDt;
-    }
-  }
+  // Real time, with what the actuators do to the robot: the loop from above,
+  // the torque each wheel's motor applied and the speed it got the wheel to
+  // (each four on one plot), and where that put the chassis.
+  achilles::examples::RunInRealTime(
+      sim,
+      "Achilles: waypoint robot",
+      kDt,
+      [&](achilles::display::Renderer& renderer) {
+        using achilles::display::ReadingView;
+        using achilles::display::EffortChannel;
+        using achilles::display::MotionChannel;
+        using achilles::display::PoseChannel;
+        constexpr std::array<std::string_view, 4> kWheels = {
+            "left front", "left rear", "right front", "right rear"
+        };
+        renderer.Attach(
+            achilles::display::CameraView{},
+            "Overhead camera",
+            sim.Sensor<Camera>("waypoint_robot_camera")
+        );
+        renderer.Attach(
+            ReadingView<truth::Torque, 4>{
+                .channels = {EffortChannel::kEffort}, .names = kWheels
+            },
+            "Wheel torques",
+            sim.Actuator<truth::Torque>("left_front_motor"),
+            sim.Actuator<truth::Torque>("left_rear_motor"),
+            sim.Actuator<truth::Torque>("right_front_motor"),
+            sim.Actuator<truth::Torque>("right_rear_motor")
+        );
+        renderer.Attach(
+            ReadingView<truth::JointVelocity, 4>{
+                .channels = {MotionChannel::kAngularX}, .names = kWheels
+            },
+            "Wheel speeds",
+            sim.Sensor<truth::JointVelocity>("left_front_speed"),
+            sim.Sensor<truth::JointVelocity>("left_rear_speed"),
+            sim.Sensor<truth::JointVelocity>("right_front_speed"),
+            sim.Sensor<truth::JointVelocity>("right_rear_speed")
+        );
+        // On the ground (+y up): where it is across it, and its heading.
+        renderer.Attach(
+            ReadingView<truth::WorldTransform>{
+                .channels =
+                    {PoseChannel::kX, PoseChannel::kZ, PoseChannel::kTurnY}
+            },
+            "Chassis pose",
+            sim.Sensor<truth::WorldTransform>("chassis_pose")
+        );
+      },
+      tick,
+      [&] { return args.seconds > 0.0F && sim_time >= args.seconds; }
+  );
   return 0;
 }
 
 int main(int argc, char** argv) {
   Args args;
   if (!ParseArgs(argc, argv, args)) {
-    std::cerr << "usage: box_robot <box_robot.arow> <sim_config.yaml> "
-                 "[--headless] [--seconds N]\n";
+    std::cerr
+        << "usage: waypoint_robot <waypoint_robot.arow> <sim_config.yaml> "
+           "[--headless] [--seconds N]\n";
     return 1;
   }
   try {
     return Run(args);
   } catch (const std::exception& e) {
-    std::cerr << "box_robot: " << e.what() << '\n';
+    std::cerr << "waypoint_robot: " << e.what() << '\n';
     return 1;
   }
 }

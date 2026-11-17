@@ -1,10 +1,10 @@
 // Validates examples/two_joint_arm/two_joint_arm.arow +
-// examples/two_joint_arm/sim_config.yaml -- the scene scripts/run-example.sh
-// actually launches -- against an *independent* closed-form model of the same
-// physical system, derived from scratch via Lagrangian mechanics rather than by
-// reading algorithms/aba's own source. The point is to catch a bug in the
-// engine's dynamics that a test built from the same equations the engine itself
-// implements never could.
+// examples/two_joint_arm/sim_config.yaml -- the scene
+// scripts/run-double-pendulum.sh actually launches -- against an *independent*
+// closed-form model of the same physical system, derived from scratch via
+// Lagrangian mechanics rather than by reading algorithms/aba's own source. The
+// point is to catch a bug in the engine's dynamics that a test built from the
+// same equations the engine itself implements never could.
 //
 // The real scene is a planar double pendulum: two rigid links, hinged in
 // series about parallel axes (both joints rotate about their own local X --
@@ -96,14 +96,12 @@ constexpr LinkParams kElbow{
 constexpr ScalarOperationT kLinkLength =
     1.0F;  // shoulder -> elbow offset (local Y)
 
-// examples/two_joint_arm/sim_config.yaml's own base_acceleration.linear.z. ABA
-// treats a fixed base's own configured acceleration as *minus* true gravity
-// (see algorithms/sim_config.hpp's own comment on base_acceleration), so the
-// real gravitational acceleration every body actually falls under is
-// +9.8 along world Z, not -9.8 -- this constant is that already-negated,
-// "as Lagrangian mechanics wants it" value, not sim_config.yaml's literal
-// -9.8.
-constexpr ScalarOperationT kGravity = 9.8F;
+// Gravity along world Z, signed, as the reference model below wants it.
+// examples/two_joint_arm/sim_config.yaml's base_acceleration.linear.z is
+// +9.8, and ABA treats a fixed base's configured acceleration as *minus*
+// gravity (see algorithms/sim_config.hpp's own comment on
+// base_acceleration), so every body falls under -9.8 along world Z: down.
+constexpr ScalarOperationT kGravity = -9.8F;
 
 constexpr ScalarOperationT kDt = 1.0F / 120.0F;
 
@@ -156,7 +154,7 @@ std::string SimConfigYaml() {
   // Mirrors examples/two_joint_arm/sim_config.yaml exactly.
   return "base_acceleration:\n"
          "  angular: [0, 0, 0]\n"
-         "  linear: [0, 0, -9.8]\n";
+         "  linear: [0, 0, 9.8]\n";
 }
 
 Simulation MakeTwoJointArmSim(const TempDir& dir) {
@@ -471,7 +469,7 @@ TEST(
   // near what an actual energy-injection bug (unbounded growth) would
   // produce over 30 simulated seconds / 3600 ticks.
   ScalarOperationT max_possible_potential =
-      (m1 * r1 + m2 * L1) * g + m2 * r2 * g;
+      ((m1 * r1 + m2 * L1) + m2 * r2) * std::abs(g);
   EXPECT_LT(max_abs_energy, max_possible_potential * 1.5F);
 }
 

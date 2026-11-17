@@ -14,25 +14,30 @@ mean writing a new hand-rolled loop.
 ## Quick start
 
 ```bash
-scripts/run-example.sh            # build, then run the demo arm headless
+scripts/run-double-pendulum.sh            # build, then run the demo arm in a window
 ```
 
 This builds the `achilles` target into `build/` and runs it against
 [examples/two_joint_arm/two_joint_arm.arow](examples/two_joint_arm/two_joint_arm.arow) with
-[examples/two_joint_arm/sim_config.yaml](examples/two_joint_arm/sim_config.yaml). Nothing is
-drawn on screen -- the display that shows a scene's sensors lives outside
-the sim -- so Ctrl-C to stop.
+[examples/two_joint_arm/sim_config.yaml](examples/two_joint_arm/sim_config.yaml), opening a
+window for its camera; close it, or Ctrl-C, to stop. `--headless` runs the sim
+without one. The display that draws a scene's sensors lives outside the sim
+([include/display/](include/display/)), on the same handles any caller uses.
 
 ```bash
-scripts/run-robot-demo.sh         # contact demo: a robot toppling onto a plane
+scripts/run-dominoes.sh           # contact demo: a chain of growing dominoes
+scripts/run-waypoint-robot.sh          # actuator demo: a robot driving a loop
+scripts/run-ball-balance.sh       # control demo: balancing a ball on a plate
+scripts/run-maze.sh               # sensing demo: a robot finding its way out
 ```
 
 The contact demo runs
-[examples/robot_on_plane/robot_on_plane.arow](examples/robot_on_plane/robot_on_plane.arow): a passive
-humanoid (no actuators) that falls over and comes to rest on a ground plane.
-It builds an optimized binary into `build-release/` (a debug build is too
-slow for real time with collision on) and uses semi-implicit Euler, the only
-integrator that runs collision and the contact solver so far.
+[examples/dominoes/dominoes.arow](examples/dominoes/dominoes.arow): ten
+dominoes, each 1.25 times the size of the one before, the first knocking over
+the second and so on down the row. These build optimized binaries into
+`build-release/` (a debug build is too slow for real time with collision on)
+and run with semi-implicit Euler, the only integrator that runs collision and
+the contact solver so far, and `achilles`'s default.
 
 ## Building
 

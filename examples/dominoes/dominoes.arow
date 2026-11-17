@@ -1,0 +1,259 @@
+# A chain of ten dominoes, each 1.25 times the size of the one before -- from
+# 0.2 m tall to 1.5 m -- standing in a row along +x on a ground plane. The
+# first is set spinning toward the second, and each one that falls knocks
+# over the next, larger one: a domino can topple one about 1.5 times its own
+# size, so the chain carries on to the end. Run with scripts/run-dominoes.sh,
+# which runs this folder's dominoes.cpp: it watches the chain through
+# dominoes_camera.arow and plots every domino's tilt from its pose sensor
+# (sensors/).
+#
+# Conventions, as waypoint_robot.arow's: +y is up, every body's frame sits where
+# its box starts (drawn outward along local +y), and a massless "world" root
+# carries the welded ground slab and the dominoes as siblings, so their pairs
+# aren't skipped as parent/child. The ground's top face is the y = 0 plane.
+#
+# Each domino is a wooden block (700 kg/m^3) on a free joint, its frame at
+# the middle of its bottom face: half as wide as it's tall (along z), a sixth
+# as thick (along x). Its center of mass (rigid_body_inertia's h) sits at its
+# middle, half its height up, and its inertia -- the box's own about its
+# center, m/3 (b^2 + c^2) and so on -- is raised to the frame by the
+# parallel axis theorem. It collides as a rounded box matching the drawn
+# one. Each stands 0.6 of its own height in front of the next: close enough
+# to reach it as it falls.
+#
+# Collision groups: the ground is group 1 and collides with group 2; the
+# dominoes are group 2 and collide with groups 1 and 2, each other included.
+#
+# Every domino's numbers follow from its size: domino i (from 1) is
+# 0.2 * 1.25^(i-1) m tall, and its mass, inertia, collision shape and place
+# in the row are worked out from that as above.
+archetype: scene
+includes:
+  - dominoes_camera.arow
+  # Each domino's pose, for the plot of how far each has tipped.
+  - sensors/domino_1_pose.arow
+  - sensors/domino_2_pose.arow
+  - sensors/domino_3_pose.arow
+  - sensors/domino_4_pose.arow
+  - sensors/domino_5_pose.arow
+  - sensors/domino_6_pose.arow
+  - sensors/domino_7_pose.arow
+  - sensors/domino_8_pose.arow
+  - sensors/domino_9_pose.arow
+  - sensors/domino_10_pose.arow
+joints:
+  - name: world
+    parent: null
+    fields:
+      joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [1, 0, 0, 0, 0.1, 0.1, 0.1, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0, 0, 0]
+      visual_color: [0, 0, 0]
+      collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0, 0, 0]
+      collision_radius: [0]
+      collision_margin: [0]
+      collision_group: [0]
+      collision_mask: [0]
+  - name: ground
+    parent: world
+    fields:
+      joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [2.5, -0.2, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [1, 0, 0, 0, 0.1, 0.1, 0.1, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [6, 0.1, 4]
+      visual_color: [0.35, 0.38, 0.35]
+      collision_pose: {translation: [0, 0.1, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [6, 0.1, 4]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [2]
+  # Set spinning toward +x: about -z, tipping its top forward.
+  - name: domino_1
+    parent: world
+    fields:
+      # 0.2 m tall, 0.1 m wide, 0.033333 m thick; 0.466667 kg.
+      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]
+      joint_activation_mask: [63]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [0.466667, 0, 0.046667, 0, 0.006611, 0.000432, 0.006265, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, -2, 0, 0, 0]
+      visual_extents: [0.016667, 0.1, 0.05]
+      visual_color: [0.2, 0.45, 0.85]
+      collision_pose: {translation: [0, 0.1, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.0125, 0.095833, 0.045833]
+      collision_radius: [0.004167]
+      collision_margin: [0.005]
+      collision_group: [2]
+      collision_mask: [3]
+  - name: domino_2
+    parent: world
+    fields:
+      # 0.25 m tall, 0.125 m wide, 0.041667 m thick; 0.911458 kg.
+      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]
+      joint_activation_mask: [63]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [0.911458, 0, 0.113932, 0, 0.020176, 0.001319, 0.019121, 0, 0, 0]
+      joint_position: {translation: [0.1575, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.020833, 0.125, 0.0625]
+      visual_color: [0.9, 0.45, 0.2]
+      collision_pose: {translation: [0, 0.125, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.015625, 0.119792, 0.057292]
+      collision_radius: [0.005208]
+      collision_margin: [0.005]
+      collision_group: [2]
+      collision_mask: [3]
+  - name: domino_3
+    parent: world
+    fields:
+      # 0.3125 m tall, 0.15625 m wide, 0.052083 m thick; 1.780192 kg.
+      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]
+      joint_activation_mask: [63]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [1.780192, 0, 0.278155, 0, 0.061571, 0.004024, 0.058351, 0, 0, 0]
+      joint_position: {translation: [0.354375, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.026042, 0.15625, 0.078125]
+      visual_color: [0.15, 0.6, 0.45]
+      collision_pose: {translation: [0, 0.15625, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.019531, 0.14974, 0.071615]
+      collision_radius: [0.00651]
+      collision_margin: [0.005]
+      collision_group: [2]
+      collision_mask: [3]
+  - name: domino_4
+    parent: world
+    fields:
+      # 0.390625 m tall, 0.195312 m wide, 0.065104 m thick; 3.476938 kg.
+      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]
+      joint_activation_mask: [63]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [3.476938, 0, 0.679089, 0, 0.187899, 0.012281, 0.178074, 0, 0, 0]
+      joint_position: {translation: [0.600469, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.032552, 0.195312, 0.097656]
+      visual_color: [0.85, 0.65, 0.1]
+      collision_pose: {translation: [0, 0.195312, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.024414, 0.187174, 0.089518]
+      collision_radius: [0.008138]
+      collision_margin: [0.005]
+      collision_group: [2]
+      collision_mask: [3]
+  - name: domino_5
+    parent: world
+    fields:
+      # 0.488281 m tall, 0.244141 m wide, 0.08138 m thick; 6.790894 kg.
+      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]
+      joint_activation_mask: [63]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [6.790894, 0, 1.657933, 0, 0.573422, 0.037479, 0.54344, 0, 0, 0]
+      joint_position: {translation: [0.908086, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.04069, 0.244141, 0.12207]
+      visual_color: [0.85, 0.45, 0.6]
+      collision_pose: {translation: [0, 0.244141, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.030518, 0.233968, 0.111898]
+      collision_radius: [0.010173]
+      collision_margin: [0.005]
+      collision_group: [2]
+      collision_mask: [3]
+  - name: domino_6
+    parent: world
+    fields:
+      # 0.610352 m tall, 0.305176 m wide, 0.101725 m thick; 13.263464 kg.
+      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]
+      joint_activation_mask: [63]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [13.263464, 0, 4.047688, 0, 1.749947, 0.114376, 1.658446, 0, 0, 0]
+      joint_position: {translation: [1.292607, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.050863, 0.305176, 0.152588]
+      visual_color: [0.4, 0.3, 0.75]
+      collision_pose: {translation: [0, 0.305176, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.038147, 0.29246, 0.139872]
+      collision_radius: [0.012716]
+      collision_margin: [0.005]
+      collision_group: [2]
+      collision_mask: [3]
+  - name: domino_7
+    parent: world
+    fields:
+      # 0.762939 m tall, 0.38147 m wide, 0.127157 m thick; 25.905204 kg.
+      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]
+      joint_activation_mask: [63]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [25.905204, 0, 9.882051, 0, 5.340413, 0.349047, 5.061176, 0, 0, 0]
+      joint_position: {translation: [1.773259, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.063578, 0.38147, 0.190735]
+      visual_color: [0.2, 0.45, 0.85]
+      collision_pose: {translation: [0, 0.38147, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.047684, 0.365575, 0.17484]
+      collision_radius: [0.015895]
+      collision_margin: [0.005]
+      collision_group: [2]
+      collision_mask: [3]
+  - name: domino_8
+    parent: world
+    fields:
+      # 0.953674 m tall, 0.476837 m wide, 0.158946 m thick; 50.596101 kg.
+      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]
+      joint_activation_mask: [63]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [50.596101, 0, 24.126101, 0, 16.297647, 1.065206, 15.445483, 0, 0, 0]
+      joint_position: {translation: [2.374074, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.079473, 0.476837, 0.238419]
+      visual_color: [0.9, 0.45, 0.2]
+      collision_pose: {translation: [0, 0.476837, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.059605, 0.456969, 0.21855]
+      collision_radius: [0.019868]
+      collision_margin: [0.005]
+      collision_group: [2]
+      collision_mask: [3]
+  - name: domino_9
+    parent: world
+    fields:
+      # 1.192093 m tall, 0.596046 m wide, 0.198682 m thick; 98.820511 kg.
+      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]
+      joint_activation_mask: [63]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [98.820511, 0, 58.901614, 0, 49.736472, 3.25075, 47.135872, 0, 0, 0]
+      joint_position: {translation: [3.125093, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.099341, 0.596046, 0.298023]
+      visual_color: [0.15, 0.6, 0.45]
+      collision_pose: {translation: [0, 0.596046, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.074506, 0.571211, 0.273188]
+      collision_radius: [0.024835]
+      collision_margin: [0.005]
+      collision_group: [2]
+      collision_mask: [3]
+  - name: domino_10
+    parent: world
+    fields:
+      # 1.490116 m tall, 0.745058 m wide, 0.248353 m thick; 193.00881 kg.
+      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]
+      joint_activation_mask: [63]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [193.00881, 0, 143.802769, 0, 151.783667, 9.920501, 143.847266, 0, 0, 0]
+      joint_position: {translation: [4.063866, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0.124176, 0.745058, 0.372529]
+      visual_color: [0.85, 0.65, 0.1]
+      collision_pose: {translation: [0, 0.745058, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0.093132, 0.714014, 0.341485]
+      collision_radius: [0.031044]
+      collision_margin: [0.005]
+      collision_group: [2]
+      collision_mask: [3]

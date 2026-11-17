@@ -1,11 +1,11 @@
-# A four-wheeled box robot on a ground plane, driven by active actuators --
-# the actuator demo. The controller lives in this folder's box_robot.cpp:
+# A four-wheeled robot on a ground plane, driven by active actuators --
+# the actuator demo. The controller lives in this folder's waypoint_robot.cpp:
 # it attaches one AngularActuator per wheel and steers the robot around a
 # loop of waypoints by skid steering (left and right wheels at different
-# speeds). Run with scripts/run-box-robot.sh.
+# speeds). Run with scripts/run-waypoint-robot.sh.
 #
-# Same conventions as robot_on_plane.arow: +y is up, every body's frame
-# sits where the viewer starts drawing its box (outward along local +y),
+# Conventions: +y is up, every body's frame sits where its box starts
+# (drawn outward along local +y),
 # and a massless "world" root carries the welded ground slab and the robot
 # as siblings so their pairs aren't skipped as parent/child.
 #
@@ -15,6 +15,7 @@
 # robot's bodies.
 archetype: scene
 includes:
+  - waypoint_robot_camera.arow
   - ../shared/sensors/chassis_pose.arow
   - ../shared/sensors/left_front_speed.arow
   - ../shared/sensors/left_rear_speed.arow

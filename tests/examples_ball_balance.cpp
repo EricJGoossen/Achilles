@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 
+#include "achilles/build_config.hpp"
 #include "algorithms/aba/aba_data.hpp"
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
@@ -165,6 +166,10 @@ void HoldPivot(
 class BallBalanceScene : public ::testing::Test {
  protected:
   void SetUp() override {
+    // ball_balance.arow carries a camera, which renders only on the GPU.
+    if constexpr (!achilles::kWithGpu) {
+      GTEST_SKIP() << "the scene's camera renders only on the GPU";
+    }
     // The real scene, copied whole, with only the copies raised.
     std::filesystem::copy(
         SharedDir(),
@@ -174,6 +179,9 @@ class BallBalanceScene : public ::testing::Test {
     dir_.Write("shared/robots/plate_rig.arow", RaiseCopies("plate_rig.arow"));
     dir_.Write("shared/robots/ball.arow", RaiseCopies("ball.arow"));
     std::filesystem::create_directory(dir_.Path() / "scene");
+    dir_.Write(
+        "scene/plate_camera.arow", ReadFile(ExampleDir() / "plate_camera.arow")
+    );
     std::filesystem::path arow = dir_.Write(
         "scene/ball_balance.arow", ReadFile(ExampleDir() / "ball_balance.arow")
     );

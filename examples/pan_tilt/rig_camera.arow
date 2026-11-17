@@ -1,0 +1,14 @@
+# The rig's camera, on the tilt joint. Its mount turns the camera's axes (x
+# forward, y left, z up) so that at rest it looks back along the world's -x,
+# level, at the arm hanging from the origin 5 m away. 640 x 480 at 30 frames a
+# second, seeing out to 10 m.
+sensor: rig_camera
+kind: camera
+attach: {archetype: rig, joint: tilt}
+config:
+  period: 0.0333333
+  mount: {translation: [0, 0, 0], rotation: [0.5, 0.5, -0.5, 0.5]}
+  width: 640
+  height: 480
+  horizontal_fov: 1.0
+  far: 10

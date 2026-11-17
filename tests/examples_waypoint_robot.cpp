@@ -1,9 +1,9 @@
-// Validates examples/box_robot/box_robot.arow + sim_config.yaml -- the scene
-// scripts/run-box-robot.sh drives -- end to end: actuators on the wheel
-// joints, the wheels' contacts with the ground, and the free-floating
+// Validates examples/waypoint_robot/waypoint_robot.arow + sim_config.yaml --
+// the scene scripts/run-waypoint-robot.sh drives -- end to end: actuators on
+// the wheel joints, the wheels' contacts with the ground, and the free-floating
 // chassis together. Each piece has its own tests; this is the one place
 // that checks they compose into a robot that sits still, drives, and turns
-// the way box_robot.cpp's controller assumes.
+// the way waypoint_robot.cpp's controller assumes.
 //
 // Reads the real files rather than a copy, so an edit to the scene that
 // breaks it fails here.
@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "achilles/build_config.hpp"
 #include "algorithms/aba/aba_data.hpp"
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
@@ -42,10 +43,12 @@ constexpr float kSeconds = 0.25F;
 
 std::filesystem::path ExampleDir() {
   return std::filesystem::path(__FILE__).parent_path().parent_path() /
-         "examples" / "box_robot";
+         "examples" / "waypoint_robot";
 }
 
-std::string ArowPath() { return (ExampleDir() / "box_robot.arow").string(); }
+std::string ArowPath() {
+  return (ExampleDir() / "waypoint_robot.arow").string();
+}
 
 struct Pose {
   float x;
@@ -54,7 +57,7 @@ struct Pose {
   float heading;  // yaw about +y; 0 faces +z
 };
 
-// Same convention as box_robot.cpp's ChassisPose, plus height.
+// Same convention as waypoint_robot.cpp's ChassisPose, plus height.
 Pose ChassisPose(const Simulation& sim, std::size_t row) {
   auto world = sim.Context()
                    .ViewFor<ABAAlgorithm>()
@@ -110,14 +113,18 @@ bool Drive(
   return true;
 }
 
-class BoxRobotScene : public ::testing::Test {
+class WaypointRobotScene : public ::testing::Test {
  protected:
   void SetUp() override {
+    // waypoint_robot.arow carries a camera, which renders only on the GPU.
+    if constexpr (!achilles::kWithGpu) {
+      GTEST_SKIP() << "the scene's camera renders only on the GPU";
+    }
     ASSERT_TRUE(sim_.LoadArowFile(ArowPath()));
     ASSERT_TRUE(sim_.LoadConfigFile((ExampleDir() / "sim_config.yaml").string())
     );
     ASSERT_TRUE(sim_.Init());
-    // The integrator box_robot.cpp runs with.
+    // The integrator waypoint_robot.cpp runs with.
     sim_.SetIntegrator(Simulation::Integrator::kSemiImplicitEuler);
     chassis_ = JointRow(sim_, {"wheeled_robot", "chassis"});
   }
@@ -131,7 +138,7 @@ class BoxRobotScene : public ::testing::Test {
 // With no effort the robot must come to rest on its wheels: neither sink
 // through the ground nor creep across it. Anything else and the driving
 // tests below are measuring drift, not drive.
-TEST_F(BoxRobotScene, UndrivenRobotRestsInPlace) {
+TEST_F(WaypointRobotScene, UndrivenRobotRestsInPlace) {
   Wheels wheels = AttachWheels(sim_);
   Pose start = ChassisPose(sim_, chassis_);
   ASSERT_TRUE(Drive(sim_, wheels, 0.0F, 0.0F, kSeconds));
@@ -144,8 +151,8 @@ TEST_F(BoxRobotScene, UndrivenRobotRestsInPlace) {
 }
 
 // Equal positive torque on every wheel drives the robot along its local
-// +z, straight -- the convention box_robot.cpp's DriveWheels relies on.
-TEST_F(BoxRobotScene, EqualWheelTorqueDrivesStraightForward) {
+// +z, straight -- the convention waypoint_robot.cpp's DriveWheels relies on.
+TEST_F(WaypointRobotScene, EqualWheelTorqueDrivesStraightForward) {
   Wheels wheels = AttachWheels(sim_);
   Pose start = ChassisPose(sim_, chassis_);
   ASSERT_TRUE(Drive(sim_, wheels, 1.0F, 1.0F, kSeconds));
@@ -158,9 +165,9 @@ TEST_F(BoxRobotScene, EqualWheelTorqueDrivesStraightForward) {
 }
 
 // Right wheels forward, left wheels back turns the robot in place toward
-// +heading -- the sign box_robot.cpp's skid steering assumes (a positive
+// +heading -- the sign waypoint_robot.cpp's skid steering assumes (a positive
 // yaw-rate command speeds the right side up).
-TEST_F(BoxRobotScene, RightForwardLeftBackTurnsTowardPositiveHeading) {
+TEST_F(WaypointRobotScene, RightForwardLeftBackTurnsTowardPositiveHeading) {
   Wheels wheels = AttachWheels(sim_);
   Pose start = ChassisPose(sim_, chassis_);
   ASSERT_TRUE(Drive(sim_, wheels, -1.0F, 1.0F, kSeconds));
