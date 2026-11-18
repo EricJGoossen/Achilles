@@ -116,7 +116,8 @@ SolidMesh::SolidMesh(SolidMesh&& other) noexcept
       ebo_(std::exchange(other.ebo_, 0)),
       instance_vbo_(std::exchange(other.instance_vbo_, 0)),
       index_count_(std::exchange(other.index_count_, 0)),
-      instance_count_(std::exchange(other.instance_count_, 0)) {}
+      instance_count_(std::exchange(other.instance_count_, 0)),
+      instance_capacity_(std::exchange(other.instance_capacity_, 0)) {}
 
 SolidMesh& SolidMesh::operator=(SolidMesh&& other) noexcept {
   if (this != &other) {
@@ -130,18 +131,32 @@ SolidMesh& SolidMesh::operator=(SolidMesh&& other) noexcept {
     instance_vbo_ = std::exchange(other.instance_vbo_, 0);
     index_count_ = std::exchange(other.index_count_, 0);
     instance_count_ = std::exchange(other.instance_count_, 0);
+    instance_capacity_ = std::exchange(other.instance_capacity_, 0);
   }
   return *this;
 }
 
 void SolidMesh::SetInstances(std::span<const float> instances) {
   gl::g_functions.bind_buffer(gl::kArrayBuffer, instance_vbo_);
-  gl::g_functions.buffer_data(
-      gl::kArrayBuffer,
-      static_cast<gl::GLsizeiptr>(instances.size() * sizeof(float)),
-      instances.data(),
-      gl::kDynamicDraw
-  );
+  // Updated in place, and reallocated only to grow: allocating GPU memory
+  // every draw is a kernel round trip on some drivers.
+  const std::size_t bytes = instances.size() * sizeof(float);
+  if (bytes > instance_capacity_) {
+    gl::g_functions.buffer_data(
+        gl::kArrayBuffer,
+        static_cast<gl::GLsizeiptr>(bytes),
+        instances.data(),
+        gl::kDynamicDraw
+    );
+    instance_capacity_ = bytes;
+  } else if (bytes > 0) {
+    gl::g_functions.buffer_sub_data(
+        gl::kArrayBuffer,
+        0,
+        static_cast<gl::GLsizeiptr>(bytes),
+        instances.data()
+    );
+  }
   instance_count_ = static_cast<GLsizei>(instances.size() / kInstanceFloats);
 }
 

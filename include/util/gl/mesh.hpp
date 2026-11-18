@@ -41,6 +41,8 @@ class SolidMesh {
   GLuint instance_vbo_ = 0;
   GLsizei index_count_ = 0;
   GLsizei instance_count_ = 0;
+  // Bytes instance_vbo_ was last allocated with.
+  std::size_t instance_capacity_ = 0;
 };
 
 }  // namespace achilles::util::gl

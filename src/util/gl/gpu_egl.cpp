@@ -199,12 +199,17 @@ struct Target {
   GLuint depth_buffer = 0;
 };
 
-// One camera's readback: two pairs of pixel pack buffers (rgb and depth),
+// One camera's readback: two pairs of pixel pack buffers (color and depth),
 // alternated render to render, so the previous render's pixels can be
-// copied out while this one's are still on their way.
+// copied out while this one's are still on their way. Each buffer keeps the
+// size it was allocated at and is reallocated only to grow: allocating GPU
+// memory every render is a kernel round trip on some drivers (WSL's d3d12
+// one makes several per buffer).
 struct Readbacks {
   std::array<GLuint, 2> rgb{};
   std::array<GLuint, 2> depth{};
+  std::array<std::size_t, 2> rgb_bytes{};
+  std::array<std::size_t, 2> depth_bytes{};
   std::array<std::uint32_t, 2> width{};
   std::array<std::uint32_t, 2> height{};
   int last = -1;
@@ -276,16 +281,23 @@ class Gpu {
     Readbacks& readbacks = ReadbacksFor(key);
     const int slot = readbacks.last == 0 ? 1 : 0;
     const std::size_t pixels = std::size_t{view.width} * view.height;
-    SizeBuffer(readbacks.rgb[static_cast<std::size_t>(slot)], pixels * 3);
+    const auto index = static_cast<std::size_t>(slot);
+    SizeBuffer(readbacks.rgb[index], pixels * 4, &readbacks.rgb_bytes[index]);
     SizeBuffer(
-        readbacks.depth[static_cast<std::size_t>(slot)], pixels * sizeof(float)
+        readbacks.depth[index],
+        pixels * sizeof(float),
+        &readbacks.depth_bytes[index]
     );
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     gl::g_functions.bind_buffer(
         gl::kPixelPackBuffer, readbacks.rgb[static_cast<std::size_t>(slot)]
     );
+    // RGBA, the color target's own format: a GPU can copy it into the pack
+    // buffer as is, so the readback stays asynchronous. Asking for GL_RGB
+    // makes a driver that can't pack it on the GPU wait for the render and
+    // convert every pixel on the CPU, right here (Readback drops alpha).
     glReadBuffer(gl::kColorAttachment0);
-    glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
     gl::g_functions.bind_buffer(
         gl::kPixelPackBuffer, readbacks.depth[static_cast<std::size_t>(slot)]
     );
@@ -326,7 +338,7 @@ class Gpu {
     if (rgb.size() != pixels * 3 || depth.size() != pixels) {
       return false;
     }
-    CopyRows(readbacks.rgb[index], std::size_t{width} * 3, height, rgb);
+    CopyRgbaRowsAsRgb(readbacks.rgb[index], width, height, rgb);
     CopyRows(readbacks.depth[index], width, height, depth);
     return true;
   }
@@ -438,8 +450,15 @@ class Gpu {
     }
   }
 
-  // Gives a pixel pack buffer room for `bytes` (contents undefined).
-  static void SizeBuffer(GLuint buffer, std::size_t bytes) {
+  // Gives a pixel pack buffer room for `bytes` (contents undefined),
+  // reallocating it only when it holds less than that; `*allocated` is its
+  // current size.
+  static void SizeBuffer(
+      GLuint buffer, std::size_t bytes, std::size_t* allocated
+  ) {
+    if (*allocated >= bytes) {
+      return;
+    }
     gl::g_functions.bind_buffer(gl::kPixelPackBuffer, buffer);
     gl::g_functions.buffer_data(
         gl::kPixelPackBuffer,
@@ -447,6 +466,41 @@ class Gpu {
         nullptr,
         gl::kStreamRead
     );
+    *allocated = bytes;
+  }
+
+  // CopyRows for the color buffer: its rows are RGBA (what glReadPixels
+  // packed), `out`'s RGB -- so alpha is dropped as each row is flipped.
+  static void CopyRgbaRowsAsRgb(
+      GLuint buffer,
+      std::size_t width,
+      std::size_t rows,
+      std::span<std::uint8_t> out
+  ) {
+    const std::size_t bytes = width * rows * 4;
+    gl::g_functions.bind_buffer(gl::kPixelPackBuffer, buffer);
+    const void* mapped = gl::g_functions.map_buffer_range(
+        gl::kPixelPackBuffer,
+        0,
+        static_cast<gl::GLsizeiptr>(bytes),
+        gl::kMapReadBit
+    );
+    if (mapped == nullptr) {
+      gl::g_functions.bind_buffer(gl::kPixelPackBuffer, 0);
+      Fail("mapping a camera's pixels failed.");
+    }
+    const auto* source = static_cast<const std::uint8_t*>(mapped);
+    for (std::size_t row = 0; row < rows; ++row) {
+      const std::uint8_t* from = source + ((rows - 1 - row) * width * 4);
+      std::uint8_t* to = out.data() + (row * width * 3);
+      for (std::size_t x = 0; x < width; ++x) {
+        to[(3 * x) + 0] = from[(4 * x) + 0];
+        to[(3 * x) + 1] = from[(4 * x) + 1];
+        to[(3 * x) + 2] = from[(4 * x) + 2];
+      }
+    }
+    gl::g_functions.unmap_buffer(gl::kPixelPackBuffer);
+    gl::g_functions.bind_buffer(gl::kPixelPackBuffer, 0);
   }
 
   // Copies a pixel pack buffer's rows into `out`, flipped: GL reads the
