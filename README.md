@@ -17,11 +17,16 @@ mean writing a new hand-rolled loop.
 scripts/run-double-pendulum.sh            # build, then run the demo arm in a window
 ```
 
-This builds the `achilles` target into `build/` and runs it against
+This builds the `two_joint_arm` example (its own program,
+[examples/two_joint_arm/two_joint_arm.cpp](examples/two_joint_arm/two_joint_arm.cpp)) as an
+optimized binary in `build-release/` and runs it against
 [examples/two_joint_arm/two_joint_arm.arow](examples/two_joint_arm/two_joint_arm.arow) with
-[examples/two_joint_arm/sim_config.yaml](examples/two_joint_arm/sim_config.yaml), opening a
-window for its camera; close it, or Ctrl-C, to stop. `--headless` runs the sim
-without one. The display that draws a scene's sensors lives outside the sim
+[examples/two_joint_arm/sim_config.yaml](examples/two_joint_arm/sim_config.yaml), with RK4 at a
+2 ms step. It opens a window for the arm through its camera, one for both
+joints' angles and one for their rates; close them, or Ctrl-C, to stop.
+`--headless` runs the sim without them, and `--seconds N` stops it after N
+sim seconds. Achilles itself is a library (`achilles_lib`, and
+`achilles::display` for the windows); there is no `achilles` program. The display that draws a scene's sensors lives outside the sim
 ([include/display/](include/display/)), on the same handles any caller uses.
 
 ```bash
@@ -37,7 +42,7 @@ dominoes, each 1.25 times the size of the one before, the first knocking over
 the second and so on down the row. These build optimized binaries into
 `build-release/` (a debug build is too slow for real time with collision on)
 and run with semi-implicit Euler, the only integrator that runs collision and
-the contact solver so far, and `achilles`'s default.
+the contact solver so far, and the library's default.
 
 ## Building
 
@@ -123,14 +128,22 @@ field. The loader is in
 ### Simulation config
 
 `sim_config.yaml` holds global parameters. For now that's
-`base_acceleration`. For ordinary gravity on a fixed base, set it to
-negative gravity. Gravity points down -Z, so that's +9.8 on Z:
+`base_acceleration`: the fixed base's acceleration, which every body feels
+the opposite of. For ordinary gravity, set it to minus gravity -- +9.8 along
+whichever axis is up in the scene. Achilles has no built-in up: most examples
+are Z-up, so gravity pulls down -Z and the setting is +9.8 on Z:
 
 ```yaml
 base_acceleration:
   angular: [0, 0, 0]
   linear: [0, 0, 9.8]
 ```
+
+[examples/dominoes](examples/dominoes/sim_config.yaml) and
+[examples/waypoint_robot](examples/waypoint_robot/sim_config.yaml) are Y-up
+instead, with `linear: [0, 9.81, 0]`, so gravity pulls down -Y there. A
+scene's sensors and cameras read in its own axes, so match their mounts to
+the scene's up.
 
 ## Architecture
 
