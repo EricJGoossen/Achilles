@@ -491,11 +491,11 @@ class BasicCamera : public Sensor<
   Params params_;
 };
 
-// The camera kind the sim hosts: room for up to 1280 x 720 images -- a
-// RealSense D435's 960 x 540 color or 848 x 480 depth, say -- each camera
-// sized by its own width and height within that. Its records are that size
-// whatever a camera uses (~13 MB per camera); a scene with no camera costs
-// nothing.
-using Camera = BasicCamera<1280, 720>;
+// The camera kind the sim hosts: room for up to 1280 x 800 images -- a
+// RealSense D435's 960 x 540 color or 848 x 480 depth, or an Arducam
+// OV9281/AR0234's 1280 x 800, say -- each camera sized by its own width and
+// height within that. Its records are that size whatever a camera uses
+// (~14 MB per camera); a scene with no camera costs nothing.
+using Camera = BasicCamera<1280, 800>;
 
 }  // namespace achilles::domain::sensing
