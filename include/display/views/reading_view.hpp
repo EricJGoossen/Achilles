@@ -17,6 +17,7 @@
 #include "domain/attachment/attachment_kind.hpp"
 #include "domain/math/vector3.hpp"
 #include "domain/sensing/encoder.hpp"
+#include "domain/sensing/limit_switch.hpp"
 #include "domain/spatial/transform.hpp"
 #include "interface/attachment_handle.hpp"
 
@@ -48,6 +49,8 @@ enum class MotionChannel : std::uint8_t {
 enum class EffortChannel : std::uint8_t { kEffort };
 // What a motor's joint got (N*m), then the current behind it (A).
 enum class MotorChannel : std::uint8_t { kEffort, kCurrent };
+// A limit switch: pressed (0 or 1), then the position it thresholds.
+enum class SwitchChannel : std::uint8_t { kPressed, kPosition };
 
 // The channels of a reading of type Value: its Channel enum, every one of
 // them in order (kAll), and Emit(value, emit), which hands each to
@@ -154,6 +157,18 @@ struct ReadingChannels<domain::actuation::DcMotorOutput> {
   ) {
     emit(Channel::kEffort, "effort (N*m)", value.effort);
     emit(Channel::kCurrent, "current (A)", value.current);
+  }
+};
+
+template <>
+struct ReadingChannels<domain::sensing::SwitchReading> {
+  using Channel = SwitchChannel;
+  static constexpr std::array kAll = {Channel::kPressed, Channel::kPosition};
+  static void Emit(
+      const domain::sensing::SwitchReading& value, const auto& emit
+  ) {
+    emit(Channel::kPressed, "pressed", value.pressed ? 1.0F : 0.0F);
+    emit(Channel::kPosition, "position", value.position);
   }
 };
 

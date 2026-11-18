@@ -129,6 +129,14 @@ class BasicCamera : public Sensor<
     std::uint32_t height = MaxH;
     // Radians across the image's width; square pixels set the height's.
     float horizontal_fov = std::numbers::pi_v<float> / 2.0F;
+    // Pinhole intrinsics in pixels, as a calibration gives them (a
+    // RealSense's fx, fy, ppx, ppy): focal lengths, and the principal point
+    // from the image's top-left corner. Any left at 0 (cx, cy: below 0)
+    // comes from horizontal_fov and the image's center instead.
+    float fx = 0.0F;
+    float fy = 0.0F;
+    float cx = -1.0F;
+    float cy = -1.0F;
     // What it sees, in meters along the view axis.
     float near = 0.05F;
     float far = 50.0F;
@@ -153,14 +161,17 @@ class BasicCamera : public Sensor<
           params_.horizontal_fov < std::numbers::pi_v<float>)) {
       throw std::invalid_argument("Camera: horizontal_fov must be in (0, pi).");
     }
+    if (params_.fx < 0.0F || params_.fy < 0.0F) {
+      throw std::invalid_argument("Camera: fx and fy must not be negative.");
+    }
     if (params_.near <= 0.0F || params_.far <= params_.near) {
       throw std::invalid_argument("Camera: needs 0 < near < far.");
     }
   }
 
   // Settings: period, mount (a pose in the body's frame, identity when
-  // absent), width, height, horizontal_fov, near, far, background,
-  // pipelined.
+  // absent), width, height, horizontal_fov, fx, fy, cx, cy, near, far,
+  // background, pipelined.
   static BasicCamera FromConfig(AttachmentConfig& config) {
     const AttachmentOptions options = config.Options();
     Params params;
@@ -169,6 +180,10 @@ class BasicCamera : public Sensor<
     params.height = config.Count("height", params.height);
     params.horizontal_fov =
         config.Scalar("horizontal_fov", params.horizontal_fov);
+    params.fx = config.Scalar("fx", params.fx);
+    params.fy = config.Scalar("fy", params.fy);
+    params.cx = config.Scalar("cx", params.cx);
+    params.cy = config.Scalar("cy", params.cy);
     params.near = config.Scalar("near", params.near);
     params.far = config.Scalar("far", params.far);
     params.background = config.Vector("background", params.background);
@@ -178,14 +193,26 @@ class BasicCamera : public Sensor<
 
   const Params& GetParams() const { return params_; }
 
+  // The pinhole the camera renders with, in pixels: what a calibration of
+  // it would report.
+  struct Intrinsics {
+    float fx = 0.0F, fy = 0.0F, cx = 0.0F, cy = 0.0F;
+  };
+  Intrinsics GetIntrinsics() const {
+    const auto w = static_cast<float>(params_.width);
+    const auto h = static_cast<float>(params_.height);
+    return {0.5F * w * FocalX(), 0.5F * h * FocalY(), 0.5F * w * (1.0F + CenterX()),
+            0.5F * h * (1.0F + CenterY())};
+  }
+
   // Where `point` (in the camera's own axes, in front of it: x > 0) lands
   // in its image, as fractions of the image's width and height from its
   // top-left corner -- outside [0, 1] when out of frame. The lens's one
   // forward model: distortion belongs here too, once modelled.
   std::array<float, 2> ImagePoint(const math::Vector3<float>& point) const {
     return {
-        0.5F * (1.0F - (FocalX() * point.Y() / point.X())),
-        0.5F * (1.0F - (FocalY() * point.Z() / point.X()))
+        0.5F * (1.0F + CenterX() - (FocalX() * point.Y() / point.X())),
+        0.5F * (1.0F + CenterY() - (FocalY() * point.Z() / point.X()))
     };
   }
 
@@ -383,13 +410,33 @@ class BasicCamera : public Sensor<
       {-1.0F, 0.0F, 0.0F},
   }};
 
-  // The pinhole's focal lengths, in half image widths and half heights.
+  // The pinhole's focal lengths, in half image widths and half heights:
+  // from fx / fy when given, else from horizontal_fov with square pixels.
   float FocalX() const {
+    if (params_.fx > 0.0F) {
+      return 2.0F * params_.fx / static_cast<float>(params_.width);
+    }
     return 1.0F / std::tan(0.5F * params_.horizontal_fov);
   }
   float FocalY() const {
+    const float fy = params_.fy > 0.0F ? params_.fy : params_.fx;
+    if (fy > 0.0F) {
+      return 2.0F * fy / static_cast<float>(params_.height);
+    }
     return FocalX() * static_cast<float>(params_.width) /
            static_cast<float>(params_.height);
+  }
+  // The principal point's offset from the image's center, in half image
+  // widths (rightward) and half heights (downward): 0 unless cx / cy say.
+  float CenterX() const {
+    return params_.cx >= 0.0F
+               ? (2.0F * params_.cx / static_cast<float>(params_.width)) - 1.0F
+               : 0.0F;
+  }
+  float CenterY() const {
+    return params_.cy >= 0.0F
+               ? (2.0F * params_.cy / static_cast<float>(params_.height)) - 1.0F
+               : 0.0F;
   }
 
   // The view (world to GL eye) and perspective projection, column-major.
@@ -424,6 +471,11 @@ class BasicCamera : public Sensor<
     const float f = params_.far;
     view.projection[0] = FocalX();
     view.projection[5] = FocalY();
+    // An off-center principal point shears the frustum: pixel u = fx X/Z +
+    // cx puts NDC x at FocalX x/z + CenterX (and y, which grows up, at
+    // FocalY y/z - CenterY), with the eye looking down -z.
+    view.projection[8] = -CenterX();
+    view.projection[9] = CenterY();
     view.projection[10] = (f + n) / (n - f);
     view.projection[11] = -1.0F;
     view.projection[14] = 2.0F * f * n / (n - f);
@@ -439,7 +491,11 @@ class BasicCamera : public Sensor<
   Params params_;
 };
 
-// The camera kind the sim hosts: room for 640 x 480 images.
-using Camera = BasicCamera<640, 480>;
+// The camera kind the sim hosts: room for up to 1280 x 720 images -- a
+// RealSense D435's 960 x 540 color or 848 x 480 depth, say -- each camera
+// sized by its own width and height within that. Its records are that size
+// whatever a camera uses (~13 MB per camera); a scene with no camera costs
+// nothing.
+using Camera = BasicCamera<1280, 720>;
 
 }  // namespace achilles::domain::sensing
