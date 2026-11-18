@@ -51,6 +51,9 @@ namespace achilles::algorithms::contact_solver {
 // detector says so (kLimitActive: limited, and r = distance - margin < 0),
 // and its R is mj_makeImpedance's (1 - d) / d dof_invweight0.
 //
+// Two primal solvers (SimConfig::contact_solver, ContactSolver), MuJoCo's
+// Newton and CG.
+//
 // M is never formed. CG needs M x, M^-1 y, J x and J^T f, and each of those
 // is an O(rows) pass over the tree reusing ABA's velocity-independent
 // factors (x_up, I, U, D^-1): M x is RNEA at zero velocity, M^-1 y is ABA at
@@ -58,11 +61,29 @@ namespace achilles::algorithms::contact_solver {
 // backward pass's body forces. The same M^-1 as MuJoCo's LDL solve, a
 // different route to it.
 //
-// Fixed iteration counts, MJX-style: no early exit, so every tick runs the
-// same passes and nothing branches on data. kContactSolverIterations CG
-// iterations, each with kLineSearchIterations 1-D Newton steps on the
-// exact (piecewise quadratic) cost along the search direction.
-inline constexpr std::size_t kContactSolverIterations = 20;
+// Newton's direction is -H^-1 grad, H = M + J^T D J over the active rows.
+// H isn't formed either: it is factorized exactly the way ABA factorizes M,
+// by the articulated-body recursion (U, D^-1), over every body's inertia
+// plus the contact rows on it -- J^T D J's diagonal block per body,
+// K_b = sum of D w w^T over b's active rows, w being a row's world wrench
+// direction. When every contact is against a body that doesn't move with
+// the tree (a floor), that is all of J^T D J and the factorization is
+// exactly H's; between two moving bodies the cross terms J_a^T K J_b are
+// left out, so the direction comes from an approximate Hessian -- still
+// positive definite, so still a descent direction, and the exact line
+// search does the rest. Joint-limit rows add D to their own DOF's diagonal
+// of the articulated D. H^-1 grad is then ABA's zero-velocity solve over
+// those factors instead of M's. The factorization is taken once per tick
+// (after the warmstart, so its active rows are the ones the solve starts
+// from), or at every iteration with refactor_every_iteration.
+//
+// Every pass is branch-free and runs the same work for every lane; the
+// solve's only data-dependent decision is when to stop, taken between
+// iterations by engine::pass::RepeatWhileStep on one whole-sim flag
+// (kContinue, MuJoCo's improvement test against SimConfig's tolerance), at
+// most SimConfig's iterations of them. Each iteration does
+// kLineSearchIterations 1-D Newton steps on the exact (piecewise quadratic)
+// cost along the search direction.
 inline constexpr std::size_t kLineSearchIterations = 4;
 
 // Pyramid edges per condim-3 contact: (n + mu t1, n - mu t1, n + mu t2,
@@ -84,6 +105,7 @@ using InvWeight = math::Matrix<MathematicalT, 2, 1>;
 enum class ContactSolverField : uint8_t {
   // --- ABA's factors and state (shared, read-only here) ---
   kJointSubspace,          // S
+  kJointActivationMask,    // which of S's 6 columns are DOFs
   kRigidBodyInertia,       // I
   kParentToBodyTransform,  // x_up
   kWorldTransform,         // x_world
@@ -133,6 +155,13 @@ enum class ContactSolverField : uint8_t {
   kMgrad,            // M^-1 grad
   kMgradPrev,        // last iteration's kMgrad
 
+  // --- Newton's Hessian, factorized like ABA's M ---
+  kBodyStiffnessTarget,  // K_b, as a pair's target (world): D w w^T summed
+  kBodyStiffnessSource,  // K_b, as a pair's source (world)
+  kHessianInertia,       // articulated I + K (body), the recursion's I_A
+  kHessianU,             // its U
+  kHessianDInv,          // its D^-1
+
   // --- Per-body pass scratch ---
   kBodyAcceleration,   // body motion of a joint-space vector (body)
   kBodyForce,          // subtree force accumulator (body)
@@ -172,6 +201,9 @@ enum class ContactSolverField : uint8_t {
   kGradNormSq,     // |grad|^2
   kBeta,           // CG beta
   kRestart,        // 1 while the next direction must be steepest descent
+  kInertiaTrace,   // trace(M) at the initial pose (MuJoCo's meaninertia nv)
+  kGradDotMgrad,   // grad^T P grad, P the solver's preconditioner (H^-1, M^-1)
+  kContinue,       // 1 while the solve hasn't converged (RepeatWhileStep)
 
   kCount
 };
@@ -228,6 +260,13 @@ struct ContactSolverFieldTraits<ContactSolverField::kJointSubspace>
           math::Matrix6x6Assembler<ScalarOperationT>,
           JointSubspaceSlot> {
   static constexpr std::string_view kName = "joint_subspace";
+};
+template <>
+struct ContactSolverFieldTraits<ContactSolverField::kJointActivationMask>
+    : SharedRowField<
+          math::ActivationMaskAssembler<6, ScalarOperationT>,
+          JointActivationMaskSlot> {
+  static constexpr std::string_view kName = "joint_activation_mask";
 };
 template <>
 struct ContactSolverFieldTraits<ContactSolverField::kRigidBodyInertia>
@@ -406,6 +445,23 @@ template <>
 struct ContactSolverFieldTraits<ContactSolverField::kMgradPrev>
     : RowField<AccelerationAssembler> {};
 
+// --- Newton's Hessian ---
+template <>
+struct ContactSolverFieldTraits<ContactSolverField::kBodyStiffnessTarget>
+    : RowField<math::Matrix6x6Assembler<ScalarOperationT>> {};
+template <>
+struct ContactSolverFieldTraits<ContactSolverField::kBodyStiffnessSource>
+    : RowField<math::Matrix6x6Assembler<ScalarOperationT>> {};
+template <>
+struct ContactSolverFieldTraits<ContactSolverField::kHessianInertia>
+    : RowField<spatial::InertiaOperatorAssembler<ScalarOperationT>> {};
+template <>
+struct ContactSolverFieldTraits<ContactSolverField::kHessianU>
+    : RowField<spatial::InertiaOperatorAssembler<ScalarOperationT>> {};
+template <>
+struct ContactSolverFieldTraits<ContactSolverField::kHessianDInv>
+    : RowField<spatial::InvertedInertiaOperatorAssembler<ScalarOperationT>> {};
+
 // --- Per-body pass scratch ---
 template <>
 struct ContactSolverFieldTraits<ContactSolverField::kBodyAcceleration>
@@ -511,6 +567,15 @@ struct ContactSolverFieldTraits<ContactSolverField::kBeta>
     : GlobalField<ScalarAssembler> {};
 template <>
 struct ContactSolverFieldTraits<ContactSolverField::kRestart>
+    : GlobalField<ScalarAssembler> {};
+template <>
+struct ContactSolverFieldTraits<ContactSolverField::kInertiaTrace>
+    : GlobalField<ScalarAssembler> {};
+template <>
+struct ContactSolverFieldTraits<ContactSolverField::kGradDotMgrad>
+    : GlobalField<ScalarAssembler> {};
+template <>
+struct ContactSolverFieldTraits<ContactSolverField::kContinue>
     : GlobalField<ScalarAssembler> {};
 static_assert(engine::FieldTraitsLike<
               ContactSolverField,

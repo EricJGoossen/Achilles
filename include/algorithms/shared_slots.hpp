@@ -22,6 +22,9 @@ namespace achilles::algorithms {
 // SimAllocator::Carve asserts this at Build() time; it's not something
 // this header can check on its own.
 struct JointSubspaceSlot;
+// Which of a joint's 6 DOFs are real -- shared so the contact solver can
+// invert its own (Newton) articulated D, as ABA inverts its own.
+struct JointActivationMaskSlot;
 struct JointPositionSlot;
 struct JointVelocitySlot;
 struct JointAccelerationSlot;

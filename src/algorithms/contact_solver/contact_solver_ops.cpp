@@ -575,6 +575,95 @@ void ConjugacyTermsOp::operator()(
   *grad_grad_out += Scalar(grad.AsVector6().Dot(grad.AsVector6()));
 }
 
+void ContactHessianOp::operator()(
+    const ContactRows& residual,
+    const ContactRows& weight,
+    const EdgeDirections& edges,
+    const ContactPoints& point,
+    Matrix6x6* stiffness_target_out,
+    Matrix6x6* stiffness_source_out
+) const {
+  Matrix6x6 stiffness;
+  for (std::size_t k = 0; k < kSweptBoxContactSlots; ++k) {
+    const Vector3 p(point.Column(k));
+    for (std::size_t e = 0; e < kPyramidEdges; ++e) {
+      const Vector3 edge(edges.Column(e));
+      const Vector3 moment = p.Cross(edge);
+      // D while the row is active at the current qacc, else nothing
+      const MathematicalT d = util::Select(
+          residual(e, k) < MathematicalT(0), weight(e, k), MathematicalT(0)
+      );
+      // w = (p x e, e): Force's (angular, linear) order
+      const std::array<MathematicalT, 6> w = {
+          moment.X(), moment.Y(), moment.Z(), edge.X(), edge.Y(), edge.Z()
+      };
+      for (std::size_t i = 0; i < 6; ++i) {
+        const MathematicalT d_wi = d * w[i];
+        for (std::size_t j = 0; j < 6; ++j) {
+          stiffness(i, j) += d_wi * w[j];
+        }
+      }
+    }
+  }
+  *stiffness_target_out += stiffness;
+  *stiffness_source_out += stiffness;
+}
+
+void FactorHessianOp::operator()(
+    const MotionSubspace& S,
+    const Mat6Mask& mask,
+    const Transform& x_up,
+    const InertiaOperator<false>& I_A,
+    const JointCoordinates& limit_weight,
+    const JointCoordinates& limit_residual,
+    InertiaOperator<false>* I_A_parent_out,
+    InertiaOperator<false>* U_out,
+    InertiaOperator<true>* D_inv_out
+) const {
+  // U = I_A S, D = S^T U
+  const InertiaOperator<false> U(I_A.AsMatrix() * S);
+  Matrix6x6 d = (S.Transpose() * U).AsMatrix();
+  // + each active limit row's D on its own DOF
+  for (std::size_t k = 0; k < 6; ++k) {
+    d(k, k) += util::Select(
+        limit_residual[k] < MathematicalT(0), limit_weight[k], MathematicalT(0)
+    );
+  }
+  const InertiaOperator<true> D_inv =
+      InertiaOperator<false>(d).MaskedInverse(mask);
+  const Matrix6x6 U_D_inv = U.AsMatrix() * D_inv.AsMatrix();
+  *U_out = U;
+  *D_inv_out = D_inv;
+  *I_A_parent_out += x_up.Apply(I_A - U_D_inv * U.Transpose());
+}
+
+void ConvergenceOp::operator()(
+    const GlobalScalar& grad_dot_mgrad,
+    const GlobalScalar& inertia_trace,
+    GlobalScalar* continue_out
+) const {
+  const float scale =
+      inertia_trace.Value() > 0.0F ? 1.0F / inertia_trace.Value() : 1.0F;
+  const float improvement = 0.5F * grad_dot_mgrad.Value() * scale;
+  *continue_out = GlobalScalar(improvement > tolerance_ ? 1.0F : 0.0F);
+}
+
+void InertiaTraceOp::operator()(
+    const JointCoordinates& dof_invweight, Scalar* out
+) const {
+  MathematicalT trace(0);
+  for (std::size_t k = 0; k < 6; ++k) {
+    const MathematicalT w = dof_invweight[k];
+    const auto real = w > MathematicalT(0);
+    trace += util::Select(
+        real,
+        MathematicalT(1) / util::Select(real, w, MathematicalT(1)),
+        MathematicalT(0)
+    );
+  }
+  *out += Scalar(trace);
+}
+
 void ChooseWarmstartOp::operator()(
     const GlobalScalar& cost_smooth,
     const GlobalScalar& cost_warm,

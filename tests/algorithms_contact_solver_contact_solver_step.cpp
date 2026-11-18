@@ -1,8 +1,10 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <string>
+#include <utility>
 
 #include "algorithms/aba/aba_data.hpp"
 #include "algorithms/aba/aba_step.hpp"
@@ -735,4 +737,200 @@ TEST(Solve, WarmstartedResolveLandsOnTheSameAnswer) {
   RunSteps<Forward>(sim, config);
 
   EXPECT_NEAR(Qdd(sim, 0) / first, 1.0F, 1e-4F);
+}
+
+// ---------------------------------------------------------------------------
+// Newton and CG (SimConfig::contact_solver), and the early exit.
+//
+// A ball on two slides (y, then x) resting 0.01 into the ground, under
+// gravity tilted 1.5 along x: two coupled DOFs, so a solver's direction
+// matters (in one DOF any direction plus the exact line search lands on the
+// minimum). The pyramid's edges are n +- mu t1, n +- mu t2 with t1, t2
+// spanning the ground plane, so over each contact slot's four rows
+// sum J_x^2 = 2 mu^2, sum J_x J_y = 0 and sum J_y^2 = 4: with every one of
+// the n rows active (same D, same aref, no motion along x in aref),
+//
+//   a_x* = M a0_x / (M + n D mu^2 / 2),   a_y* = (M a0_y + n D aref) / (M + n
+//   D).
+//
+// The Hessian H = M + J^T D J is diagonal but unequal there, and the
+// gradient at the start isn't along either axis -- so one exact Newton step
+// lands on the minimum and one steepest-descent (first CG) step doesn't.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+constexpr F kTiltX = 1.5F;  // gravity's x, toward +x
+
+std::string PlanarBallJoint(float y) {
+  // Two slide DOFs on one joint: column 0 along y (entry (4, 0)), column 1
+  // along x (entry (3, 1)).
+  return "  - name: ball\n"
+         "    parent: world\n"
+         "    fields:\n"
+         "      joint_subspace: [0,0,0,0,0,0, 0,0,0,0,0,0, 0,0,0,0,0,0,"
+         " 0,1,0,0,0,0, 1,0,0,0,0,0, 0,0,0,0,0,0]\n"
+         "      joint_activation_mask: [3]\n"
+         "      fixed_joint_transform: [0,0,0, 1,0,0,0]\n"
+         "      rigid_body_inertia: [" +
+         std::to_string(kBallMass) +
+         ", 0,0,0, 0.01,0.01,0.01, 0,0,0]\n"
+         "      joint_position: [0," +
+         std::to_string(y) + ",0, 1,0,0,0]\n" +
+         CollisionFields("[0, 0, 0]", 0.1F, 2, 1);
+}
+
+RegisteredSim MakePlanarBallOnGround(const TempDir& dir) {
+  return MakeRegisteredSim(
+      dir,
+      WeldedJoint("world", "", 0.0F, CollisionFields("[0, 0, 0]", 0.0F, 0, 0)) +
+          WeldedJoint(
+              "ground",
+              "world",
+              -0.1F,
+              CollisionFields("[1, 0.1, 1]", 0.0F, 1, 2)
+          ) +
+          PlanarBallJoint(0.09F)
+  );
+}
+
+SimConfig TiltedGravity(
+    ContactSolver solver, std::size_t iterations, float tolerance = 1e-8F
+) {
+  using B = MathematicalT;
+  SimConfig config;
+  // base_acceleration is minus gravity
+  config.base_acceleration =
+      Acceleration(Vector3::Zero(), Vector3(B(-kTiltX), B(9.8F), B(0.0F)));
+  config.contact_solver.solver = solver;
+  config.contact_solver.iterations = iterations;
+  config.contact_solver.tolerance = tolerance;
+  return config;
+}
+
+// The planar ball's qacc along y (DOF 0) and x (DOF 1).
+std::pair<F, F> PlanarQacc(const RegisteredSim& sim) {
+  auto a = sim.ViewFor<aba::ABAAlgorithm>()
+               .Load<aba::ABAField::kJointAcceleration, F>(Row(sim, 2));
+  return {a[0], a[1]};
+}
+
+// The closed-form minimum above, for this sim's active row count.
+std::pair<double, double> PlanarExpected(const RegisteredSim& sim) {
+  double n = static_cast<double>(ActiveContactRows(sim));
+  double m = kBallMass;
+  double r = -0.01;
+  // body_invweight0: the mean over three axes of 1 / m along the two it moves
+  // in
+  double invweight = (2.0 / m) / 3.0;
+  double d = 1.0 / (2.0 * (1.0 - kImpedance) / kImpedance * 2.0 * invweight);
+  double aref = -kStiffness * kImpedance * r;
+  double a_y = ((m * -9.8) + (n * d * aref)) / (m + (n * d));
+  double a_x = (m * kTiltX) / (m + (n * d / 2.0));
+  return {a_y, a_x};
+}
+
+// kContinue: 1 while the solve hadn't converged when it stopped.
+F ContinueFlag(const RegisteredSim& sim) {
+  return sim.ViewFor<ContactSolverAlgorithm>()
+      .Load<ContactSolverField::kContinue, F>(0)
+      .Value();
+}
+
+}  // namespace
+
+// One Newton iteration is the whole solve here: the Hessian it factorizes
+// (I + K_b over the articulated-body recursion) is exactly H for a contact
+// with the fixed ground, and the cost is quadratic over these active rows.
+TEST(Solve, OneNewtonIterationLandsOnTheMinimumAgainstTheGround) {
+  TempDir dir;
+  RegisteredSim sim = MakePlanarBallOnGround(dir);
+  SimConfig config = TiltedGravity(ContactSolver::kNewton, 1, 0.0F);
+  RunSteps<SetupList>(sim, config, 0.0F);
+
+  RunSteps<Forward>(sim, config);
+
+  ASSERT_GE(ActiveContactRows(sim), contact_solver::kPyramidEdges);
+  auto [a_y, a_x] = PlanarQacc(sim);
+  auto [expected_y, expected_x] = PlanarExpected(sim);
+  EXPECT_NEAR(a_y / expected_y, 1.0, 1e-3);
+  EXPECT_NEAR(a_x / expected_x, 1.0, 1e-3);
+}
+
+// The premise of the test above: one CG iteration (steepest descent in M's
+// metric, then the exact line search) does not land there -- so it's the
+// Newton direction, not the line search, that got it right.
+TEST(Solve, OneCGIterationFallsShortOfTheMinimum) {
+  TempDir dir;
+  RegisteredSim sim = MakePlanarBallOnGround(dir);
+  SimConfig config = TiltedGravity(ContactSolver::kCG, 1, 0.0F);
+  RunSteps<SetupList>(sim, config, 0.0F);
+
+  RunSteps<Forward>(sim, config);
+
+  auto [a_y, a_x] = PlanarQacc(sim);
+  auto [expected_y, expected_x] = PlanarExpected(sim);
+  EXPECT_GT(
+      std::max(
+          std::abs(a_y / expected_y - 1.0), std::abs(a_x / expected_x - 1.0)
+      ),
+      1e-2
+  );
+}
+
+// Run to convergence, both solvers land on the same minimum.
+TEST(Solve, NewtonAndCGLandOnTheSameMinimum) {
+  for (ContactSolver solver : {ContactSolver::kNewton, ContactSolver::kCG}) {
+    TempDir dir;
+    RegisteredSim sim = MakePlanarBallOnGround(dir);
+    SimConfig config = TiltedGravity(solver, 50);
+    RunSteps<SetupList>(sim, config, 0.0F);
+
+    RunSteps<Forward>(sim, config);
+
+    auto [a_y, a_x] = PlanarQacc(sim);
+    auto [expected_y, expected_x] = PlanarExpected(sim);
+    const char* name = solver == ContactSolver::kNewton ? "Newton" : "CG";
+    EXPECT_NEAR(a_y / expected_y, 1.0, 1e-3) << name;
+    EXPECT_NEAR(a_x / expected_x, 1.0, 1e-3) << name;
+  }
+}
+
+// The early exit: once the improvement the next step predicts is below the
+// tolerance, kContinue clears and RepeatWhileStep stops iterating. Solved
+// to convergence, it's clear; with no iterations at all allowed, the solve
+// stops where it starts, short of the minimum, with kContinue still set.
+TEST(Solve, ConvergedSolveClearsTheContinueFlag) {
+  TempDir dir;
+  RegisteredSim sim = MakePlanarBallOnGround(dir);
+  SimConfig config = TiltedGravity(ContactSolver::kNewton, 20, 1e-6F);
+  RunSteps<SetupList>(sim, config, 0.0F);
+
+  RunSteps<Forward>(sim, config);
+
+  EXPECT_EQ(ContinueFlag(sim), 0.0F);
+
+  TempDir unsolved_dir;
+  RegisteredSim unsolved = MakePlanarBallOnGround(unsolved_dir);
+  SimConfig no_iterations = TiltedGravity(ContactSolver::kNewton, 0, 1e-6F);
+  RunSteps<SetupList>(unsolved, no_iterations, 0.0F);
+  RunSteps<Forward>(unsolved, no_iterations);
+  EXPECT_EQ(ContinueFlag(unsolved), 1.0F);
+}
+
+// Newton factorizes H once per tick by default; refactoring at every
+// iteration lands on the same minimum.
+TEST(Solve, RefactoringEveryIterationLandsOnTheSameMinimum) {
+  TempDir dir;
+  RegisteredSim sim = MakePlanarBallOnGround(dir);
+  SimConfig config = TiltedGravity(ContactSolver::kNewton, 20);
+  config.contact_solver.refactor_every_iteration = true;
+  RunSteps<SetupList>(sim, config, 0.0F);
+
+  RunSteps<Forward>(sim, config);
+
+  auto [a_y, a_x] = PlanarQacc(sim);
+  auto [expected_y, expected_x] = PlanarExpected(sim);
+  EXPECT_NEAR(a_y / expected_y, 1.0, 1e-3);
+  EXPECT_NEAR(a_x / expected_x, 1.0, 1e-3);
 }

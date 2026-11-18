@@ -5,6 +5,7 @@
 #include <array>
 #include <cstddef>
 #include <filesystem>
+#include <string>
 
 #include "algorithms/conventions.hpp"
 #include "algorithms/sim_config.hpp"
@@ -107,6 +108,43 @@ Acceleration ParseAcceleration(
   };
 }
 
+// contact_solver: {solver: newton|cg, iterations: N, tolerance: x,
+// refactor_every_iteration: bool} -- each key optional, each falling back
+// on its own (unlike the all-or-nothing vectors above, these are
+// independent settings).
+algorithms::ContactSolverConfig ParseContactSolver(
+    const YAML::Node& node, const algorithms::ContactSolverConfig& fallback
+) {
+  algorithms::ContactSolverConfig config = fallback;
+  if (!node.IsDefined() || !node.IsMap()) {
+    return config;
+  }
+  if (node["solver"].IsDefined() && node["solver"].IsScalar()) {
+    const auto name = node["solver"].as<std::string>();
+    if (name == "newton") {
+      config.solver = algorithms::ContactSolver::kNewton;
+    } else if (name == "cg") {
+      config.solver = algorithms::ContactSolver::kCG;
+    }
+  }
+  int iterations = 0;
+  if (node["iterations"].IsDefined() &&
+      util::TryParseNumber(node["iterations"], iterations) && iterations >= 0) {
+    config.iterations = static_cast<std::size_t>(iterations);
+  }
+  float tolerance = 0.0F;
+  if (node["tolerance"].IsDefined() &&
+      util::TryParseNumber(node["tolerance"], tolerance) && tolerance >= 0.0F) {
+    config.tolerance = tolerance;
+  }
+  if (node["refactor_every_iteration"].IsDefined() &&
+      node["refactor_every_iteration"].IsScalar()) {
+    config.refactor_every_iteration =
+        node["refactor_every_iteration"].as<bool>();
+  }
+  return config;
+}
+
 }  // namespace
 
 algorithms::SimConfig LoadSimConfig(const std::filesystem::path& path) {
@@ -125,6 +163,8 @@ algorithms::SimConfig LoadSimConfig(const std::filesystem::path& path) {
         ParseVelocity(root["base_velocity"], config.base_velocity);
     config.base_acceleration =
         ParseAcceleration(root["base_acceleration"], config.base_acceleration);
+    config.contact_solver =
+        ParseContactSolver(root["contact_solver"], config.contact_solver);
   } catch (const YAML::Exception&) {
     return SimConfig::Default();
   }
