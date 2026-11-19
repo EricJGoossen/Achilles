@@ -114,7 +114,7 @@ struct LeafAssembler {
       std::byte* field0,
       size_t /*field_stride_bytes*/,
       const Value<TargetScalar>& value,
-      std::uint64_t lanes
+      std::uint64_t lanes = ~std::uint64_t{0}
   ) {
     Layout::template AccumulateLeaf<ScalarType>(field0, value, lanes);
   }
@@ -310,7 +310,7 @@ class Assembler {
       std::byte* field0,
       size_t field_stride_bytes,
       const ValueT& value,
-      std::uint64_t lanes
+      std::uint64_t lanes = ~std::uint64_t{0}
   ) {
     static_assert(
         std::is_same_v<TargetScalar, ScalarType> ||
