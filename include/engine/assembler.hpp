@@ -6,6 +6,7 @@
 #include <bit>
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -112,9 +113,10 @@ struct LeafAssembler {
   static void Accumulate(
       std::byte* field0,
       size_t /*field_stride_bytes*/,
-      const Value<TargetScalar>& value
+      const Value<TargetScalar>& value,
+      std::uint64_t lanes
   ) {
-    Layout::template AccumulateLeaf<ScalarType>(field0, value);
+    Layout::template AccumulateLeaf<ScalarType>(field0, value, lanes);
   }
 
   // What a padding row holds when this leaf is a whole field: a
@@ -299,13 +301,16 @@ class Assembler {
     return ZeroImpl<TargetScalar>(ChildIndices{});
   }
 
-  // Write's reducing counterpart: adds the sum of every lane of `value`
-  // into the one instance at field0, leaf by leaf (see
+  // Write's reducing counterpart: adds the sum of the lanes of `value`
+  // named in `lanes` into the one instance at field0, leaf by leaf (see
   // util::SimdAccumulate) -- what a View does with an output stored
   // through a topology::BroadcastIndex (engine/topology/indexing_policy.hpp).
   template <typename TargetScalar, typename Layout, typename ValueT>
   static void Accumulate(
-      std::byte* field0, size_t field_stride_bytes, const ValueT& value
+      std::byte* field0,
+      size_t field_stride_bytes,
+      const ValueT& value,
+      std::uint64_t lanes
   ) {
     static_assert(
         std::is_same_v<TargetScalar, ScalarType> ||
@@ -314,7 +319,7 @@ class Assembler {
         "Assembler's ScalarType or an xsimd::batch of it."
     );
     AccumulateImpl<TargetScalar, Layout>(
-        field0, field_stride_bytes, value.ToTuple(), ChildIndices{}
+        field0, field_stride_bytes, value.ToTuple(), lanes, ChildIndices{}
     );
   }
 
@@ -401,12 +406,13 @@ class Assembler {
       typename Tuple,
       size_t... Is>
   static void
-  AccumulateImpl(std::byte* field0, size_t field_stride_bytes, const Tuple& parts, std::index_sequence<Is...>) {
+  AccumulateImpl(std::byte* field0, size_t field_stride_bytes, const Tuple& parts, std::uint64_t lanes, std::index_sequence<Is...>) {
     (std::tuple_element_t<Is, ChildTuple>::
          template Accumulate<TargetScalar, Layout>(
              Layout::LeafAt(field0, FieldOffset<Is>(), field_stride_bytes),
              field_stride_bytes,
-             std::get<Is>(parts)
+             std::get<Is>(parts),
+             lanes
          ),
      ...);
   }

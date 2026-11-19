@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -261,11 +262,11 @@ namespace {
 using achilles::engine::pass::LinearTraversal;
 using achilles::engine::pass::TreeTraversal;
 
-// `groups` positions, each Stride raw rows wide: group g's own Stride rows
-// all resolve to raw-row parent `parent_group * stride` -- the shape a real
-// Layout always produces (every row within one Stride-sized group shares
-// the same parent GROUP, never a mix -- see TreeTraversal's own comment on
-// why Layout guarantees this).
+// `groups` positions, each Stride raw rows wide: lane i of group g's own
+// Stride rows resolves to lane i of parent group `parent_group` -- the
+// shape a real Layout produces for an archetype's own joints (every row
+// within one Stride-sized group shares the same parent GROUP, lane for
+// lane -- see TreeTraversal's own comment on why Layout guarantees this).
 std::vector<size_t> MakeGroupedParents(
     size_t groups, size_t stride, size_t base_parent_group
 ) {
@@ -273,10 +274,18 @@ std::vector<size_t> MakeGroupedParents(
   for (size_t g = 0; g < groups; ++g) {
     size_t parent_group = (g == 0) ? base_parent_group : g - 1;
     for (size_t lane = 0; lane < stride; ++lane) {
-      parents[(g * stride) + lane] = parent_group * stride;
+      parents[(g * stride) + lane] = (parent_group * stride) + lane;
     }
   }
   return parents;
+}
+
+// The parent group a TreeTraversal handed: these lane-aligned topologies
+// never share one parent row, so a BroadcastIndex here is a test failure.
+size_t ParentGroup(size_t parent) { return parent; }
+size_t ParentGroup(const achilles::engine::topology::BroadcastIndex& parent) {
+  ADD_FAILURE() << "unexpected shared parent row " << parent.row;
+  return parent.row;
 }
 
 }  // namespace
@@ -289,7 +298,9 @@ TEST(TreeTraversalStride, ForwardDividesRawRowsIntoGroupsAtLaneFour) {
   std::vector<std::pair<size_t, size_t>> calls;
 
   TreeTraversal<Direction::kForward, kStride>::Apply(
-      [&](size_t target, size_t parent) { calls.emplace_back(target, parent); },
+      [&](size_t target, const auto& parent) {
+        calls.emplace_back(target, ParentGroup(parent));
+      },
       topology
   );
 
@@ -306,7 +317,9 @@ TEST(TreeTraversalStride, ForwardDividesRawRowsIntoGroupsAtLaneEight) {
   std::vector<std::pair<size_t, size_t>> calls;
 
   TreeTraversal<Direction::kForward, kStride>::Apply(
-      [&](size_t target, size_t parent) { calls.emplace_back(target, parent); },
+      [&](size_t target, const auto& parent) {
+        calls.emplace_back(target, ParentGroup(parent));
+      },
       topology
   );
 
@@ -324,7 +337,9 @@ TEST(TreeTraversalStride, ForwardDividesRawRowsIntoGroupsAtLaneThirtyTwo) {
   std::vector<std::pair<size_t, size_t>> calls;
 
   TreeTraversal<Direction::kForward, kStride>::Apply(
-      [&](size_t target, size_t parent) { calls.emplace_back(target, parent); },
+      [&](size_t target, const auto& parent) {
+        calls.emplace_back(target, ParentGroup(parent));
+      },
       topology
   );
 
@@ -343,7 +358,9 @@ TEST(TreeTraversalStride, BackwardVisitsGroupsInReverseOrder) {
   std::vector<std::pair<size_t, size_t>> calls;
 
   TreeTraversal<Direction::kBackward, kStride>::Apply(
-      [&](size_t target, size_t parent) { calls.emplace_back(target, parent); },
+      [&](size_t target, const auto& parent) {
+        calls.emplace_back(target, ParentGroup(parent));
+      },
       topology
   );
 
@@ -639,4 +656,37 @@ TEST(LinkedSegmentScanTraversalInitOp, SkipsInitializeWithNoSceneToScan) {
       RecordingInitOp{&seen}, lists.Topology()
   );
   EXPECT_EQ(seen, 999U);
+}
+
+// Copies of an archetype attached to one single-copy joint: every real lane
+// of their group hangs off that one row, so the group is handed it as a
+// BroadcastIndex -- naming only the real lanes, since padding lanes (parent:
+// the base row) must not add into it. An archetype's own lane-aligned
+// groups are still handed their parent group.
+TEST(TreeTraversalStride, CopiesSharingOneParentRowGetItBroadcast) {
+  constexpr size_t kStride = 4;
+  // group 0: lane-aligned under group 2; group 1: three copies of row 9,
+  // then one padding lane under the base row.
+  TopologyArchetype topology{{8, 9, 10, 11, 9, 9, 9, 0}};
+  std::vector<size_t> aligned;
+  std::vector<achilles::engine::topology::BroadcastIndex> shared;
+
+  TreeTraversal<Direction::kForward, kStride>::Apply(
+      [&](size_t /*target*/, const auto& parent) {
+        if constexpr (std::is_same_v<
+                          std::decay_t<decltype(parent)>,
+                          achilles::engine::topology::BroadcastIndex>) {
+          shared.push_back(parent);
+        } else {
+          aligned.push_back(parent);
+        }
+      },
+      topology
+  );
+
+  ASSERT_EQ(aligned.size(), 1U);
+  EXPECT_EQ(aligned[0], 2U);
+  ASSERT_EQ(shared.size(), 1U);
+  EXPECT_EQ(shared[0].row, 9U);
+  EXPECT_EQ(shared[0].lanes, 0b0111U);
 }

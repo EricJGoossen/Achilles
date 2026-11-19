@@ -185,10 +185,12 @@ struct PlanarLayout {
     util::SimdStore(std::bit_cast<Leaf*>(leaf), 0, value);
   }
 
-  // The one Leaf at `leaf` += the sum of value's lanes.
+  // The one Leaf at `leaf` += the sum of value's lanes named in `lanes`.
   template <typename Leaf, typename ValueT>
-  static void AccumulateLeaf(std::byte* leaf, const ValueT& value) {
-    util::SimdAccumulate(std::bit_cast<Leaf*>(leaf), value);
+  static void AccumulateLeaf(
+      std::byte* leaf, const ValueT& value, std::uint64_t lanes
+  ) {
+    util::SimdAccumulate(std::bit_cast<Leaf*>(leaf), value, lanes);
   }
 };
 

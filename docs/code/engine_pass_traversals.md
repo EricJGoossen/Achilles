@@ -24,6 +24,12 @@ time, so each costs the same as a hand-written loop.
 - A batched tree pass relies on every row and its parent sitting in
   different lane groups (`JointTopology::IsBatchSafe`), which the tree
   orderings guarantee.
+- A group's parent is either lane-aligned (lane `i` under lane `i` of the
+  parent's group: an archetype's own joints, or 1:1 copies) or one shared
+  row (copies attached to a single-copy joint). A shared row is handed as a
+  `BroadcastIndex` naming only the lanes under it, so padding lanes add
+  nothing to it (`ParentSource::SharedParent`). Which one is fixed by the
+  topology at load.
 - A forward tree pass relies on every parent coming before its child
   (`IsForwardSafe`).
 - `ApplyToBase` runs an op's `Initialize` once, at the base row, before its
@@ -32,6 +38,8 @@ time, so each costs the same as a hand-written loop.
 ## Pitfalls
 
 - A wrong `Stride` compiles and silently reads the wrong rows.
+- Callables of a batched tree pass take either source type: a group index
+  or a `BroadcastIndex`.
 - A tree traversal over a `LinearOrdering` field is only correct when the
   archetypes have no joint dependencies.
 

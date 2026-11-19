@@ -25,6 +25,7 @@ instance or a whole SIMD batch at once. Every field's traits name an
   quaternion is degenerate.
 - `LeafAssembler<R>` holds a whole record per row; with several record types
   each sits in its own segment (`SegmentedLayout`).
+- `Accumulate` sums only the lanes its mask names into the one row.
 
 ## Pitfalls
 

@@ -48,6 +48,38 @@ struct ParentSource {
   static constexpr size_t Of(const Topology& parents, size_t group) {
     return parents[group * Stride] / Stride;
   }
+  // Whether a group's lanes all hang off one parent row rather than lane i
+  // off lane i of the parent's group: copies of an archetype attached to
+  // a single-copy joint. Then the parent is handed as a
+  // topology::BroadcastIndex -- read splatted, and an output written there
+  // sums the group's lanes into it -- the way PairSource hands a pair
+  // group's source. Lanes past a group's real rows are padding with a zero
+  // contribution, so their part of that sum is nothing. Lane-aligned
+  // parents never repeat a row in lanes 0 and 1, so those two decide it.
+  template <size_t Stride, domain::TopologyLike Topology>
+  static constexpr bool SharesParent(const Topology& parents, size_t group) {
+    if constexpr (Stride == 1) {
+      return false;
+    } else {
+      return parents[group * Stride] == parents[(group * Stride) + 1];
+    }
+  }
+  // A group sharing its parent, as the BroadcastIndex its lanes read and
+  // sum into: the lanes whose parent is that row, so padding lanes (whose
+  // parent is the base row) never add into it.
+  template <size_t Stride, domain::TopologyLike Topology>
+  static constexpr topology::BroadcastIndex SharedParent(
+      const Topology& parents, size_t group
+  ) {
+    const size_t parent = parents[group * Stride];
+    std::uint64_t lanes = 0;
+    for (size_t lane = 0; lane < Stride; ++lane) {
+      if (parents[(group * Stride) + lane] == parent) {
+        lanes |= std::uint64_t{1} << lane;
+      }
+    }
+    return {parent, lanes};
+  }
   template <size_t Stride, domain::TopologyLike Topology>
   static constexpr size_t InitRow(const Topology& parents) {
     return parents[0] / Stride;
