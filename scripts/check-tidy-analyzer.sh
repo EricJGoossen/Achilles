@@ -45,7 +45,12 @@ GOOGLETEST_INCLUDE_DIR="$BUILD_DIR/_deps/googletest-src/googletest/include"
 YAML_CPP_INCLUDE_DIR="$BUILD_DIR/_deps/yaml-cpp-src/include"
 # achilles/build_config.hpp, configured into the build tree.
 GENERATED_INCLUDE_DIR="$BUILD_DIR/generated"
-DEP_ARGS=(-x c++ -std=c++20 -I"$ROOT_DIR/src" -I"$ROOT_DIR/include" -isystem"$GOOGLETEST_INCLUDE_DIR" -isystem"$YAML_CPP_INCLUDE_DIR" -I"$GENERATED_INCLUDE_DIR")
+# The display's own dependencies, as in check-tidy.sh: without them the
+# dependency scan below fails on src/display/**/*.cpp and, under pipefail,
+# silently stops the whole run there.
+IMGUI_INCLUDE_DIR="$BUILD_DIR/_deps/imgui-src"
+GLFW_INCLUDE_DIR="$BUILD_DIR/_deps/glfw-src/include"
+DEP_ARGS=(-x c++ -std=c++20 -I"$ROOT_DIR/src" -I"$ROOT_DIR/include" -isystem"$GOOGLETEST_INCLUDE_DIR" -isystem"$YAML_CPP_INCLUDE_DIR" -isystem"$IMGUI_INCLUDE_DIR" -isystem"$IMGUI_INCLUDE_DIR/backends" -isystem"$GLFW_INCLUDE_DIR" -I"$GENERATED_INCLUDE_DIR")
 
 # Hashes .clang-tidy-analyzer and this script itself, so a config or flag
 # change invalidates every cache entry at once, the same as a source edit
@@ -58,7 +63,10 @@ CONFIG_HASH="$(cat "$CONFIG_FILE" "${BASH_SOURCE[0]}" | sha256sum | awk '{print 
 # See check-tidy.sh for why this is exact (via the preprocessor) rather
 # than a guess, and why third-party headers are excluded from hashing.
 project_deps_of() {
-    clang++ "${DEP_ARGS[@]}" -M "$1" 2>/dev/null \
+    # stderr stays visible: the scan fails only when a header is missing
+    # (a new dependency DEP_ARGS lacks), and pipefail then stops the
+    # script, so clang's message is the only clue to which file and why.
+    clang++ "${DEP_ARGS[@]}" -M "$1" \
         | sed 's/^[^:]*://' \
         | tr -d '\\' \
         | tr -s ' \t\n' '\n' \

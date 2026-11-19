@@ -1,0 +1,96 @@
+# A four-wheeled robot on a ground plane, driven by active actuators --
+# the actuator demo. The controller lives in this folder's waypoint_robot.cpp:
+# it attaches one AngularActuator per wheel and steers the robot around a
+# loop of waypoints by skid steering (left and right wheels at different
+# speeds). Run with scripts/run-waypoint-robot.sh.
+#
+# Conventions: +y is up, every body's frame sits where its box starts
+# (drawn outward along local +y),
+# and a massless "world" root carries the welded ground slab and the robot
+# as siblings so their pairs aren't skipped as parent/child.
+#
+# The robot is shared/robots/wheeled_robot.arow, attached at robot_mount.
+#
+# Collision groups: the ground is group 1 and collides with group 2, the
+# robot's bodies.
+archetype: scene
+includes:
+  - waypoint_robot_camera.arow
+  - ../shared/sensors/chassis_pose.arow
+  - ../shared/sensors/left_front_speed.arow
+  - ../shared/sensors/left_rear_speed.arow
+  - ../shared/sensors/right_front_speed.arow
+  - ../shared/sensors/right_rear_speed.arow
+  - ../shared/robots/wheeled_robot.arow
+joints:
+  - name: world
+    parent: null
+    fields:
+      joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [1, 0, 0, 0, 0.1, 0.1, 0.1, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0, 0, 0]
+      visual_color: [0, 0, 0]
+      collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0, 0, 0]
+      collision_radius: [0]
+      collision_margin: [0]
+      collision_group: [0]
+      collision_mask: [0]
+  - name: ground
+    parent: world
+    fields:
+      joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [0, -0.2, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [1, 0, 0, 0, 0.1, 0.1, 0.1, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [5, 0.1, 5]
+      visual_color: [0.35, 0.38, 0.35]
+      collision_pose: {translation: [0, 0.1, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [5, 0.1, 5]
+      collision_radius: [0]
+      collision_margin: [0.005]
+      collision_group: [1]
+      collision_mask: [2]
+  # Where the robot (shared/robots/wheeled_robot.arow) starts.
+  - name: robot_mount
+    parent: world
+    fields:
+      joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [1, 0, 0, 0, 0.1, 0.1, 0.1, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0, 0, 0]
+      visual_color: [0, 0, 0]
+      collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0, 0, 0]
+      collision_radius: [0]
+      collision_margin: [0]
+      collision_group: [0]
+      collision_mask: [0]
+  # Welded to the world, carrying nothing but the camera: what a FlyCamera
+  # sets the pose of, so flying the camera moves nothing else.
+  - name: camera_mount
+    parent: world
+    fields:
+      joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [1, 0, 0, 0, 0.1, 0.1, 0.1, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0, 0, 0]
+      visual_color: [0, 0, 0]
+      collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0, 0, 0]
+      collision_radius: [0]
+      collision_margin: [0]
+      collision_group: [0]
+      collision_mask: [0]

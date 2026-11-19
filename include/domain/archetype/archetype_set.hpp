@@ -129,6 +129,25 @@ class ArchetypeSet {
     );
   }
 
+  // Every joint of every instance, as the address RowOf takes: archetype by
+  // archetype, instance by instance, in each archetype's own joint order.
+  // None for an Archetype built without joint names.
+  std::vector<JointAddress> JointAddresses() const {
+    std::vector<JointAddress> addresses;
+    for (const Archetype& archetype : archetypes_) {
+      for (std::size_t instance = 0; instance < archetype.root_parents.size();
+           ++instance) {
+        for (const std::string& joint : archetype.joint_names) {
+          addresses.push_back(
+              {.archetype = archetype.name, .joint = joint, .instance = instance
+              }
+          );
+        }
+      }
+    }
+    return addresses;
+  }
+
   // Calls fn(field, first_instance, instance_count, joint_count) for each
   // archetype that has a field named `field_name`, with the global index of
   // its first instance.
@@ -145,11 +164,13 @@ class ArchetypeSet {
     });
   }
 
-  // Calls fn(attachment, instance, entry, stream) for every attachment of
-  // every instance: `instance` is the global index of the archetype instance
-  // carrying it, `entry` is where it sits in its list (see AttachmentEntry)
-  // and `stream` is its own random stream, drawn from `seed` and its place
-  // among every attachment, whatever its list.
+  // Calls fn(attachment, instance, local_instance, entry, stream, archetype)
+  // for every attachment of every instance: `archetype` is the archetype
+  // carrying it, `instance` is the global index of the archetype instance
+  // carrying it and `local_instance` its index among its own archetype's
+  // instances (what AttachmentEntry takes), `entry` is where it sits in its
+  // list (see AttachmentEntry) and `stream` is its own random stream, drawn
+  // from `seed` and its place among every attachment, whatever its list.
   template <typename Fn>
   void ForEachAttachment(std::uint64_t seed, const Fn& fn) const {
     std::unordered_map<std::string_view, std::size_t> entries;
@@ -160,8 +181,10 @@ class ArchetypeSet {
         for (const JointAttachment& attachment : archetype.attachments) {
           fn(attachment,
              first_instance + i,
+             i,
              entries[attachment.list]++,
-             random::StreamKey(seed, index++));
+             random::StreamKey(seed, index++),
+             archetype);
         }
       }
     });

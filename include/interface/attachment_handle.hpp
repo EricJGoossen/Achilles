@@ -24,11 +24,11 @@ namespace achilles::interface {
 // Simulation that made it is destroyed or re-Init()ed. Every instance comes
 // from the .arow.
 //
-// A command waits in the instance's row for the next Step(), which runs its
-// kind and puts the effort on the joint before anything integrates. What a
-// command does after that is its kind's: a truth actuator's effort lasts the
-// one tick, so it must be Apply()ed again before every Step(), and a motor
-// holds its last command.
+// A command -- Write()n, or for a truth actuator Apply()ed -- waits in the
+// instance's row for the next Step(), which runs its kind and puts the effort
+// on the joint before anything integrates. What a command does after that is
+// its kind's: a truth actuator's effort lasts the one tick, so it must be
+// given again before every Step(), and a motor holds its last command.
 template <domain::attachment::AttachmentLike K>
 class AttachmentHandle {
   using View = algorithms::attachment::AttachmentView;
@@ -41,6 +41,12 @@ class AttachmentHandle {
   using KindOutput = algorithms::attachment::KindOutput<Kind>;
 
  public:
+  // What it's a handle to.
+  using Kind = K;
+  // What Write() takes: its kind's command. Only an actuator's handle has
+  // Write().
+  using Written = typename K::Command;
+
   // The `kind:` an .arow declares one under.
   static constexpr std::string_view kListName = K::kListName;
 
@@ -139,8 +145,9 @@ class AttachmentHandle {
     );
   }
 
-  // Replaces the command the next tick reads.
-  void Command(const typename K::Command& command) const
+  // Replaces the command the next tick reads: what an actuator handle is
+  // written with (interface/writable_handle.hpp).
+  void Write(const Written& command) const
     requires domain::attachment::ActuatorLike<K>
   {
     view_.template Store<Field::kCommand, KindCommand<K>>(

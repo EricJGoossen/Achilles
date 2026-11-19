@@ -106,7 +106,8 @@ Checks: >
     -cppcoreguidelines-use-default-member-init,
     -google-readability-braces-around-statements,
     -cppcoreguidelines-non-private-member-variables-in-classes,
-    -cppcoreguidelines-avoid-non-const-global-variables
+    -cppcoreguidelines-avoid-non-const-global-variables,
+    -misc-non-private-member-variables-in-classes
 
 HeaderFilterRegex: '(src|include|tests)/.*'
 

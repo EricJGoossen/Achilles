@@ -29,8 +29,15 @@ file(GLOB ACHILLES_TEST_SOURCES CONFIGURE_DEPENDS
 
 foreach(_test_src ${ACHILLES_TEST_SOURCES})
     get_filename_component(target ${_test_src} NAME_WE)
+    # The display's own tests (display_*.cpp) need the display built.
+    if (target MATCHES "^display_" AND NOT ACHILLES_WITH_DISPLAY)
+        continue()
+    endif ()
 
     add_executable(${target} ${_test_src})
+    if (target MATCHES "^display_")
+        target_link_libraries(${target} PRIVATE achilles_display)
+    endif ()
     target_include_directories(${target}
         PRIVATE
             ${PROJECT_SOURCE_DIR}/src
@@ -103,3 +110,59 @@ while (_consumer_variants)
         RUN_SERIAL TRUE
     )
 endwhile ()
+
+# Each example program, run: headless for one simulated second, on its own
+# scene -- so a program that no longer loads its scene, or fails a step,
+# fails here. The viewer runs each scene with every window it opens (or
+# none, where no screen can be started) for half a simulated second.
+set(_example_scenes
+    two_joint_arm two_joint_arm
+    dominoes dominoes
+    waypoint_robot waypoint_robot
+    ball_balance ball_balance
+    maze maze
+    pan_tilt pan_tilt
+    # Scenes with no program of their own: what the viewer is for.
+    none three_joint_arm
+    none asymmetric_two_joint_arm
+)
+while (_example_scenes)
+    list(POP_FRONT _example_scenes _program _scene)
+    set(_dir ${PROJECT_SOURCE_DIR}/examples/${_scene})
+    if (TARGET ${_program} AND NOT _program STREQUAL "pan_tilt")
+        add_test(NAME example_${_program}_runs
+            COMMAND ${_program} ${_dir}/${_scene}.arow ${_dir}/sim_config.yaml
+                --headless --seconds 1
+        )
+        set_tests_properties(example_${_program}_runs PROPERTIES
+            LABELS examples TIMEOUT 300
+        )
+        if (_program STREQUAL "maze")
+            # The maze program fails a run that ends with the robot still
+            # inside, which one second always does: what's checked here is
+            # that it ran its second, reporting at its end.
+            set_tests_properties(example_maze_runs PROPERTIES
+                PASS_REGULAR_EXPRESSION "t= +1\\.00s"
+            )
+        endif ()
+    endif ()
+    if (TARGET viewer)
+        add_test(NAME viewer_shows_${_scene}
+            COMMAND viewer ${_dir}/${_scene}.arow ${_dir}/sim_config.yaml
+                --seconds 0.5
+        )
+        set_tests_properties(viewer_shows_${_scene} PROPERTIES
+            LABELS examples TIMEOUT 300
+        )
+    endif ()
+endwhile ()
+if (TARGET viewer)
+    # A bad command line says so and fails, rather than running anything.
+    add_test(NAME viewer_rejects_a_bad_command_line
+        COMMAND viewer ${PROJECT_SOURCE_DIR}/examples/maze/maze.arow
+            --integrator nonsense
+    )
+    set_tests_properties(viewer_rejects_a_bad_command_line PROPERTIES
+        WILL_FAIL TRUE LABELS examples
+    )
+endif ()

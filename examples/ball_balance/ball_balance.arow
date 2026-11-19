@@ -6,7 +6,7 @@
 # This root file is the world: a massless "world" root carrying the welded
 # ground slab, with the plate rig and the ball (shared/robots/plate_rig.arow
 # and ball.arow) attached to it as siblings, so their pairs aren't skipped as
-# parent/child. Same conventions as box_robot.arow: +y is up, the ground's
+# parent/child. Same conventions as waypoint_robot.arow: +y is up, the ground's
 # top face is the y = 0 plane, and every body's frame sits where the viewer
 # starts drawing its shape (outward along local +y). A quarter turn about x
 # in each root's fixed transform (the ground here, the post in
@@ -24,6 +24,7 @@
 # collides with anything.
 archetype: scene
 includes:
+  - plate_camera.arow
   - ../shared/sensors/gimbal_angle.arow
   - ../shared/sensors/gimbal_rate.arow
   - ../shared/sensors/plate_angle.arow
@@ -67,3 +68,22 @@ joints:
       collision_margin: [0.005]
       collision_group: [1]
       collision_mask: [4]
+  # Welded to the world, carrying nothing but the camera: what a FlyCamera
+  # sets the pose of, so flying the camera moves nothing else.
+  - name: camera_mount
+    parent: world
+    fields:
+      joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [1, 0, 0, 0, 0.1, 0.1, 0.1, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0, 0, 0]
+      visual_color: [0, 0, 0]
+      collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0, 0, 0]
+      collision_radius: [0]
+      collision_margin: [0]
+      collision_group: [0]
+      collision_mask: [0]

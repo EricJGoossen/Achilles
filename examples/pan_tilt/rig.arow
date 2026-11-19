@@ -1,0 +1,71 @@
+# The pan-tilt rig: a welded base at the world origin -- the scene's fixed
+# root, which the arm (pan_tilt.arow) hangs from -- and, 5 m out along +x, a
+# pan joint turning about the vertical carrying a tilt joint turning about a
+# horizontal axis, with the camera on it. Each joint turns about its own
+# local x (joint_subspace row 0, as the arm's do), its fixed_joint_transform
+# turning that axis where it's wanted: the pan's up the world's z, the
+# tilt's along the world's y. Nothing drives them: they're for setting the
+# camera's pose directly, once the sim's joint state can be written from
+# outside it, and until then they rest where they start.
+#
+# Both bodies have their mass on their own joint axis, so gravity never turns
+# them, and nothing to see or collide with, so the camera sees past them.
+archetype: rig
+includes:
+  - rig_camera.arow
+joints:
+  - name: base
+    parent: null
+    fields:
+      joint_subspace: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [0]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      rigid_body_inertia: [1, 0, 0, 0, 0.1, 0.1, 0.1, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0, 0, 0]
+      visual_color: [0, 0, 0]
+      collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0, 0, 0]
+      collision_radius: [0]
+      collision_margin: [0]
+      collision_group: [0]
+      collision_mask: [0]
+  # 5 m out along +x; its local x turned up the world's z (-90 degrees about
+  # y), so rolling about it pans.
+  - name: pan
+    parent: base
+    fields:
+      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [1]
+      fixed_joint_transform: {translation: [5, 0, 0], rotation: [0.70710678, 0, -0.70710678, 0]}
+      rigid_body_inertia: [0.5, 0, 0, 0, 0.02, 0.02, 0.02, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0, 0, 0]
+      visual_color: [0, 0, 0]
+      collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0, 0, 0]
+      collision_radius: [0]
+      collision_margin: [0]
+      collision_group: [0]
+      collision_mask: [0]
+  # On the pan, its local x turned onto the pan's y -- the world's y, at
+  # rest -- so rolling about it tilts.
+  - name: tilt
+    parent: pan
+    fields:
+      joint_subspace: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      joint_activation_mask: [1]
+      fixed_joint_transform: {translation: [0, 0, 0], rotation: [0.70710678, 0, 0, 0.70710678]}
+      rigid_body_inertia: [0.3, 0, 0, 0, 0.01, 0.01, 0.01, 0, 0, 0]
+      joint_position: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      joint_velocity: [0, 0, 0, 0, 0, 0]
+      visual_extents: [0, 0, 0]
+      visual_color: [0, 0, 0]
+      collision_pose: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
+      collision_extents: [0, 0, 0]
+      collision_radius: [0]
+      collision_margin: [0]
+      collision_group: [0]
+      collision_mask: [0]

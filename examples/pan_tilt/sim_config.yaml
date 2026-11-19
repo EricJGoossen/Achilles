@@ -1,0 +1,6 @@
+# Paired with pan_tilt.arow -- ordinary downward gravity, as the fixed base's
+# acceleration: base_acceleration is minus gravity (see algorithms::SimConfig),
+# so +z here pulls everything down -z.
+base_acceleration:
+  angular: [0, 0, 0]
+  linear: [0, 0, 9.81]

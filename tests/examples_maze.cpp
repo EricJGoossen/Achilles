@@ -9,6 +9,8 @@
 #include <numbers>
 #include <string>
 
+#include "achilles/build_config.hpp"
+#include "domain/sensing/camera.hpp"
 #include "domain/sensing/encoder.hpp"
 #include "domain/sensing/gyroscope.hpp"
 #include "domain/sensing/lidar.hpp"
@@ -33,6 +35,10 @@ std::filesystem::path ExampleDir() {
 class Maze : public ::testing::Test {
  protected:
   void SetUp() override {
+    // maze.arow carries an overhead camera, which renders only on the GPU.
+    if constexpr (!achilles::kWithGpu) {
+      GTEST_SKIP() << "cameras render only on the GPU";
+    }
     ASSERT_TRUE(sim_.LoadArowFile((ExampleDir() / "maze.arow").string()));
     ASSERT_TRUE(sim_.LoadConfigFile((ExampleDir() / "sim_config.yaml").string())
     );
@@ -76,4 +82,43 @@ TEST_F(Maze, TheLidarSeesTheStartCellsWalls) {
   EXPECT_NEAR(RangeAt(kPi / 2), 0.70F, kTolerance);       // left, -x
   EXPECT_NEAR(RangeAt(-kPi + 0.01F), 0.70F, kTolerance);  // behind, -y
   EXPECT_NEAR(RangeAt(-kPi / 2), 2.20F, kTolerance);      // right, +x
+}
+
+// The overhead camera looks straight down from 10 m over the maze's center,
+// world +x to the image's right and +y up it: open floor reads 10 m deep, and
+// the robot, in the bottom-left start cell, reads nearer -- where a mirrored
+// or upside-down image would put bare floor.
+TEST_F(Maze, TheOverheadCameraSeesTheRobotFromAbove) {
+  using achilles::domain::sensing::Camera;
+  // Its first image arrives a sample late, pipelined: two samples at 30 a
+  // second.
+  for (int i = 0; i < 20; ++i) {
+    ASSERT_TRUE(sim_.Step(kDt));
+  }
+  const auto camera = sim_.Sensor<Camera>("overhead_camera");
+  const auto frame = camera.Read().value;
+  ASSERT_EQ(frame.width, 640U);
+  ASSERT_EQ(frame.height, 480U);
+  const auto& depth = camera.State().images[frame.image].depth;
+
+  // Where world (x, y) on the floor lands, from overhead_camera.arow's
+  // height and field of view, with square pixels.
+  constexpr float kHeight = 10.0F;
+  const float half_width = kHeight * std::tan(0.6F);
+  const float half_height = half_width * 480.0F / 640.0F;
+  const auto depth_at = [&](float x, float y) {
+    const auto col = static_cast<std::size_t>(
+        (0.5F + (x / (2.0F * half_width))) * static_cast<float>(frame.width)
+    );
+    const auto row = static_cast<std::size_t>(
+        (0.5F - (y / (2.0F * half_height))) * static_cast<float>(frame.height)
+    );
+    return depth[(row * frame.width) + col];
+  };
+
+  // Cell centers are always floor: the walls run along the cells' edges.
+  EXPECT_NEAR(depth_at(0.75F, 0.75F), kHeight, 0.02F);
+  EXPECT_NEAR(depth_at(3.75F, -3.75F), kHeight, 0.02F);  // mirrored left-right
+  EXPECT_NEAR(depth_at(-3.75F, 3.75F), kHeight, 0.02F);  // mirrored top-bottom
+  EXPECT_LT(depth_at(-3.75F, -3.75F), kHeight - 0.05F);  // the robot
 }

@@ -19,14 +19,16 @@
 //
 // Usage: ball_balance <ball_balance.arow> <sim_config.yaml> [--headless]
 //                     [--seconds N] [--csv PATH]
-// (scripts/run-ball-balance.sh passes this folder's files). Headless runs
-// print the ball's distance from its target and the plate's tilt every
-// half simulated second instead of drawing it; --csv also writes the
+// (scripts/run-ball-balance.sh passes this folder's files). Run in real
+// time, with the display built (ACHILLES_WITH_DISPLAY), it opens a window
+// each for the plate and ball (plate_camera.arow), the ball's true pose and
+// the plate's tilt about each pivot; closing them stops the run. Headless
+// runs print the ball's distance from its target and the plate's tilt every
+// half simulated second instead; --csv also writes the
 // ball's true and measured position, its target, and the plate's tilt
 // every 10 ms, for plotting.
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -42,7 +44,11 @@
 #include <string>
 #include <string_view>
 
+#include "../shared/flying_camera.hpp"
+#include "../shared/real_time.hpp"
 #include "algorithms/conventions.hpp"
+#include "display/renderer.hpp"
+#include "display/views/reading_view.hpp"
 #include "interface/attachment_handle.hpp"
 #include "interface/simulation.hpp"
 
@@ -439,22 +445,44 @@ int Run(const Args& args) {
     return 0;
   }
 
-  // Real time, the same fixed-step accumulator src/main.cpp uses.
-  constexpr float kMaxFrameTime = 0.25F;
-  float accumulator = 0.0F;
-  auto last_time = std::chrono::steady_clock::now();
-  bool running = true;
-  while (running && (args.seconds <= 0.0F || sim_time < args.seconds)) {
-    auto now = std::chrono::steady_clock::now();
-    accumulator += std::min(
-        std::chrono::duration<float>(now - last_time).count(), kMaxFrameTime
-    );
-    last_time = now;
-    while (running && accumulator >= kDt) {
-      running = tick();
-      accumulator -= kDt;
-    }
-  }
+  // Real time, with the plate and ball from in front, where the ball truly is,
+  // and the plate's tilt about each pivot.
+  achilles::examples::RunInRealTime(
+      "Achilles: ball balance",
+      kDt,
+      [&](achilles::display::Renderer& renderer) {
+        using achilles::display::ReadingView;
+        using achilles::display::PoseChannel;
+        achilles::examples::AttachFlyingCamera(
+            renderer, sim, "plate_camera", "Plate camera"
+        );
+        // Where the ball truly is across the plate (the world is z-up).
+        renderer.Attach(
+            ReadingView<truth::WorldTransform>(
+                sim.Sensor<truth::WorldTransform>("ball_pose"),
+                {.channels = {PoseChannel::kX, PoseChannel::kY}}
+            ),
+            "Ball position"
+        );
+        // What the controller does about it: each pivot's tilt.
+        renderer.Attach(
+            ReadingView<truth::JointPosition>(
+                sim.Sensor<truth::JointPosition>("gimbal_angle"),
+                {.channels = {PoseChannel::kTurnX}}
+            ),
+            "Gimbal tilt"
+        );
+        renderer.Attach(
+            ReadingView<truth::JointPosition>(
+                sim.Sensor<truth::JointPosition>("plate_angle"),
+                {.channels = {PoseChannel::kTurnZ}}
+            ),
+            "Plate tilt"
+        );
+      },
+      tick,
+      [&] { return args.seconds > 0.0F && sim_time >= args.seconds; }
+  );
   return 0;
 }
 

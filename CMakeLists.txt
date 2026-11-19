@@ -10,7 +10,7 @@ project(achilles LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-option(ACHILLES_BUILD_EXAMPLES "Build the examples and the achilles runner" ${PROJECT_IS_TOP_LEVEL})
+option(ACHILLES_BUILD_EXAMPLES "Build the example programs" ${PROJECT_IS_TOP_LEVEL})
 # BUILD_TESTS is the old name, still honoured.
 if (DEFINED BUILD_TESTS)
     set(_achilles_tests_default ${BUILD_TESTS})
@@ -23,6 +23,16 @@ option(ACHILLES_BUILD_TESTS "Build the test suite" ${_achilles_tests_default})
 # all; a scene with a camera then fails its first sample, and every other
 # scene is unaffected.
 option(ACHILLES_WITH_GPU "Render camera sensors on the GPU (OpenGL + EGL)" ON)
+# The sensor display (display/): one window, through GLFW and Dear ImGui,
+# with a panel per display showing a sensor's readings or driving an
+# actuator. Outside the sim -- nothing under domain/, engine/, algorithms/,
+# interface/ or util/ includes it -- and built as its own library
+# (achilles::display), so a project including Achilles gets it only if it
+# asks: off there by default, and nothing is fetched for it.
+option(ACHILLES_WITH_DISPLAY "Build the sensor display (GLFW + Dear ImGui)" ${PROJECT_IS_TOP_LEVEL})
+if (ACHILLES_WITH_DISPLAY AND NOT ACHILLES_WITH_GPU)
+    message(FATAL_ERROR "ACHILLES_WITH_DISPLAY needs ACHILLES_WITH_GPU (it draws with OpenGL)")
+endif ()
 
 if (PROJECT_IS_TOP_LEVEL)
     set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -67,6 +77,18 @@ include(FetchContent)
 set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 set(BUILD_TESTING OFF)
 
+# A fetched dependency's headers are system headers to every target using
+# it, so neither Achilles's warnings nor its clang-tidy run (scripts/
+# check-tidy.sh) ever report on them: what's checked is Achilles's own code.
+function(achilles_mark_system target)
+    get_target_property(_dirs ${target} INTERFACE_INCLUDE_DIRECTORIES)
+    if (_dirs)
+        set_target_properties(${target} PROPERTIES
+            INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_dirs}"
+        )
+    endif ()
+endfunction()
+
 # xsimd (header-only) backs the SIMD activation masks
 # (domain/math/activation_mask.hpp). The devcontainer installs 13.0.0;
 # anywhere else it's fetched.
@@ -83,6 +105,7 @@ if (NOT xsimd_FOUND)
     set(BUILD_TESTS OFF)
     FetchContent_MakeAvailable(xsimd)
     unset(BUILD_TESTS)
+    achilles_mark_system(xsimd)
 endif ()
 
 # yaml-cpp backs the .arow archetype loader (engine/topology/archetype_loader.hpp)
@@ -98,6 +121,7 @@ set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_CONTRIB OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_INSTALL OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(yaml-cpp)
+achilles_mark_system(yaml-cpp)
 
 # OpenGL through EGL (libglvnd's libOpenGL + libEGL, no GLX): the camera
 # sensors render on it headless (src/util/gl/gpu_egl.cpp). On Linux
@@ -114,6 +138,10 @@ set(ACHILLES_CONFIG_WITH_GPU false)
 if (ACHILLES_WITH_GPU)
     set(ACHILLES_CONFIG_WITH_GPU true)
 endif ()
+set(ACHILLES_CONFIG_WITH_DISPLAY false)
+if (ACHILLES_WITH_DISPLAY)
+    set(ACHILLES_CONFIG_WITH_DISPLAY true)
+endif ()
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/include/achilles/build_config.hpp.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/achilles/build_config.hpp"
@@ -123,7 +151,8 @@ configure_file(
 file(GLOB_RECURSE ACHILLES_LIB_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
 )
-list(FILTER ACHILLES_LIB_SOURCES EXCLUDE REGEX ".*/main\\.cpp$")
+# The display is its own library (below), never part of the sim's.
+list(FILTER ACHILLES_LIB_SOURCES EXCLUDE REGEX ".*/src/display/.*")
 # The GL helpers and the camera's GPU backend with the GPU; only its
 # stand-in (gpu_none.cpp) without.
 if (ACHILLES_WITH_GPU)
@@ -149,18 +178,85 @@ if (ACHILLES_WITH_GPU)
     target_link_libraries(achilles_lib PUBLIC OpenGL::OpenGL OpenGL::EGL)
 endif ()
 
-if (ACHILLES_BUILD_EXAMPLES)
-    add_executable(achilles "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
-    target_link_libraries(achilles PRIVATE achilles_lib)
+if (ACHILLES_WITH_DISPLAY)
+    # GLFW makes the window, on X11 only (the devcontainer has no Wayland
+    # headers), with an EGL context like the camera's (see
+    # src/display/window/screen.cpp).
+    FetchContent_Declare(
+        glfw
+        GIT_REPOSITORY https://github.com/glfw/glfw.git
+        GIT_TAG 3.4
+        GIT_SHALLOW TRUE
+    )
+    set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+    set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_X11 ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(glfw)
+    achilles_mark_system(glfw)
 
-    # Examples that bring their own program (a controller, a custom loop) --
-    # each is its own executable on the library, like achilles itself.
-    foreach (_example box_robot ball_balance maze)
+    # Dear ImGui draws everything in it. It ships no CMake build of its own:
+    # its sources and the two backends used (GLFW, OpenGL 3) are built here.
+    FetchContent_Declare(
+        imgui
+        GIT_REPOSITORY https://github.com/ocornut/imgui.git
+        GIT_TAG v1.92.9b-docking
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(imgui)
+    add_library(achilles_imgui STATIC
+        "${imgui_SOURCE_DIR}/imgui.cpp"
+        "${imgui_SOURCE_DIR}/imgui_draw.cpp"
+        "${imgui_SOURCE_DIR}/imgui_tables.cpp"
+        "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
+        "${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp"
+        "${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp"
+    )
+    target_include_directories(achilles_imgui SYSTEM PUBLIC
+        "${imgui_SOURCE_DIR}"
+        "${imgui_SOURCE_DIR}/backends"
+    )
+    target_link_libraries(achilles_imgui PUBLIC glfw OpenGL::OpenGL)
+
+    file(GLOB_RECURSE ACHILLES_DISPLAY_SOURCES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/display/*.cpp"
+    )
+    add_library(achilles_display ${ACHILLES_DISPLAY_SOURCES})
+    add_library(achilles::display ALIAS achilles_display)
+    # ImGui and GLFW stay private: no display/ header names them.
+    target_link_libraries(achilles_display
+        PUBLIC achilles_lib
+        PRIVATE achilles_imgui glfw OpenGL::OpenGL
+    )
+endif ()
+
+if (ACHILLES_BUILD_EXAMPLES)
+    # Achilles is a library: each example is its own program on it, driving
+    # the sim from code.
+    foreach (_example two_joint_arm dominoes waypoint_robot ball_balance maze)
         add_executable(${_example}
             "${CMAKE_CURRENT_SOURCE_DIR}/examples/${_example}/${_example}.cpp"
         )
         target_link_libraries(${_example} PRIVATE achilles_lib)
+        # Each shows its camera and the sensors it steers by when there's a
+        # display (examples/shared/real_time.hpp).
+        if (ACHILLES_WITH_DISPLAY)
+            target_link_libraries(${_example} PRIVATE achilles_display)
+        endif ()
     endforeach ()
+    # Only with a display: what they're for is watching.
+    if (ACHILLES_WITH_DISPLAY)
+        # The pan-tilt camera: a camera's color and depth side by side.
+        # The viewer: any scene, a window per sensor.
+        foreach (_example pan_tilt viewer)
+            add_executable(${_example}
+                "${CMAKE_CURRENT_SOURCE_DIR}/examples/${_example}/${_example}.cpp"
+            )
+            target_link_libraries(${_example} PRIVATE achilles_display)
+        endforeach ()
+    endif ()
 endif ()
 
 if (ACHILLES_BUILD_TESTS)

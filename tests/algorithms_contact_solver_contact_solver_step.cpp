@@ -89,10 +89,8 @@ void RunSteps(const RegisteredSim& sim, const SimConfig& config, F dt = kDt) {
 
 // mj_forward up to the constrained qacc: ABA, the collision pipeline, the
 // whole solve -- SemiImplicitEuler's list, without VI/PI's integration.
-using Forward = achilles::util::ConcatT<
-    TypeList<aba::ABAStep>,
-    Collision,
-    contact_solver::Solve>;
+using Forward = achilles::util::
+    ConcatT<TypeList<aba::ABAStep>, Collision, contact_solver::Solve>;
 
 F Qdd(const RegisteredSim& sim, std::size_t joint) {
   return sim.ViewFor<aba::ABAAlgorithm>()
@@ -111,11 +109,13 @@ TEST(InvWeightStep, DofInvweightIsTheMassMatrixInversesDiagonal) {
 
   auto view = sim.ViewFor<ContactSolverAlgorithm>();
   EXPECT_NEAR(
-      (view.Load<ContactSolverField::kDofInvWeight, F>(Row(sim, 0))[0]), 0.25F,
+      (view.Load<ContactSolverField::kDofInvWeight, F>(Row(sim, 0))[0]),
+      0.25F,
       1e-5F
   );
   EXPECT_NEAR(
-      (view.Load<ContactSolverField::kDofInvWeight, F>(Row(sim, 1))[0]), 1.25F,
+      (view.Load<ContactSolverField::kDofInvWeight, F>(Row(sim, 1))[0]),
+      1.25F,
       1e-5F
   );
 }
@@ -144,7 +144,8 @@ TEST(DirectionStep, MSearchIsTheMassMatrixTimesSearch) {
       (view.Load<ContactSolverField::kMSearch, F>(Row(sim, 1))[0]), 0.4F, 1e-5F
   );
   EXPECT_NEAR(
-      (view.Load<ContactSolverField::kSearchMSearch, F>(0).Value()), 2.12F,
+      (view.Load<ContactSolverField::kSearchMSearch, F>(0).Value()),
+      2.12F,
       1e-5F
   );
 }
@@ -192,9 +193,8 @@ constexpr F kUpperAngle = 0.3F;
 constexpr F kLowerAngle = 0.7F;
 
 RegisteredSim MakeOffsetArm(const TempDir& dir) {
-  std::string lower = RevoluteZJointArow(
-      "lower", "upper", kPendulumInertia, kLowerAngle, 0.0F
-  );
+  std::string lower =
+      RevoluteZJointArow("lower", "upper", kPendulumInertia, kLowerAngle, 0.0F);
   const std::string at_origin = "fixed_joint_transform: [0,0,0,";
   lower.replace(
       lower.find(at_origin), at_origin.size(), "fixed_joint_transform: [1,0,0,"
@@ -247,8 +247,10 @@ TEST(DirectionStep, MSearchMatchesAnOffsetArmsClosedFormMassMatrix) {
     for (std::size_t row = 0; row < 2; ++row) {
       EXPECT_NEAR(
           (view.Load<ContactSolverField::kMSearch, F>(Row(sim, row))[0]),
-          expected[row][col], 1e-4
-      ) << "M(" << row << ", " << col << ")";
+          expected[row][col],
+          1e-4
+      ) << "M("
+        << row << ", " << col << ")";
     }
   }
 }
@@ -276,8 +278,10 @@ TEST(UpdateStep, MgradMatchesAnOffsetArmsClosedFormInverse) {
       EXPECT_NEAR(
           (view.Load<ContactSolverField::kMgrad, F>(Row(sim, row))[0]) /
               expected[row][col],
-          1.0, 1e-3
-      ) << "M^-1(" << row << ", " << col << ")";
+          1.0,
+          1e-3
+      ) << "M^-1("
+        << row << ", " << col << ")";
     }
   }
 }
@@ -293,12 +297,14 @@ TEST(InvWeightStep, DofInvweightMatchesAnOffsetArmsInverseDiagonal) {
   EXPECT_NEAR(
       (view.Load<ContactSolverField::kDofInvWeight, F>(Row(sim, 0))[0]) /
           inv.a11,
-      1.0, 1e-3
+      1.0,
+      1e-3
   );
   EXPECT_NEAR(
       (view.Load<ContactSolverField::kDofInvWeight, F>(Row(sim, 1))[0]) /
           inv.a22,
-      1.0, 1e-3
+      1.0,
+      1e-3
   );
 }
 
@@ -309,7 +315,12 @@ TEST(Solve, WithNoActiveRowsQddIsUnchanged) {
   RegisteredSim sim = MakeRegisteredSim(
       dir,
       RevoluteZJointArow(
-          "hinge", "", kPendulumInertia, 0.3F, 0.0F, Dof0LimitFields(-1.0F, 1.0F)
+          "hinge",
+          "",
+          kPendulumInertia,
+          0.3F,
+          0.0F,
+          Dof0LimitFields(-1.0F, 1.0F)
       )
   );
   SimConfig config = PendulumConfig();
@@ -330,7 +341,11 @@ TEST(Solve, LimitRowMatchesTheClosedFormMinimum) {
   RegisteredSim sim = MakeRegisteredSim(
       dir,
       RevoluteZJointArow(
-          "hinge", "", kPendulumInertia, 1.05F, 0.0F,
+          "hinge",
+          "",
+          kPendulumInertia,
+          1.05F,
+          0.0F,
           Dof0LimitFields(-1.0F, 1.0F)
       )
   );
@@ -348,10 +363,9 @@ TEST(Solve, LimitRowMatchesTheClosedFormMinimum) {
   ASSERT_LT(-expected - aref, 0.0);  // the row is still active there
 
   EXPECT_NEAR(Qdd(sim, 0) / expected, 1.0, 1e-3);
-  F constraint_force = sim.ViewFor<ContactSolverAlgorithm>()
-                           .Load<ContactSolverField::kConstraintForce, F>(
-                               Row(sim, 0)
-                           )[0];
+  F constraint_force =
+      sim.ViewFor<ContactSolverAlgorithm>()
+          .Load<ContactSolverField::kConstraintForce, F>(Row(sim, 0))[0];
   EXPECT_NEAR(constraint_force / (m * (expected - a0)), 1.0, 1e-3);
 }
 
@@ -361,7 +375,12 @@ TEST(Solve, LimitedJointInsideItsRangeIsUnconstrained) {
   RegisteredSim sim = MakeRegisteredSim(
       dir,
       RevoluteZJointArow(
-          "hinge", "", kPendulumInertia, 0.9F, 0.0F, Dof0LimitFields(-1.0F, 1.0F)
+          "hinge",
+          "",
+          kPendulumInertia,
+          0.9F,
+          0.0F,
+          Dof0LimitFields(-1.0F, 1.0F)
       )
   );
   SimConfig config = PendulumConfig();
@@ -374,7 +393,7 @@ TEST(Solve, LimitedJointInsideItsRangeIsUnconstrained) {
 
 // ---------------------------------------------------------------------------
 // A ball on a slide joint (vertical), resting 0.01 into a welded ground slab
-// -- the robot_on_plane.arow layout in miniature: a welded root carrying
+// -- the example scenes' layout in miniature: a welded root carrying
 // the ground and the ball as siblings, so their pair isn't skipped as
 // parent/child, and collision groups pairing exactly those two.
 // ---------------------------------------------------------------------------
@@ -384,7 +403,9 @@ namespace {
 constexpr F kBallMass = 2.0F;
 
 std::string WeldedJoint(
-    const std::string& name, const std::string& parent, float y,
+    const std::string& name,
+    const std::string& parent,
+    float y,
     const std::string& collision
 ) {
   std::string out = "  - name: " + name + "\n";
@@ -421,8 +442,12 @@ std::string CollisionFields(
 // collision group 2 (colliding with group 1, the ground). `x` places its
 // slide sideways; `extra` is any further field lines.
 std::string BallJoint(
-    float y, const std::string& name = "ball", float x = 0.0F,
-    float mass = kBallMass, int group = 2, int mask = 1,
+    float y,
+    const std::string& name = "ball",
+    float x = 0.0F,
+    float mass = kBallMass,
+    int group = 2,
+    int mask = 1,
     const std::string& extra = ""
 ) {
   return "  - name: " + name +
@@ -450,7 +475,9 @@ RegisteredSim MakeBallOnGround(const TempDir& dir, float ball_y) {
       dir,
       WeldedJoint("world", "", 0.0F, CollisionFields("[0, 0, 0]", 0.0F, 0, 0)) +
           WeldedJoint(
-              "ground", "world", -0.1F,
+              "ground",
+              "world",
+              -0.1F,
               CollisionFields("[1, 0.1, 1]", 0.0F, 1, 2)
           ) +
           BallJoint(ball_y)
@@ -461,9 +488,8 @@ RegisteredSim MakeBallOnGround(const TempDir& dir, float ball_y) {
 SimConfig DownwardGravity() {
   using B = MathematicalT;
   SimConfig config;
-  config.base_acceleration = Acceleration(
-      Vector3::Zero(), Vector3(B(0.0F), B(9.8F), B(0.0F))
-  );
+  config.base_acceleration =
+      Acceleration(Vector3::Zero(), Vector3(B(0.0F), B(9.8F), B(0.0F)));
   return config;
 }
 
@@ -536,16 +562,19 @@ TEST(Solve, ContactAndLimitRowsShareOneCost) {
   RegisteredSim sim = MakeRegisteredSim(
       dir,
       WeldedJoint(
-          "world", "", 0.0F,
+          "world",
+          "",
+          0.0F,
           CollisionFields("[0, 0, 0]", 0.0F, 0, 0) + unlimited
       ) +
           WeldedJoint(
-              "ground", "world", -0.1F,
+              "ground",
+              "world",
+              -0.1F,
               CollisionFields("[1, 0.1, 1]", 0.0F, 1, 2) + unlimited
           ) +
           BallJoint(
-              0.09F, "ball", 0.0F, kBallMass, 2, 1,
-              Dof0LimitFields(0.1F, 1.0F)
+              0.09F, "ball", 0.0F, kBallMass, 2, 1, Dof0LimitFields(0.1F, 1.0F)
           )
   );
   SimConfig config = DownwardGravity();
@@ -578,7 +607,11 @@ TEST(Solve, LowerLimitRowPushesTheJointBackInside) {
   RegisteredSim sim = MakeRegisteredSim(
       dir,
       RevoluteZJointArow(
-          "hinge", "", kPendulumInertia, -1.05F, 0.0F,
+          "hinge",
+          "",
+          kPendulumInertia,
+          -1.05F,
+          0.0F,
           Dof0LimitFields(-1.0F, 1.0F)
       )
   );
@@ -646,8 +679,7 @@ TEST(Solve, EveryBallAcrossSeveralLaneGroupsIsHeldTheSame) {
   std::string joints =
       WeldedJoint("world", "", 0.0F, CollisionFields("[0, 0, 0]", 0.0F, 0, 0)) +
       WeldedJoint(
-          "ground", "world", -0.1F,
-          CollisionFields("[10, 0.1, 1]", 0.0F, 1, 2)
+          "ground", "world", -0.1F, CollisionFields("[10, 0.1, 1]", 0.0F, 1, 2)
       );
   for (std::size_t i = 0; i < kBalls; ++i) {
     // 0.3 apart: clear of each other (and they don't collide anyway)
@@ -687,7 +719,11 @@ TEST(Solve, WarmstartedResolveLandsOnTheSameAnswer) {
   RegisteredSim sim = MakeRegisteredSim(
       dir,
       RevoluteZJointArow(
-          "hinge", "", kPendulumInertia, 1.05F, 0.0F,
+          "hinge",
+          "",
+          kPendulumInertia,
+          1.05F,
+          0.0F,
           Dof0LimitFields(-1.0F, 1.0F)
       )
   );

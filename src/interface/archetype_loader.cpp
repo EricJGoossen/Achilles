@@ -499,9 +499,17 @@ std::vector<std::size_t> BuildTreeStructure(const ParsedArchetype& archetype) {
 // default for. Returns every such field, broadcasting each joint's one-instance
 // values across every one of the archetype's `copies`.
 std::vector<domain::JointField> BuildFields(const ParsedArchetype& archetype) {
+  // Every field any joint declares, in the order first declared -- not just
+  // the first joint's, or a field it lacks would be dropped from every
+  // joint without a word.
   std::vector<std::string> field_order;
-  for (const auto& [name, values] : archetype.joints.front().fields) {
-    field_order.push_back(name);
+  for (const ParsedJoint& joint : archetype.joints) {
+    for (const auto& [name, values] : joint.fields) {
+      if (std::find(field_order.begin(), field_order.end(), name) ==
+          field_order.end()) {
+        field_order.push_back(name);
+      }
+    }
   }
 
   std::vector<domain::JointField> result;

@@ -10,4 +10,7 @@ namespace achilles {
 // Camera sensors render on the GPU (ACHILLES_WITH_GPU).
 inline constexpr bool kWithGpu = @ACHILLES_CONFIG_WITH_GPU@;
 
+// The sensor display (display/) is built and linked (ACHILLES_WITH_DISPLAY).
+inline constexpr bool kWithDisplay = @ACHILLES_CONFIG_WITH_DISPLAY@;
+
 }  // namespace achilles

@@ -5,8 +5,11 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
+#include <vector>
 
 #include "algorithms/attachment_kinds/attachment_kinds.hpp"
+#include "domain/archetype/archetype.hpp"
 #include "domain/joint_data.hpp"
 #include "engine/pass/sim_context.hpp"
 #include "interface/attachment_handle.hpp"
@@ -16,6 +19,28 @@
 // built sim. What makes one well formed is its own business (each handle's
 // Configure): this only walks them and finds each one's kind.
 namespace achilles::interface {
+
+// One sensor or actuator as Simulation::Attachments() lists it: its handle,
+// the name and instance Sensor() or Actuator() would find it by, and the
+// joint it's attached to (what Simulation::State() finds that joint by).
+template <domain::attachment::AttachmentLike K>
+struct NamedAttachment {
+  std::string name;
+  std::size_t instance = 0;
+  AttachmentHandle<K> handle;
+  domain::JointAddress joint;
+};
+
+template <domain::attachment::AttachmentLike K>
+using NamedAttachments = std::vector<NamedAttachment<K>>;
+
+// Every sensor and actuator of a scene, one list per registered kind, in
+// AttachmentKinds order: std::get<NamedAttachments<K>>(lists) is kind K's,
+// archetype by archetype, instance by instance.
+using AttachmentLists = util::ApplyT<
+    std::tuple,
+    util::
+        TransformT<NamedAttachments, algorithms::attachment::AttachmentKinds>>;
 
 namespace detail {
 
@@ -50,8 +75,10 @@ void ConfigureAttachments(
       seed,
       [&](const domain::JointAttachment& attachment,
           std::size_t instance,
+          std::size_t /*local_instance*/,
           std::size_t entry,
-          std::uint64_t stream) {
+          std::uint64_t stream,
+          const domain::archetype::Archetype& /*archetype*/) {
         const bool known = detail::WithKindNamed(
             detail::AttachmentHandles{},
             attachment.list,

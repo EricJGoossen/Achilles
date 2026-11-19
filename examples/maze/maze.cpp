@@ -19,12 +19,14 @@
 //
 // Usage: maze <maze.arow> <sim_config.yaml> [--headless] [--seconds N]
 //             [--seed N]
-// (scripts/run-maze.sh passes this folder's files). Headless runs print
-// the true and estimated pose once per simulated second instead of drawing
-// them, and stop at the exit. --seed keys every sensor's noise (default 1).
+// (scripts/run-maze.sh passes this folder's files). Run in real time, with
+// the display built (ACHILLES_WITH_DISPLAY), it opens a window each for the
+// maze from above (overhead_camera.arow), the robot's lidar scan, its
+// gyroscope's yaw rate and its wheel encoders; closing them stops the run.
+// Headless runs print the true and estimated pose once per simulated second
+// instead, and stop at the exit. --seed keys every sensor's noise (default 1).
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -42,7 +44,12 @@
 #include <utility>
 #include <vector>
 
+#include "../shared/flying_camera.hpp"
+#include "../shared/real_time.hpp"
 #include "algorithms/conventions.hpp"
+#include "display/renderer.hpp"
+#include "display/views/lidar_view.hpp"
+#include "display/views/reading_view.hpp"
 #include "domain/sensing/encoder.hpp"
 #include "domain/sensing/gyroscope.hpp"
 #include "domain/sensing/lidar.hpp"
@@ -628,22 +635,46 @@ int Run(const Args& args) {
     return 1;
   }
 
-  // Real time, the same fixed-step accumulator src/main.cpp uses.
-  constexpr float kMaxFrameTime = 0.25F;
-  float accumulator = 0.0F;
-  auto last_time = std::chrono::steady_clock::now();
-  bool running = true;
-  while (running && (args.seconds <= 0.0F || sim_time < args.seconds)) {
-    auto now = std::chrono::steady_clock::now();
-    accumulator += std::min(
-        std::chrono::duration<float>(now - last_time).count(), kMaxFrameTime
-    );
-    last_time = now;
-    while (running && accumulator >= kDt) {
-      running = tick();
-      accumulator -= kDt;
-    }
-  }
+  // Real time, with the maze from above and what the robot finds its way
+  // by: the lidar's scan, the gyroscope's yaw rate and the four wheels'
+  // encoder speeds, on one plot.
+  achilles::examples::RunInRealTime(
+      "Achilles: maze",
+      kDt,
+      [&](achilles::display::Renderer& renderer) {
+        using achilles::display::ReadingView;
+        achilles::examples::AttachFlyingCamera(
+            renderer, sim, "overhead_camera", "Overhead camera"
+        );
+        renderer.Attach(
+            achilles::display::LidarView(sim.Sensor<Lidar>("lidar")), "Lidar"
+        );
+        using achilles::display::EncoderChannel;
+        using achilles::display::VectorChannel;
+        // Yaw: about the robot's own up, its +y.
+        renderer.Attach(
+            ReadingView<Gyroscope>(
+                sim.Sensor<Gyroscope>("gyroscope"),
+                {.channels = {VectorChannel::kY}}
+            ),
+            "Gyroscope yaw rate"
+        );
+        renderer.Attach(
+            ReadingView<Encoder, 4>(
+                {sim.Sensor<Encoder>("left_front_encoder"),
+                 sim.Sensor<Encoder>("left_rear_encoder"),
+                 sim.Sensor<Encoder>("right_front_encoder"),
+                 sim.Sensor<Encoder>("right_rear_encoder")},
+                {.channels = {EncoderChannel::kVelocity},
+                 .names =
+                     {"left front", "left rear", "right front", "right rear"}}
+            ),
+            "Wheel encoders"
+        );
+      },
+      tick,
+      [&] { return args.seconds > 0.0F && sim_time >= args.seconds; }
+  );
   return 0;
 }
 
