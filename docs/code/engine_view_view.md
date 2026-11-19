@@ -25,7 +25,9 @@ buffering and ordering, so fields with different policies sit side by side.
   Callers must pass the matching unit.
 - A broadcast input splats one row to every lane; a broadcast output starts
   from zero and stores as `row += sum of lanes`, read at store time.
-- A field holding whole records hands them to ops in place, not copied.
+- A field holding whole records hands them to ops in place, not copied. So
+  does a `BlockedLayout` field whose batched value is its leaves in order
+  (`kHoldsBlock`): a 6x6 of batches is one lane group's memory.
 
 ## Pitfalls
 

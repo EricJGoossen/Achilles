@@ -32,6 +32,9 @@ the archetypes, replicate into a second buffer half.
 - The first algorithm in the hosting list that names a `SharedAs` tag owns
   its block. Later algorithms reuse it and must match its shape; `Carve`
   asserts this.
+- Seeding and populating place every row through the field layout's
+  `RowOffset`, never a fixed per-row step, so a non-planar layout
+  (`BlockedLayout`) is filled the same way.
 - Populate writes raw leaves in the field assembler's flattening order. The
   `.arow` must give leaves in that same order (`domain::JointField`).
 - Seed runs before populate, so real data always wins over a padding seed.

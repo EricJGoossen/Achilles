@@ -160,14 +160,20 @@ class OpInvokerBase {
   // field the Op also reads keeps the copy, so it never sees its own write
   // through that input mid-call.
 
-  template <typename T, ArgIndex Index, typename Cursor, typename Indices>
+  // P is the Op's own parameter type: in place when the field holds it as a
+  // record, or as a whole lane group's batched value (FieldCursor::
+  // kHoldsBlock), and the argument names one group rather than a broadcast
+  // row.
+  template <typename P, ArgIndex Index, typename Cursor, typename Indices>
   static constexpr bool kInPlace =
-      Cursor::template kHoldsRecord<T> &&
+      (Cursor::template kHoldsRecord<ParamScalarT<P>> ||
+       Cursor::template kHoldsBlock<P>) &&
       std::same_as<
           decltype(std::declval<const Cursor&>()
-                       .template Resolve<T, static_cast<size_t>(Index)>(
-                           std::declval<const Indices&>()
-                       )),
+                       .template Resolve<
+                           ParamScalarT<P>,
+                           static_cast<size_t>(Index
+                           )>(std::declval<const Indices&>())),
           size_t>;
 
   template <size_t I>
@@ -182,15 +188,12 @@ class OpInvokerBase {
   using OutputCursorT = std::tuple_element_t<I, OutputCursors>;
 
   template <size_t I, typename Indices>
-  static constexpr bool kInputInPlace = kInPlace<
-      ParamScalarT<InputParam<I>>,
-      Op::kInputs[I].index,
-      InputCursorT<I>,
-      Indices>;
+  static constexpr bool kInputInPlace =
+      kInPlace<InputParam<I>, Op::kInputs[I].index, InputCursorT<I>, Indices>;
   template <size_t I, typename Indices>
   static constexpr bool kOutputInPlace =
       !kOutputAlsoRead<I> && kInPlace<
-                                 ParamScalarT<OutputParam<I>>,
+                                 OutputParam<I>,
                                  Op::kOutputs[I].index,
                                  OutputCursorT<I>,
                                  Indices>;

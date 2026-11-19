@@ -267,9 +267,36 @@ class View {
     // batch or value assembled from several leaves -- so an element can
     // be handed out in place (Ref) instead of copied.
     template <typename T>
-    static constexpr bool kHoldsRecord =
-        Assembler<F>::kNumFields == 1 && !std::is_arithmetic_v<T> &&
-        !xsimd::is_batch<T>::value && std::same_as<Value<F, T>, T>;
+    static constexpr bool HoldsRecord() {
+      if constexpr (Assembler<F>::kNumFields != 1 || std::is_arithmetic_v<T> ||
+                    xsimd::is_batch<T>::value) {
+        return false;
+      } else {
+        return std::same_as<Value<F, T>, T>;
+      }
+    }
+    template <typename T>
+    static constexpr bool kHoldsRecord = HoldsRecord<T>();
+
+    // Whether field F holds P as one lane group's memory exactly: a
+    // batched value whose object is its leaves' batches back to back, in a
+    // layout that keeps a lane group's leaves together
+    // (topology::BlockedLayout) -- so a group can be handed out in place
+    // too.
+    template <typename P>
+    static constexpr bool HoldsBlock() {
+      if constexpr (!FieldLayout<F>::kInPlaceBatches ||
+                    !std::is_arithmetic_v<Scalar<F>>) {
+        return false;
+      } else {
+        using Batch = xsimd::batch<Scalar<F>>;
+        return std::same_as<Value<F, Batch>, P> &&
+               sizeof(P) == Assembler<F>::kNumFields * sizeof(Batch) &&
+               std::is_trivially_copyable_v<P>;
+      }
+    }
+    template <typename P>
+    static constexpr bool kHoldsBlock = HoldsBlock<P>();
 
     // The record at `index`, in place -- the T in memory itself, to read or
     // write through without copying it in and out.
@@ -277,6 +304,13 @@ class View {
       requires kHoldsRecord<T>
     T* Ref(size_t index) const {
       return std::bit_cast<T*>(ElementAt<T>(index));
+    }
+    // Lane group `index`'s batched value, in place.
+    template <typename P>
+      requires kHoldsBlock<P>
+    P* Ref(size_t index) const {
+      using Batch = xsimd::batch<Scalar<F>>;
+      return std::bit_cast<P*>(ElementAt<Scalar<F>>(index * LaneSize<Batch>()));
     }
 
     template <FieldShapeLike T>
