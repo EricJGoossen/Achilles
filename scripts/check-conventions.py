@@ -68,15 +68,18 @@ RULES = {
     "doc-links": "every Doc: link exists, and every docs/code/ file is "
                  "linked",
     "md-links": "every link in CLAUDE.md and docs/ resolves",
-    "file-comment": "every source file starts with a comment",
+    "file-comment": "every source file starts with a comment, above "
+                    "#pragma once",
     # warnings
     "missing-test": "a header with no test of the matching name",
     "stale-test": "a test whose name matches no header or example",
     "loop-allocation": "allocation in op or step code",
     "comment-history": "comments that cite line numbers or history",
+    "doc-update": "with --since, a changed file whose linked doc didn't "
+                  "change",
 }
 WARNINGS = {"missing-test", "stale-test", "loop-allocation",
-            "comment-history"}
+            "comment-history", "doc-update"}
 
 
 class Findings:
@@ -475,7 +478,7 @@ def check_file_tree(files, f):
                       f"{name} doesn't exist")
 
 
-def check_doc_links(files, f):
+def check_doc_links(files, f, docs_of):
     linked = set()
     for r in files:
         text = (ROOT / r).read_text(errors="replace")
@@ -484,6 +487,7 @@ def check_doc_links(files, f):
             if not m:
                 continue
             linked.add(Path(m.group(1)))
+            docs_of[r] = Path(m.group(1))
             if not (ROOT / m.group(1)).exists():
                 f.add("doc-links", r, number, f"{m.group(1)} doesn't exist")
     code_docs = ROOT / "docs" / "code"
@@ -514,10 +518,11 @@ def check_file_comment(r, text, f):
         return
     for line in text.splitlines():
         s = line.strip()
-        if not s or s == "#pragma once":
+        if not s:
             continue
         if not s.startswith("//"):
-            f.add("file-comment", r, 1, "doesn't start with a comment")
+            f.add("file-comment", r, 1,
+                  "doesn't start with a comment above #pragma once")
         return
 
 
@@ -538,6 +543,8 @@ def check_tests(files, f):
     shared = {p.stem for p in (ROOT / "examples" / "shared").glob("*.hpp")}
     known_tops = {r.parts[1] for r in files if r.parts[0] == "include"}
     for test in sorted(tests):
+        if test.split("_")[0] in SKIPPED:
+            continue
         if test.startswith("examples_"):
             if test[len("examples_"):] in examples | shared:
                 continue
@@ -624,11 +631,18 @@ def main():
     check_unique_names(files, f)
     check_concept_archetypes(concepts, test_text, f)
     check_file_tree(files, f)
-    check_doc_links(files, f)
+    docs_of = {}
+    check_doc_links(files, f, docs_of)
     check_md_links(f)
     check_tests(files, f)
 
     changed = changed_since(args.since) if args.since else None
+    if changed is not None:
+        for source, doc in sorted(docs_of.items()):
+            if source in changed and doc not in changed:
+                f.add("doc-update", source, 1,
+                      f"changed, but {doc} didn't; update it if the change "
+                      "touches what it says")
     errors = warnings = 0
     for rule, path, line, message in sorted(
             f.items, key=lambda x: (str(x[1]), x[2], x[0])):
