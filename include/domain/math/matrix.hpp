@@ -24,9 +24,22 @@ template <
     bool Transposed = false>
 class MatrixBlock;
 
+namespace detail {
+// Selects Matrix's constructor that leaves the elements unset, for a result
+// every element of which is about to be written.
+struct Uninitialized {};
+}  // namespace detail
+
 template <util::ArithmeticLike T, std::size_t M, std::size_t N>
 class Matrix {
   using Mask = decltype(std::declval<T>() == std::declval<T>());
+
+  // Any shape's product writes straight into another shape's elements.
+  template <util::ArithmeticLike, std::size_t, std::size_t>
+  friend class Matrix;
+
+  // Leaves the elements unset; only for a result about to be filled.
+  constexpr explicit Matrix(detail::Uninitialized /*tag*/) {}
 
  public:
   using ScalarType = T;
@@ -34,7 +47,8 @@ class Matrix {
   Matrix() : data_() {};
   explicit Matrix(const std::array<T, M * N>& data) : data_(data) {}
   template <typename... Args>
-  constexpr explicit Matrix(Args... args) : data_{static_cast<T>(args)...} {
+  constexpr explicit Matrix(const Args&... args)
+      : data_{static_cast<T>(args)...} {
     static_assert(
         sizeof...(Args) == M * N, "Wrong number of elements for matrix size"
     );
@@ -317,16 +331,28 @@ class Matrix {
   }
 
   // Matrix Operations
+  // Row i of the product is the sum over k of (*this)(i, k) times row k of
+  // other, built up in P separate accumulators: each multiply-add depends
+  // only on its own column's previous one, so they overlap instead of
+  // waiting on one running sum, and the result is written once, never
+  // zeroed first.
   template <std::size_t P>
   constexpr Matrix<T, M, P> operator*(const Matrix<T, N, P>& other) const {
-    Matrix<T, M, P> result;
+    Matrix<T, M, P> result(detail::Uninitialized{});
     for (std::size_t i = 0; i < M; ++i) {
+      std::array<T, P> row{};
+      const T first = (*this)(i, 0);
       for (std::size_t j = 0; j < P; ++j) {
-        T sum = T{0};
-        for (std::size_t k = 0; k < N; ++k) {
-          sum += (*this)(i, k) * other(k, j);
+        row[j] = first * other(0, j);
+      }
+      for (std::size_t k = 1; k < N; ++k) {
+        const T a = (*this)(i, k);
+        for (std::size_t j = 0; j < P; ++j) {
+          row[j] = row[j] + (a * other(k, j));
         }
-        result(i, j) = sum;
+      }
+      for (std::size_t j = 0; j < P; ++j) {
+        result.data_[(i * P) + j] = row[j];
       }
     }
     return result;
@@ -675,7 +701,7 @@ class Matrix {
     return abs(det) >= T{1e-9};
   }
 
-  std::array<T, M * N> data_{};
+  std::array<T, M * N> data_;
 };
 
 template <

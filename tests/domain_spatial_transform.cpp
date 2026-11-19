@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <cstddef>
 #include <numbers>
 
 #include "domain/math/matrix.hpp"
@@ -156,6 +157,27 @@ TEST(TransformApplyMatrix, IdentityIsNoOp) {
   EXPECT_TRUE(Transform<float>::Identity().Apply(m).IsApprox(m));
 }
 
+// Apply(Matrix6x6) works block by block; this checks it against the plain
+// X m X^T, X = [R, t^ R; 0, R], for an arbitrary transform and a general,
+// non-symmetric m -- a block product or cross pass in the wrong place, or
+// a transposed block, changes the result.
+TEST(TransformApplyMatrix, MatchesTheFullForceTransformProduct) {
+  Transform<float> t = ArbitraryTransform();
+  Matrix6x6<float> m;
+  for (std::size_t i = 0; i < 6; ++i) {
+    for (std::size_t j = 0; j < 6; ++j) {
+      m(i, j) = 0.1F * static_cast<float>((i * 7) + (j * 3) % 5) - 0.4F;
+    }
+  }
+  auto r = t.Rotation().ToRotationMatrix();
+  Matrix6x6<float> x;
+  x.SetSubmatrix(0, 0, r);
+  x.SetSubmatrix(0, 3, t.Translation().Skew() * r);
+  x.SetSubmatrix(3, 3, r);
+
+  EXPECT_TRUE(t.Apply(m).IsApprox(x * m * x.Transpose(), 1e-5F));
+}
+
 // Apply(SpatialVelocity/Acceleration/Force): Identity is a no-op, and --
 // the property that actually exercises the math -- applying a composed
 // transform matches applying each transform in turn. This holds
@@ -272,7 +294,6 @@ TEST(TransformLog, RoundTripsWithExp) {
   SpatialVelocity<float> v(
       Vector3<float>(0.2F, 0.1F, -0.4F), Vector3<float>(3.0F, -1.0F, 2.0F)
   );
-  EXPECT_TRUE(Transform<float>::Exp(v).Log().AsVector6().IsApprox(
-      v.AsVector6()
-  ));
+  EXPECT_TRUE(Transform<float>::Exp(v).Log().AsVector6().IsApprox(v.AsVector6())
+  );
 }
