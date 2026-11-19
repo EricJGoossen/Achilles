@@ -269,11 +269,11 @@ struct FieldVisitor {
     const AssembledT<FieldAssembler> seed = FieldAssembler::PaddingSeed();
     const std::size_t stride =
         FieldLayout::template StrideBytes<FieldAssembler>(Elements(row_count));
-    const std::size_t element_stride =
-        FieldLayout::template ElementStrideBytes<FieldAssembler>();
-
     auto write_element = [&](std::size_t element) {
-      std::byte* element_ptr = base + element * element_stride;
+      std::byte* element_ptr =
+          base + FieldLayout::template RowOffset<FieldAssembler, ScalarType>(
+                     element, topology::NoRowTable{}
+                 );
       FieldAssembler::template Write<ScalarType, FieldLayout>(
           element_ptr, stride, seed
       );
@@ -327,9 +327,6 @@ struct FieldVisitor {
       using ScalarType = typename FieldAssembler::ScalarType;
       const std::size_t stride =
           FieldLayout::template StrideBytes<FieldAssembler>(row_count);
-      const std::size_t element_stride =
-          FieldLayout::template ElementStrideBytes<FieldAssembler>();
-
       archetypes.ForEachField(
           kFieldName,
           [&](const domain::JointField& field,
@@ -350,7 +347,12 @@ struct FieldVisitor {
                 std::size_t sorted_row = rows.ToSorted(first_instance + i, j);
                 for (std::size_t leaf = 0; leaf < kLeafCount; ++leaf) {
                   std::byte* leaf_ptr = FieldLayout::LeafAt(
-                      base + (sorted_row * element_stride), leaf, stride
+                      base + FieldLayout::
+                                 template RowOffset<FieldAssembler, ScalarType>(
+                                     sorted_row, topology::NoRowTable{}
+                                 ),
+                      leaf,
+                      stride
                   );
                   *std::bit_cast<ScalarType*>(leaf_ptr) =
                       static_cast<ScalarType>(

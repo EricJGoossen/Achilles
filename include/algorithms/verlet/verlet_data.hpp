@@ -42,7 +42,7 @@ struct VerletFieldTraits<VerletField::kJointSubspace> {
   using Assembler = math::Matrix6x6Assembler<ScalarOperationT>;
   using SharedAs = JointSubspaceSlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::BlockedLayout;
   static constexpr std::string_view kName = "joint_subspace";
 };
 template <>

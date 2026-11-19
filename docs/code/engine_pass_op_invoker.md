@@ -35,6 +35,11 @@ rows, memory or traversals.
 
 ## When changing it
 
+- A batched value is also handed in place when its field's layout keeps a
+  lane group's leaves together (`topology::BlockedLayout`) and the value's
+  object is exactly those leaves (`FieldCursor::kHoldsBlock`), under the
+  same rule: not when the op reads the same field, and never through a
+  broadcast index.
 - `engine/op_contract.hpp` and [algorithms.md](../conventions/algorithms.md)
   if the argument order or contract changes.
 - `tests/engine_pass_op_invoker.cpp`; every overload and both output kinds

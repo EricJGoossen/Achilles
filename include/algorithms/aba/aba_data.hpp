@@ -75,7 +75,7 @@ struct ABAFieldTraits<ABAField::kJointSubspace> {
   using Assembler = math::Matrix6x6Assembler<ScalarOperationT>;
   using SharedAs = JointSubspaceSlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::BlockedLayout;
   static constexpr std::string_view kName = "joint_subspace";
 };
 template <>
@@ -186,7 +186,7 @@ template <>
 struct ABAFieldTraits<ABAField::kArticulatedInertia> {
   using Assembler = spatial::InertiaOperatorAssembler<ScalarOperationT>;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::BlockedLayout;
 };
 template <>
 struct ABAFieldTraits<ABAField::kArticulatedBiasForce> {
@@ -199,14 +199,14 @@ struct ABAFieldTraits<ABAField::kUTerm> {
   using Assembler = spatial::InertiaOperatorAssembler<ScalarOperationT>;
   using SharedAs = UTermSlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::BlockedLayout;
 };
 template <>
 struct ABAFieldTraits<ABAField::kDInvTerm> {
   using Assembler = spatial::InvertedInertiaOperatorAssembler<ScalarOperationT>;
   using SharedAs = DInvTermSlot;
   using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Layout = engine::topology::BlockedLayout;
 };
 template <>
 struct ABAFieldTraits<ABAField::kJointBiasForce> {

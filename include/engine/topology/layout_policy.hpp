@@ -32,6 +32,10 @@ struct NoRowTable {};
 // layout, only whatever policy each field's own binding names (see
 // engine/view/view.hpp).
 struct PlanarLayout {
+  // A batched value's leaves sit one stride apart, never as the value
+  // object, so it can't be handed out in place (see BlockedLayout).
+  static constexpr bool kInPlaceBatches = false;
+
   // xsimd::batch<A::ScalarType>::size. NOT assumed equal across fields: a
   // field whose Assembler's ScalarType isn't float (e.g. an integer mask
   // storage type) can batch at a different width, which is why Layout pads
@@ -191,6 +195,63 @@ struct PlanarLayout {
       std::byte* leaf, const ValueT& value, std::uint64_t lanes
   ) {
     util::SimdAccumulate(std::bit_cast<Leaf*>(leaf), value, lanes);
+  }
+};
+
+// PlanarLayout's leaves, a lane group at a time: lane group g of the field
+// is one contiguous run of every leaf's LaneCount lanes, leaf after leaf,
+// rather than each leaf being one array over every row. A batched value of
+// the field therefore sits in memory exactly as the value object itself
+// does -- a Matrix6x6 of batches is its 36 batches back to back -- so a
+// View can hand it to an Op in place (FieldCursor::kHoldsBlock) instead of
+// gathering 36 planes into a copy and scattering it back. Meant for large
+// batched fields whose value type is its leaves in order, like matrices
+// and inertia operators. One instance's leaves are LaneCount elements
+// apart instead of one stride apart, so scalar access still works.
+//
+// Example:
+//   struct ABAFieldTraits<ABAField::kUTerm> {
+//     using Assembler = spatial::InertiaOperatorAssembler<float>;
+//     using Layout = engine::topology::BlockedLayout;
+//   };
+struct BlockedLayout : PlanarLayout {
+  // Whether a batched value can be handed out in place (see the View).
+  static constexpr bool kInPlaceBatches = true;
+
+  // The distance between one instance's consecutive leaves: one lane
+  // group of a leaf.
+  template <typename A>
+  static constexpr std::size_t StrideBytes(std::size_t /*padded_instances*/) {
+    return LaneCount<A>() * sizeof(typename A::ScalarType);
+  }
+
+  template <typename A>
+  static constexpr std::size_t BlockBytes(std::size_t padded_instances) {
+    return padded_instances * A::kNumFields * sizeof(typename A::ScalarType);
+  }
+  template <typename A>
+  static constexpr std::size_t BlockBytes(
+      std::size_t padded_instances, NoRowTable /*table*/
+  ) {
+    return BlockBytes<A>(padded_instances);
+  }
+
+  // Row `row`'s leaf 0: its lane group's run, then its lane within it.
+  template <typename A, typename T>
+  static constexpr std::size_t RowOffset(
+      std::size_t row, NoRowTable /*table*/
+  ) {
+    constexpr std::size_t kLanes = LaneCount<A>();
+    constexpr std::size_t kScalar = sizeof(typename A::ScalarType);
+    return ((row / kLanes) * kLanes * A::kNumFields * kScalar) +
+           ((row % kLanes) * kScalar);
+  }
+
+  template <typename A, typename T>
+  static std::byte* CursorElement(
+      std::byte* field0, const CursorTable<A>& /*table*/, std::size_t row
+  ) {
+    return field0 + RowOffset<A, T>(row, NoRowTable{});
   }
 };
 
