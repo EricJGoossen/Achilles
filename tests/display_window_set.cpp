@@ -251,3 +251,69 @@ TEST_F(Windows, TwoControllersOnOneWindowWriteInTurn) {
   ASSERT_TRUE(sim_.Step(kDt));
   EXPECT_FLOAT_EQ(LastEffort("left_front_motor"), -0.5F);
 }
+
+// Release takes every controller off a window, which stays up: from then on
+// it writes nothing, however it's fed.
+TEST_F(Windows, ReleaseStopsEveryControllerButKeepsTheWindow) {
+  WindowSet set;
+  const WindowId id = set.Add(Gyro(), "Gyroscope");
+  ASSERT_TRUE(set.Control(id, SteerOf("left_front")));
+  ASSERT_TRUE(set.Control(id, SteerOf("right_front")));
+  ASSERT_TRUE(set.Feed(id, Holding(Key::kW)));
+
+  ASSERT_TRUE(set.Release(id));
+  EXPECT_TRUE(set.Contains(id));
+  EXPECT_EQ(set.FindController<Steer>(id), nullptr);
+  ASSERT_TRUE(set.Feed(id, Holding(Key::kW)));
+  set.ApplyWrites();
+  ASSERT_TRUE(sim_.Step(kDt));
+  EXPECT_FLOAT_EQ(LastEffort("left_front_motor"), 0.0F);
+  EXPECT_FLOAT_EQ(LastEffort("right_front_motor"), 0.0F);
+
+  // Steered again by a new one.
+  ASSERT_TRUE(set.Control(id, SteerOf("left_front")));
+  ASSERT_TRUE(set.Feed(id, Holding(Key::kW)));
+  set.ApplyWrites();
+  ASSERT_TRUE(sim_.Step(kDt));
+  EXPECT_FLOAT_EQ(LastEffort("left_front_motor"), 1.5F);
+}
+
+// A window that's gone answers every question with "gone", and changes
+// nothing else.
+TEST_F(Windows, AClosedWindowIsGoneForEverything) {
+  WindowSet set;
+  const WindowId kept = set.Add(Gyro(), "Kept");
+  const WindowId gone = set.Add(Scanner(), "Gone");
+  ASSERT_TRUE(set.Remove(gone));
+
+  EXPECT_FALSE(set.Remove(gone));
+  EXPECT_FALSE(set.Contains(gone));
+  EXPECT_EQ(set.Title(gone), "");
+  EXPECT_EQ(set.Find<LidarView>(gone), nullptr);
+  EXPECT_FALSE(set.Control(gone, SteerOf("left_front")));
+  EXPECT_EQ(set.FindController<Steer>(gone), nullptr);
+  EXPECT_FALSE(set.Release(gone));
+  EXPECT_FALSE(set.Feed(gone, Holding(Key::kW)));
+  EXPECT_THROW(set.Swap(gone, Scanner()), std::invalid_argument);
+
+  EXPECT_EQ(set.Size(), 1U);
+  EXPECT_EQ(set.Title(kept), "Kept");
+  // Nothing was put on it, so nothing writes.
+  set.ApplyWrites();
+  ASSERT_TRUE(sim_.Step(kDt));
+  EXPECT_FLOAT_EQ(LastEffort("left_front_motor"), 0.0F);
+}
+
+// A window can be shown with no controller at all: nothing is written,
+// whatever it's fed.
+TEST_F(Windows, AWindowWithNoControllerSteersNothing) {
+  WindowSet set;
+  const WindowId id = set.Add(Gyro(), "Gyroscope");
+  ASSERT_TRUE(set.Feed(id, Holding(Key::kW)));
+  set.ApplyWrites();
+  const float spin = Spin("left_front");
+  ASSERT_TRUE(sim_.Step(kDt));
+  EXPECT_FLOAT_EQ(LastEffort("left_front_motor"), 0.0F);
+  // Nobody set it spinning: the wheel moves only as the sim moves it.
+  EXPECT_NEAR(Spin("left_front"), spin, 1e-2F);
+}
