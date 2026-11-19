@@ -135,6 +135,8 @@ adding, moving or deleting a file updates this tree in the same commit.
 - `algorithm_step.hpp`: runs a list of passes in order.
 - `sim_context.hpp`: holds every view and topology, and runs step lists.
 - `view_step.hpp`: an optional base for steps that run over a whole view.
+- `repeat_while_step.hpp`: repeats a step list while a whole-sim flag is
+  set, up to a cap.
 
 ## `include/algorithms/`
 
