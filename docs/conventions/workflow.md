@@ -8,6 +8,9 @@
   changed file it doesn't cover, such as `tests/`. Eric never sees
   unformatted code. This holds on every branch, even while builds and tests
   are held.
+- Before every report back after changing code, update the docs the change
+  affects: each changed file's linked doc, and any convention doc
+  ([writing-docs.md](writing-docs.md#upkeep)).
 - Every commit is clang-format clean (the pre-commit hook checks this).
 - Each top-level folder (`algorithms`, `display`, `domain`, `engine`,
   `interface`) gets its own commits, unless the change is small bug fixes

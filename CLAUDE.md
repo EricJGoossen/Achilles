@@ -15,6 +15,8 @@ To find where something lives, read [docs/file-tree.md](docs/file-tree.md).
 - On `EricG/` branches, make zero design decisions unless asked.
 - Never build unbounded (see building-and-testing).
 - Format every changed file before every report back (see workflow).
+- Update the docs of every file you change, and any convention doc the
+  change affects, before every report back (see writing-docs).
 - State the expected runtime effect of every edit you propose (see
   workflow).
 - Push if useful, but never open a PR or MR.

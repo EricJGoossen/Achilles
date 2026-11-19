@@ -7,11 +7,14 @@ code goes in a comment.
 ## Files
 
 Every source file starts with a short comment saying what it holds and how
-it fits into its folder. If the file has a doc, the comment links it:
+it fits into its folder, above `#pragma once`. If the file has a doc, the
+comment links it:
 
 ```cpp
 // The one init-time builder of the arena and the SimContext.
 // Doc: docs/code/engine_allocation_sim_allocator.md
+
+#pragma once
 ```
 
 ## Classes
