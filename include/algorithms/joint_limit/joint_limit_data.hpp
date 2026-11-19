@@ -101,6 +101,7 @@ struct JointLimitFieldTraits<JointLimitField::kJointSubspace>
           math::Matrix6x6Assembler<ScalarOperationT>,
           JointSubspaceSlot> {
   static constexpr std::string_view kName = "joint_subspace";
+  using Layout = engine::topology::BlockedLayout;
 };
 template <>
 struct JointLimitFieldTraits<JointLimitField::kJointPosition>

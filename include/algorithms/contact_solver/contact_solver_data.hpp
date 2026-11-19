@@ -207,6 +207,17 @@ template <typename A, typename Slot>
 struct SharedRowField : RowField<A> {
   using SharedAs = Slot;
 };
+// A row field of large batched values (6x6 matrices, inertia operators),
+// stored a lane group at a time so passes read them in place
+// (engine::topology::BlockedLayout).
+template <typename A>
+struct BlockedRowField : RowField<A> {
+  using Layout = engine::topology::BlockedLayout;
+};
+template <typename A, typename Slot>
+struct SharedBlockedRowField : BlockedRowField<A> {
+  using SharedAs = Slot;
+};
 template <typename A, typename Slot>
 struct SharedPairField : PairField<A> {
   using SharedAs = Slot;
@@ -224,7 +235,7 @@ using RowsAssembler = math::MatrixAssembler<
 // --- ABA (shared) ---
 template <>
 struct ContactSolverFieldTraits<ContactSolverField::kJointSubspace>
-    : SharedRowField<
+    : SharedBlockedRowField<
           math::Matrix6x6Assembler<ScalarOperationT>,
           JointSubspaceSlot> {
   static constexpr std::string_view kName = "joint_subspace";
@@ -253,12 +264,12 @@ struct ContactSolverFieldTraits<ContactSolverField::kSpatialVelocity>
           SpatialVelocitySlot> {};
 template <>
 struct ContactSolverFieldTraits<ContactSolverField::kUTerm>
-    : SharedRowField<
+    : SharedBlockedRowField<
           spatial::InertiaOperatorAssembler<ScalarOperationT>,
           UTermSlot> {};
 template <>
 struct ContactSolverFieldTraits<ContactSolverField::kDInvTerm>
-    : SharedRowField<
+    : SharedBlockedRowField<
           spatial::InvertedInertiaOperatorAssembler<ScalarOperationT>,
           DInvTermSlot> {};
 template <>
@@ -366,7 +377,7 @@ struct ContactSolverFieldTraits<ContactSolverField::kJointLimitSolimp>
 // --- Set up once ---
 template <>
 struct ContactSolverFieldTraits<ContactSolverField::kInverseInertia>
-    : RowField<math::Matrix6x6Assembler<ScalarOperationT>> {};
+    : BlockedRowField<math::Matrix6x6Assembler<ScalarOperationT>> {};
 template <>
 struct ContactSolverFieldTraits<ContactSolverField::kInvWeight>
     : RowField<math::MatrixAssembler<ScalarOperationT, 2, 1>> {};
