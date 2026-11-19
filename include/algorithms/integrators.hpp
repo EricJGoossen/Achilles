@@ -65,13 +65,15 @@ using Collision = util::TypeList<
 // (algorithms/contact_solver) replaces qdd with the constrained qacc, the
 // sensors sample that solved state, VI integrates qacc into qd, and PI
 // integrates the updated qd into q for the next tick's ABA to read.
-using SemiImplicitEuler = util::ConcatT<
+template <ContactSolver Solver>
+using SemiImplicitEulerWith = util::ConcatT<
     Effort,
     util::TypeList<aba::ABAStep>,
     Collision,
-    contact_solver::Solve,
+    contact_solver::SolveFor<Solver>,
     attachment::Sensing,
     util::TypeList<vi::VIStep, pi::PIStep, clock::TickStep>>;
+using SemiImplicitEuler = SemiImplicitEulerWith<ContactSolver::kNewton>;
 
 // See algorithms/verlet. Sensing follows the first ABA, at (q_n, qd_n).
 using VelocityVerlet = util::ConcatT<
@@ -121,7 +123,9 @@ using RungeKutta4 = util::ConcatT<
         clock::TickStep>>;
 
 // See Integrator::kImplicitFast below.
-using ImplicitFast = SemiImplicitEuler;
+template <ContactSolver Solver>
+using ImplicitFastWith = SemiImplicitEulerWith<Solver>;
+using ImplicitFast = ImplicitFastWith<ContactSolver::kNewton>;
 
 // Which integrator a tick runs. Every integrator's fields are hosted all
 // the time (registry.hpp), so this can change between any two ticks. See
@@ -190,32 +194,51 @@ void StepIntegrator(
   sim_context.template Step<StepList>(dt, sim_config);
 }
 
-// Every Integrator's name and tick, indexed by the enum. A caller resolves
-// an Integrator to its IntegratorStepFn once (StepFnFor) and calls that per
-// tick, so choosing an integrator costs nothing on the step path.
+// One IntegratorStepFn per ContactSolver, indexed by it. An integrator
+// whose tick has no contact solve runs the same tick for every one.
+using SolverSteps = std::
+    array<IntegratorStepFn, static_cast<std::size_t>(ContactSolver::kCount)>;
+
+// The ticks of an integrator whose list depends on the contact solver.
+template <template <ContactSolver> class ListWith>
+inline constexpr SolverSteps kStepsWith = {
+    &StepIntegrator<ListWith<ContactSolver::kNewton>>,
+    &StepIntegrator<ListWith<ContactSolver::kCG>>,
+};
+
+// The ticks of an integrator whose list has no contact solve.
+template <typename StepList>
+inline constexpr SolverSteps kStepsWithout = {
+    &StepIntegrator<StepList>,
+    &StepIntegrator<StepList>,
+};
+
+// Every Integrator's name and ticks, indexed by the enum. A caller resolves
+// an Integrator and ContactSolver to its IntegratorStepFn once (StepFnFor)
+// and calls that per tick, so choosing either costs nothing on the step
+// path.
 struct IntegratorEntry {
   Integrator integrator;
   std::string_view name;
-  IntegratorStepFn step;
+  SolverSteps steps;
 };
 
-inline constexpr std::
-    array<IntegratorEntry, static_cast<std::size_t>(Integrator::kCount)>
-        kIntegrators = {{
-            {Integrator::kSemiImplicitEuler,
-             "euler",
-             &StepIntegrator<SemiImplicitEuler>},
-            {Integrator::kVelocityVerlet,
-             "verlet",
-             &StepIntegrator<VelocityVerlet>},
-            {Integrator::kImplicitMidpoint,
-             "midpoint",
-             &StepIntegrator<ImplicitMidpoint>},
-            {Integrator::kRungeKutta4, "rk4", &StepIntegrator<RungeKutta4>},
-            {Integrator::kImplicitFast,
-             "implicitfast",
-             &StepIntegrator<ImplicitFast>},
-        }};
+inline constexpr std::array<
+    IntegratorEntry,
+    static_cast<std::size_t>(Integrator::kCount)>
+    kIntegrators = {{
+        {Integrator::kSemiImplicitEuler,
+         "euler",
+         kStepsWith<SemiImplicitEulerWith>},
+        {Integrator::kVelocityVerlet, "verlet", kStepsWithout<VelocityVerlet>},
+        {Integrator::kImplicitMidpoint,
+         "midpoint",
+         kStepsWithout<ImplicitMidpoint>},
+        {Integrator::kRungeKutta4, "rk4", kStepsWithout<RungeKutta4>},
+        {Integrator::kImplicitFast,
+         "implicitfast",
+         kStepsWith<ImplicitFastWith>},
+    }};
 
 namespace detail {
 consteval bool IntegratorsIndexedByEnum() {
@@ -236,8 +259,16 @@ constexpr const IntegratorEntry& EntryFor(Integrator integrator) {
   return kIntegrators[static_cast<std::size_t>(integrator)];
 }
 
-constexpr IntegratorStepFn StepFnFor(Integrator integrator) {
-  return EntryFor(integrator).step;
+// The tick of `integrator` with `solver` as its contact solver.
+//
+// integrator: which integrator's tick.
+// solver: which contact solver that tick runs, if it runs one.
+// Returns: the tick, to call once per Step().
+// Example: IntegratorStepFn step = StepFnFor(Integrator::kRungeKutta4);
+constexpr IntegratorStepFn StepFnFor(
+    Integrator integrator, ContactSolver solver = ContactSolver::kNewton
+) {
+  return EntryFor(integrator).steps[static_cast<std::size_t>(solver)];
 }
 
 constexpr std::string_view NameOf(Integrator integrator) {

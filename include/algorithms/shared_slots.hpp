@@ -25,6 +25,9 @@ namespace achilles::algorithms {
 // SimAllocator::Carve asserts this at Build() time; it's not something
 // this header can check on its own.
 struct JointSubspaceSlot;
+// Which of a joint's six DOFs exist, loaded once (ABA's
+// kJointActivationMask).
+struct JointActivationMaskSlot;
 struct JointPositionSlot;
 struct JointVelocitySlot;
 struct JointAccelerationSlot;

@@ -736,3 +736,98 @@ TEST(Solve, WarmstartedResolveLandsOnTheSameAnswer) {
 
   EXPECT_NEAR(Qdd(sim, 0) / first, 1.0F, 1e-4F);
 }
+
+// The Setup list's trace(M), the convergence test's scale: the coaxial
+// hinges' M = [[5, 1], [1, 1]], so trace(M) = 6 -- the axle's diagonal
+// includes the wheel's inertia, through the real composite-inertia pass.
+TEST(InvWeightStep, ImprovementScaleIsOneOverTheMassMatrixsTrace) {
+  TempDir dir;
+  RegisteredSim sim = MakeCoaxialHinges(dir);
+  RunSteps<SetupList>(sim, SimConfig{}, 0.0F);
+
+  auto view = sim.ViewFor<ContactSolverAlgorithm>();
+  EXPECT_NEAR(
+      (view.Load<ContactSolverField::kInertiaTrace, F>(0).Value()), 6.0F, 1e-5F
+  );
+  EXPECT_NEAR(
+      (view.Load<ContactSolverField::kImprovementScale, F>(0).Value()),
+      1.0F / 6.0F,
+      1e-6F
+  );
+}
+
+namespace {
+
+// Forward, with the solve of `Solver`.
+template <ContactSolver Solver>
+using ForwardWith = achilles::util::ConcatT<
+    TypeList<aba::ABAStep>,
+    Collision,
+    contact_solver::SolveFor<Solver>>;
+
+// The ball's qdd after one forward with `Solver`, from a fresh sim.
+template <ContactSolver Solver>
+F BallQddWith(const SimConfig& config) {
+  TempDir dir;
+  RegisteredSim sim = MakeBallOnGround(dir, 0.09F);
+  RunSteps<SetupList>(sim, config, 0.0F);
+  RunSteps<ForwardWith<Solver>>(sim, config);
+  return Qdd(sim, 2);
+}
+
+}  // namespace
+
+// Newton and CG minimize the same cost, so converged they agree.
+TEST(Solve, NewtonAndCgLandOnTheSameAnswer) {
+  SimConfig config = DownwardGravity();
+
+  F newton = BallQddWith<ContactSolver::kNewton>(config);
+  F cg = BallQddWith<ContactSolver::kCG>(config);
+
+  EXPECT_NEAR(newton / cg, 1.0F, 1e-4F);
+}
+
+// Against the ground, H is exact, so Newton's first step after factoring
+// lands on the minimum: the solve stops there, with the flag clear, after
+// at most one iteration past the warmstart.
+TEST(Solve, NewtonConvergesAndClearsTheFlag) {
+  TempDir dir;
+  RegisteredSim sim = MakeBallOnGround(dir, 0.09F);
+  SimConfig config = DownwardGravity();
+  RunSteps<SetupList>(sim, config, 0.0F);
+
+  using OneIteration = achilles::util::ConcatT<
+      TypeList<aba::ABAStep>,
+      Collision,
+      TypeList<
+          contact_solver::SetupStep,
+          contact_solver::NewtonUpdateStep<true>>,
+      contact_solver::Iteration<contact_solver::NewtonUpdateStep<false>>,
+      TypeList<contact_solver::FinishStep>>;
+  RunSteps<OneIteration>(sim, config);
+  F one = Qdd(sim, 2);
+  RunSteps<Forward>(sim, config);
+
+  EXPECT_NEAR(Qdd(sim, 2) / one, 1.0F, 1e-4F);
+  EXPECT_EQ(
+      (sim.ViewFor<ContactSolverAlgorithm>()
+           .Load<ContactSolverField::kContinue, F>(0)
+           .Value()),
+      0.0F
+  );
+}
+
+// A tolerance no step can meet runs every iteration and still lands on the
+// same answer; one any step meets stops after the first iteration, which
+// always runs -- against the ground, already the answer.
+TEST(Solve, ToleranceOnlyChangesWhenTheSolveStops) {
+  SimConfig strict = DownwardGravity();
+  strict.contact_solver.tolerance = 0.0F;
+  SimConfig loose = DownwardGravity();
+  loose.contact_solver.tolerance = 1e30F;
+
+  F strict_qdd = BallQddWith<ContactSolver::kNewton>(strict);
+  F loose_qdd = BallQddWith<ContactSolver::kNewton>(loose);
+
+  EXPECT_NEAR(strict_qdd / loose_qdd, 1.0F, 1e-3F);
+}

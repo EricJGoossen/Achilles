@@ -15,6 +15,8 @@ the same block.
 - `algorithms/attachment_kinds/sim_input.hpp` reads physics values through
   these slots.
 - `JointTorqueSlot` and `AttachmentOutputSlot` are also buffer groups.
+- `JointActivationMaskSlot` is ABA's loaded DOF mask, read by the contact
+  solver's Hessian factorization.
 
 ## Invariants
 

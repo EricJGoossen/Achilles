@@ -1,5 +1,6 @@
 #include "algorithms/contact_solver/contact_solver_ops.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -649,6 +650,96 @@ void NewtonStepOp::operator()(
   *alpha_out = GlobalScalar(util::Select(inside, newton, 0.5F * (low + high)));
   *low_out = GlobalScalar(low);
   *high_out = GlobalScalar(high);
+}
+
+void CompositeInertiaOp::operator()(
+    const MotionSubspace& S,
+    const Transform& x_up,
+    const InertiaOperator<false>& I_c,
+    Scalar* trace_out,
+    InertiaOperator<false>* I_c_parent_out
+) const {
+  Matrix6x6 m_block = S.Transpose() * (I_c.AsMatrix() * S);
+  MathematicalT trace(0);
+  for (std::size_t k = 0; k < 6; ++k) {
+    trace += m_block(k, k);
+  }
+  *trace_out += Scalar(trace);
+  *I_c_parent_out += x_up.Apply(I_c);
+}
+
+void ImprovementScaleOp::operator()(
+    const GlobalScalar& trace, GlobalScalar* scale_out
+) const {
+  *scale_out = GlobalScalar(1.0F / std::max(trace.Value(), kMinVal));
+}
+
+void ContactStiffnessOp::operator()(
+    const ContactRows& residual,
+    const ContactRows& weight,
+    const EdgeDirections& edges,
+    const ContactPoints& point,
+    InertiaOperator<false>* stiffness_target_out,
+    InertiaOperator<false>* stiffness_source_out
+) const {
+  Matrix6x6 stiffness;
+  for (std::size_t k = 0; k < kSweptBoxContactSlots; ++k) {
+    Vector3 p(point.Column(k));
+    for (std::size_t e = 0; e < kPyramidEdges; ++e) {
+      MathematicalT d = util::Select(
+          residual(e, k) < MathematicalT(0), weight(e, k), MathematicalT(0)
+      );
+      Vector3 edge(edges.Column(e));
+      Vector3 moment = p.Cross(edge);
+      std::array<MathematicalT, 6> w = {
+          moment.X(), moment.Y(), moment.Z(), edge.X(), edge.Y(), edge.Z()
+      };
+      for (std::size_t i = 0; i < 6; ++i) {
+        MathematicalT d_wi = d * w[i];
+        for (std::size_t j = 0; j < 6; ++j) {
+          stiffness(i, j) = xsimd::fma(d_wi, w[j], stiffness(i, j));
+        }
+      }
+    }
+  }
+  *stiffness_target_out += InertiaOperator<false>(stiffness);
+  *stiffness_source_out += InertiaOperator<false>(stiffness);
+}
+
+void FactorHessianOp::operator()(
+    const MotionSubspace& S,
+    const Mat6Mask& mask,
+    const Transform& x_up,
+    const InertiaOperator<false>& I_H,
+    const JointCoordinates& limit_weight,
+    const JointCoordinates& limit_residual,
+    InertiaOperator<false>* I_H_parent_out,
+    InertiaOperator<false>* U_out,
+    InertiaOperator<true>* D_inv_out
+) const {
+  InertiaOperator<false> U(I_H.AsMatrix() * S);
+  Matrix6x6 d = (S.Transpose() * U).AsMatrix();
+  for (std::size_t k = 0; k < 6; ++k) {
+    d(k, k) += util::Select(
+        limit_residual[k] < MathematicalT(0), limit_weight[k], MathematicalT(0)
+    );
+  }
+  InertiaOperator<true> D_inv = InertiaOperator<false>(d).MaskedInverse(mask);
+  Matrix6x6 U_D_inv = U.AsMatrix() * D_inv.AsMatrix();
+  InertiaOperator<false> contribution = I_H - U_D_inv * U.Transpose();
+  *U_out = U;
+  *D_inv_out = D_inv;
+  *I_H_parent_out += x_up.Apply(contribution);
+}
+
+void ConvergedOp::operator()(
+    const GlobalScalar& g_mg,
+    const GlobalScalar& scale,
+    GlobalScalar* continue_out
+) const {
+  float improvement = 0.5F * g_mg.Value() * scale.Value();
+  *continue_out =
+      GlobalScalar(util::Select(improvement > tolerance_, 1.0F, 0.0F));
 }
 
 }  // namespace achilles::algorithms::contact_solver

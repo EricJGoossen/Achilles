@@ -10,8 +10,9 @@ also holds the setup list run once at init, and the table that turns an
 
 - Composed from every algorithm's step file, plus `attachment::Actuation`,
   `attachment::Sensing` and `attachment::AttachmentSetup`.
-- `interface::Simulation` resolves the selected integrator once with
-  `StepFnFor` and calls it every `Step()`; `Init()` runs `Setup`.
+- `interface::Simulation` resolves the selected integrator and contact
+  solver once with `StepFnFor` and calls that tick every `Step()`;
+  `Init()` runs `Setup`.
 - Hosting is separate: `registry.hpp` decides what memory exists.
 
 ## Invariants
@@ -23,6 +24,8 @@ also holds the setup list run once at init, and the table that turns an
 - Sensing runs once per tick, at the tick's starting state, after any solve
   and before anything integrates.
 - `kIntegrators` is indexed by the enum; a `static_assert` checks the order.
+- Each entry holds one tick per `ContactSolver`. Ticks without a contact
+  solve (`kStepsWithout`) hold the same tick for each.
 - `Setup` runs ABA at the initial pose before the contact solver's
   `InvWeightStep` and before the attachments start.
 

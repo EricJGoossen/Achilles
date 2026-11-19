@@ -81,6 +81,74 @@ struct ComputeInverseInertiaOp : SolverOp {
   ) const;
 };
 
+// trace(M), the scale MuJoCo's tolerance is relative to (meaninertia, from
+// mj_setConst): M's diagonal block for joint i is S^T I_c S, I_c the
+// composite inertia of i's subtree. This seeds I_c = I on every row and
+// zeroes the trace the CompositeInertiaOp pass after it sums into.
+struct SeedCompositeInertiaOp : SolverOp {
+  static constexpr std::array<ArgData, 0> kInitInputs = {};
+  static constexpr std::array<ArgData, 1> kInitOutputs = {
+      ArgData{FieldEnum::kInertiaTrace, ArgIndex::kTarget},
+  };
+  void Initialize(GlobalScalar* trace_out) const {
+    *trace_out = GlobalScalar(0.0F);
+  }
+
+  static constexpr std::array<ArgData, 1> kInputs = {
+      ArgData{FieldEnum::kRigidBodyInertia, ArgIndex::kTarget},
+  };
+  static constexpr std::array<ArgData, 1> kOutputs = {
+      ArgData{FieldEnum::kCompositeInertia, ArgIndex::kTarget},
+  };
+  void operator()(const Inertia& I, InertiaOperator<false>* I_c_out) const {
+    *I_c_out = I.AsArticulated();
+  }
+};
+
+// The composite inertias, backward (CRBA's): I_c of the parent += x_up I_c,
+// and trace(M) += the diagonal of S^T I_c S. A DOF the joint doesn't have
+// has a zero column of S, so it adds nothing.
+struct CompositeInertiaOp : SolverOp {
+  // The base row is every root's parent: zeroed, so what the roots pass
+  // up into it stays bounded (nothing reads it).
+  static constexpr std::array<ArgData, 0> kInitInputs = {};
+  static constexpr std::array<ArgData, 1> kInitOutputs = {
+      ArgData{FieldEnum::kCompositeInertia, ArgIndex::kTarget},
+  };
+  void Initialize(InertiaOperator<false>* base_out) const {
+    *base_out = InertiaOperator<false>::Zero();
+  }
+
+  static constexpr std::array<ArgData, 3> kInputs = {
+      ArgData{FieldEnum::kJointSubspace, ArgIndex::kTarget},
+      ArgData{FieldEnum::kParentToBodyTransform, ArgIndex::kTarget},
+      ArgData{FieldEnum::kCompositeInertia, ArgIndex::kTarget},
+  };
+  static constexpr std::array<ArgData, 2> kOutputs = {
+      ArgData{FieldEnum::kInertiaTrace, ArgIndex::kTarget},
+      ArgData{FieldEnum::kCompositeInertia, ArgIndex::kParent},
+  };
+  void operator()(
+      const MotionSubspace& S,
+      const Transform& x_up,
+      const InertiaOperator<false>& I_c,
+      Scalar* trace_out,
+      InertiaOperator<false>* I_c_parent_out
+  ) const;
+};
+
+// MuJoCo's scale for its tolerance tests, 1 / (meaninertia nv) =
+// 1 / trace(M).
+struct ImprovementScaleOp : SolverOp {
+  static constexpr std::array<ArgData, 1> kInputs = {
+      ArgData{FieldEnum::kInertiaTrace, ArgIndex::kTarget},
+  };
+  static constexpr std::array<ArgData, 1> kOutputs = {
+      ArgData{FieldEnum::kImprovementScale, ArgIndex::kTarget},
+  };
+  void operator()(const GlobalScalar& trace, GlobalScalar* scale_out) const;
+};
+
 // ---------------------------------------------------------------------------
 // Mass-matrix operators (zero velocity, no gravity: the base doesn't move)
 // ---------------------------------------------------------------------------
@@ -160,7 +228,11 @@ struct ApplyInertiaBackwardOp : SolverOp {
 
 // M^-1 grad, backward half (ABA's PropagateInertiaOp at zero velocity):
 // u = grad - S^T p, and the parent's bias p += x_up (p + U D^-1 u), p
-// starting from zero (StepJointOp clears it).
+// starting from zero (StepJointOp clears it). Over ABA's factors (kUTerm,
+// kDInvTerm) it's M^-1; over Newton's (kHessianU, kHessianDInv), H^-1.
+template <
+    ContactSolverField UField = ContactSolverField::kUTerm,
+    ContactSolverField DInvField = ContactSolverField::kDInvTerm>
 struct InverseInertiaBackwardOp : SolverOp {
   // The base row is every root's parent: zeroed, so what the roots pass
   // up into it stays bounded (nothing reads it).
@@ -173,8 +245,8 @@ struct InverseInertiaBackwardOp : SolverOp {
   static constexpr std::array<ArgData, 6> kInputs = {
       ArgData{FieldEnum::kJointSubspace, ArgIndex::kTarget},
       ArgData{FieldEnum::kParentToBodyTransform, ArgIndex::kTarget},
-      ArgData{FieldEnum::kUTerm, ArgIndex::kTarget},
-      ArgData{FieldEnum::kDInvTerm, ArgIndex::kTarget},
+      ArgData{UField, ArgIndex::kTarget},
+      ArgData{DInvField, ArgIndex::kTarget},
       ArgData{FieldEnum::kGrad, ArgIndex::kTarget},
       ArgData{FieldEnum::kInverseBiasForce, ArgIndex::kTarget},
   };
@@ -199,7 +271,11 @@ struct InverseInertiaBackwardOp : SolverOp {
 };
 
 // M^-1 grad, forward half (ABA's PropagateAccelerationOp at zero
-// velocity): Mgrad = D^-1 (u - U^T a_pre), a = a_pre + S Mgrad.
+// velocity): Mgrad = D^-1 (u - U^T a_pre), a = a_pre + S Mgrad. Over the
+// same factors as the InverseInertiaBackwardOp before it.
+template <
+    ContactSolverField UField = ContactSolverField::kUTerm,
+    ContactSolverField DInvField = ContactSolverField::kDInvTerm>
 struct InverseInertiaForwardOp : SolverOp {
   static constexpr std::array<ArgData, 0> kInitInputs = {};
   static constexpr std::array<ArgData, 1> kInitOutputs = {
@@ -212,8 +288,8 @@ struct InverseInertiaForwardOp : SolverOp {
   static constexpr std::array<ArgData, 6> kInputs = {
       ArgData{FieldEnum::kJointSubspace, ArgIndex::kTarget},
       ArgData{FieldEnum::kParentToBodyTransform, ArgIndex::kTarget},
-      ArgData{FieldEnum::kUTerm, ArgIndex::kTarget},
-      ArgData{FieldEnum::kDInvTerm, ArgIndex::kTarget},
+      ArgData{UField, ArgIndex::kTarget},
+      ArgData{DInvField, ArgIndex::kTarget},
       ArgData{FieldEnum::kInverseJointForce, ArgIndex::kTarget},
       ArgData{FieldEnum::kBodyAcceleration, ArgIndex::kParent},
   };
@@ -278,6 +354,120 @@ struct ConstraintForceOp : SolverOp {
     *constraint_force_out = S.Transpose() * f;
     *f_parent_out += x_up.Apply(f);
   }
+};
+
+// ---------------------------------------------------------------------------
+// Newton's Hessian, H = M + J^T D J, factored like M
+// ---------------------------------------------------------------------------
+
+// Zeroes the stiffness sums ContactStiffnessOp adds into.
+struct ClearStiffnessOp : SolverOp {
+  static constexpr std::array<ArgData, 0> kInputs = {};
+  static constexpr std::array<ArgData, 2> kOutputs = {
+      ArgData{FieldEnum::kBodyStiffnessTarget, ArgIndex::kTarget},
+      ArgData{FieldEnum::kBodyStiffnessSource, ArgIndex::kTarget},
+  };
+  void operator()(
+      InertiaOperator<false>* target_out, InertiaOperator<false>* source_out
+  ) const {
+    *target_out = InertiaOperator<false>::Zero();
+    *source_out = InertiaOperator<false>::Zero();
+  }
+};
+
+// Each active contact row's D w w^T, added onto both of its pair's bodies
+// (world): w = (p x e, e) is the row's world wrench direction at its point
+// p along edge e, so the row's J on either body is w^T of that body's
+// world motion, and its J^T D J block on that body is D w w^T. A row is
+// active while its residual is negative (mj_constraintUpdate's QUADRATIC
+// state); inactive rows have D = 0 or a non-negative residual and add
+// nothing. The cross terms between the two bodies are dropped.
+struct ContactStiffnessOp : SolverOp {
+  static constexpr std::array<ArgData, 4> kInputs = {
+      ArgData{FieldEnum::kRowResidual, ArgIndex::kTarget},
+      ArgData{FieldEnum::kRowWeight, ArgIndex::kTarget},
+      ArgData{FieldEnum::kEdgeDirections, ArgIndex::kTarget},
+      ArgData{FieldEnum::kRowPoint, ArgIndex::kTarget},
+  };
+  static constexpr std::array<ArgData, 2> kOutputs = {
+      ArgData{FieldEnum::kBodyStiffnessTarget, ArgIndex::kPartner},
+      ArgData{FieldEnum::kBodyStiffnessSource, ArgIndex::kSource},
+  };
+  void operator()(
+      const ContactRows& residual,
+      const ContactRows& weight,
+      const EdgeDirections& edges,
+      const math::Matrix<MathematicalT, 3, narrow_phase::kSweptBoxContactSlots>&
+          point,
+      InertiaOperator<false>* stiffness_target_out,
+      InertiaOperator<false>* stiffness_source_out
+  ) const;
+};
+
+// Each body's Hessian inertia before its subtree's: I_H = I + K_b, K_b the
+// body's contact stiffness moved from world into its own frame.
+struct SeedHessianOp : SolverOp {
+  static constexpr std::array<ArgData, 4> kInputs = {
+      ArgData{FieldEnum::kRigidBodyInertia, ArgIndex::kTarget},
+      ArgData{FieldEnum::kWorldTransform, ArgIndex::kTarget},
+      ArgData{FieldEnum::kBodyStiffnessTarget, ArgIndex::kTarget},
+      ArgData{FieldEnum::kBodyStiffnessSource, ArgIndex::kTarget},
+  };
+  static constexpr std::array<ArgData, 1> kOutputs = {
+      ArgData{FieldEnum::kHessianInertia, ArgIndex::kTarget},
+  };
+  void operator()(
+      const Inertia& I,
+      const Transform& x_world,
+      const InertiaOperator<false>& stiffness_target,
+      const InertiaOperator<false>& stiffness_source,
+      InertiaOperator<false>* I_H_out
+  ) const {
+    InertiaOperator<false> stiffness_world =
+        stiffness_target + stiffness_source;
+    *I_H_out = x_world.Inverse().Apply(stiffness_world) + I;
+  }
+};
+
+// H's factors, backward (ABA's PropagateInertiaOp at zero velocity, over
+// I_H): U_H = I_H S, D_H = S^T U_H plus each active limit row's D on its
+// own DOF (J = side e_k, so J^T D J = D e_k e_k^T), D_H^-1 over the joint's
+// DOFs, and the parent's I_H += x_up (I_H - U_H D_H^-1 U_H^T).
+struct FactorHessianOp : SolverOp {
+  // The base row is every root's parent: zeroed, so what the roots pass
+  // up into it stays bounded (nothing reads it).
+  static constexpr std::array<ArgData, 0> kInitInputs = {};
+  static constexpr std::array<ArgData, 1> kInitOutputs = {
+      ArgData{FieldEnum::kHessianInertia, ArgIndex::kTarget},
+  };
+  void Initialize(InertiaOperator<false>* base_out) const {
+    *base_out = InertiaOperator<false>::Zero();
+  }
+
+  static constexpr std::array<ArgData, 6> kInputs = {
+      ArgData{FieldEnum::kJointSubspace, ArgIndex::kTarget},
+      ArgData{FieldEnum::kJointActivationMask, ArgIndex::kTarget},
+      ArgData{FieldEnum::kParentToBodyTransform, ArgIndex::kTarget},
+      ArgData{FieldEnum::kHessianInertia, ArgIndex::kTarget},
+      ArgData{FieldEnum::kLimitWeight, ArgIndex::kTarget},
+      ArgData{FieldEnum::kLimitResidual, ArgIndex::kTarget},
+  };
+  static constexpr std::array<ArgData, 3> kOutputs = {
+      ArgData{FieldEnum::kHessianInertia, ArgIndex::kParent},
+      ArgData{FieldEnum::kHessianU, ArgIndex::kTarget},
+      ArgData{FieldEnum::kHessianDInv, ArgIndex::kTarget},
+  };
+  void operator()(
+      const MotionSubspace& S,
+      const Mat6Mask& mask,
+      const Transform& x_up,
+      const InertiaOperator<false>& I_H,
+      const JointCoordinates& limit_weight,
+      const JointCoordinates& limit_residual,
+      InertiaOperator<false>* I_H_parent_out,
+      InertiaOperator<false>* U_out,
+      InertiaOperator<true>* D_inv_out
+  ) const;
 };
 
 // ---------------------------------------------------------------------------
@@ -865,6 +1055,60 @@ struct UpdateSearchOp : SolverOp {
   }
 };
 
+// Newton's direction, search = -H^-1 grad (the Mgrad the H^-1 passes just
+// left), and grad . H^-1 grad for the convergence test.
+struct NewtonSearchOp : SolverOp {
+  static constexpr std::array<ArgData, 0> kInitInputs = {};
+  static constexpr std::array<ArgData, 1> kInitOutputs = {
+      ArgData{FieldEnum::kGradDotMgrad, ArgIndex::kTarget},
+  };
+  void Initialize(GlobalScalar* g_mg_out) const {
+    *g_mg_out = GlobalScalar(0.0F);
+  }
+
+  static constexpr std::array<ArgData, 2> kInputs = {
+      ArgData{FieldEnum::kGrad, ArgIndex::kTarget},
+      ArgData{FieldEnum::kMgrad, ArgIndex::kTarget},
+  };
+  static constexpr std::array<ArgData, 2> kOutputs = {
+      ArgData{FieldEnum::kSearch, ArgIndex::kTarget},
+      ArgData{FieldEnum::kGradDotMgrad, ArgIndex::kTarget},
+  };
+  void operator()(
+      const Force& grad,
+      const Acceleration& m_grad,
+      Acceleration* search_out,
+      Scalar* g_mg_out
+  ) const {
+    *search_out = Acceleration::Zero() - m_grad;
+    *g_mg_out += Scalar(grad.AsVector6().Dot(m_grad.AsVector6()));
+  }
+};
+
+// grad . M^-1 grad, CG's half of the convergence test.
+struct ConvergenceTermsOp : SolverOp {
+  static constexpr std::array<ArgData, 0> kInitInputs = {};
+  static constexpr std::array<ArgData, 1> kInitOutputs = {
+      ArgData{FieldEnum::kGradDotMgrad, ArgIndex::kTarget},
+  };
+  void Initialize(GlobalScalar* g_mg_out) const {
+    *g_mg_out = GlobalScalar(0.0F);
+  }
+
+  static constexpr std::array<ArgData, 2> kInputs = {
+      ArgData{FieldEnum::kGrad, ArgIndex::kTarget},
+      ArgData{FieldEnum::kMgrad, ArgIndex::kTarget},
+  };
+  static constexpr std::array<ArgData, 1> kOutputs = {
+      ArgData{FieldEnum::kGradDotMgrad, ArgIndex::kTarget},
+  };
+  void operator()(
+      const Force& grad, const Acceleration& m_grad, Scalar* g_mg_out
+  ) const {
+    *g_mg_out += Scalar(grad.AsVector6().Dot(m_grad.AsVector6()));
+  }
+};
+
 // The constrained qacc, handed back to ABA's qdd for VI to integrate.
 struct FinishSolveOp : SolverOp {
   static constexpr std::array<ArgData, 1> kInputs = {
@@ -932,6 +1176,31 @@ struct ConjugateOp : SolverOp {
       GlobalScalar* beta_out,
       GlobalScalar* restart_out
   ) const;
+};
+
+// Whether to keep iterating: the expected improvement of the next step,
+// 1/2 grad . P grad (P = H^-1 or M^-1, the cost's decrease along
+// -P grad to second order), scaled by 1 / trace(M), against the tolerance
+// -- MuJoCo's improvement test, predicted rather than measured. kContinue
+// is 1 while it's above.
+struct ConvergedOp : SolverOp {
+  explicit ConvergedOp(float tolerance) : tolerance_(tolerance) {}
+
+  static constexpr std::array<ArgData, 2> kInputs = {
+      ArgData{FieldEnum::kGradDotMgrad, ArgIndex::kTarget},
+      ArgData{FieldEnum::kImprovementScale, ArgIndex::kTarget},
+  };
+  static constexpr std::array<ArgData, 1> kOutputs = {
+      ArgData{FieldEnum::kContinue, ArgIndex::kTarget},
+  };
+  void operator()(
+      const GlobalScalar& g_mg,
+      const GlobalScalar& scale,
+      GlobalScalar* continue_out
+  ) const;
+
+ private:
+  float tolerance_;
 };
 
 // alpha = 0 with an unbounded bracket, before the line search's Newton

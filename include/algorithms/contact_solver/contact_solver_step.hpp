@@ -11,6 +11,7 @@
 #include "domain/joint_topology.hpp"
 #include "engine/algorithm_contract.hpp"
 #include "engine/pass/algorithm_step.hpp"
+#include "engine/pass/repeat_while_step.hpp"
 #include "engine/pass/sim_context.hpp"
 #include "engine/pass/traversals.hpp"
 #include "engine/topology/orderings.hpp"
@@ -58,12 +59,19 @@ using engine::pass::Pass;
 
 // Once per sim, after an ABAStep at the initial pose (mj_setConst's
 // setInertia0): every body's inverse inertia, body_invweight0 and
-// dof_invweight0.
+// dof_invweight0, then trace(M) and the tolerance's scale from it.
 struct InvWeightStep : SolverStep<InvWeightStep> {
   static auto
   MakeOps(const SimConfig& /*sim_config*/, ScalarOperationT /*dt*/) {
-    return engine::pass::Ops<Pass<ComputeInverseInertiaOp, ForwardBatched>>{
-        ComputeInverseInertiaOp{}
+    return engine::pass::Ops<
+        Pass<ComputeInverseInertiaOp, ForwardBatched>,
+        Pass<SeedCompositeInertiaOp, LinearBatched>,
+        Pass<CompositeInertiaOp, BackwardBatched>,
+        Pass<ImprovementScaleOp, Global>>{
+        ComputeInverseInertiaOp{},
+        SeedCompositeInertiaOp{},
+        CompositeInertiaOp{},
+        ImprovementScaleOp{},
     };
   }
 };
@@ -147,15 +155,14 @@ struct LineSearchStep : SolverStep<LineSearchStep> {
   }
 };
 
-// Steps qacc (and, with it, every body's acceleration) to alpha, then
-// everything the next direction needs: each
+// CG's update. Steps qacc (and, with it, every body's acceleration) to
+// alpha, then everything the next direction needs: each
 // contact row's force and the wrench it puts on both bodies, J^T f of
 // those, then each limit row's force added onto it, the gradient,
 // M^-1 of it, and the conjugate direction (steepest descent right after
-// SetupStep).
+// SetupStep). Last, whether another iteration would still improve enough.
 struct UpdateStep : SolverStep<UpdateStep> {
-  static auto
-  MakeOps(const SimConfig& /*sim_config*/, ScalarOperationT /*dt*/) {
+  static auto MakeOps(const SimConfig& sim_config, ScalarOperationT /*dt*/) {
     return engine::pass::Ops<
         Pass<StepJointOp, LinearBatched>,
         Pass<StepBodyAccelerationOp, LinearBatched>,
@@ -163,23 +170,101 @@ struct UpdateStep : SolverStep<UpdateStep> {
         Pass<ConstraintForceOp, BackwardBatched>,
         Pass<LimitForceOp, LinearBatched>,
         Pass<GradientOp, LinearBatched>,
-        Pass<InverseInertiaBackwardOp, BackwardBatched>,
-        Pass<InverseInertiaForwardOp, ForwardBatched>,
+        Pass<InverseInertiaBackwardOp<>, BackwardBatched>,
+        Pass<InverseInertiaForwardOp<>, ForwardBatched>,
         Pass<ConjugacyTermsOp, LinearBatched>,
         Pass<ConjugateOp, Global>,
-        Pass<UpdateSearchOp, LinearBatched>>{
+        Pass<UpdateSearchOp, LinearBatched>,
+        Pass<ConvergenceTermsOp, LinearBatched>,
+        Pass<ConvergedOp, Global>>{
         StepJointOp{},
         StepBodyAccelerationOp{},
         ContactForceOp{},
         ConstraintForceOp{},
         LimitForceOp{},
         GradientOp{},
-        InverseInertiaBackwardOp{},
-        InverseInertiaForwardOp{},
+        InverseInertiaBackwardOp<>{},
+        InverseInertiaForwardOp<>{},
         ConjugacyTermsOp{},
         ConjugateOp{},
         UpdateSearchOp{},
+        ConvergenceTermsOp{},
+        ConvergedOp(sim_config.contact_solver.tolerance),
     };
+  }
+};
+
+// Newton's update: UpdateStep's step to alpha and its gradient, then
+// search = -H^-1 grad through H's factors, and the same convergence test.
+// With Factor it first factors H at the qacc just reached (each body's
+// active contact stiffness, then FactorHessianOp's backward pass), which
+// the solve does once, right after the warmstart; the iterations after it
+// reuse those factors.
+template <bool Factor>
+struct NewtonUpdateStep : SolverStep<NewtonUpdateStep<Factor>> {
+  static auto MakeOps(const SimConfig& sim_config, ScalarOperationT /*dt*/) {
+    using HessianBackward = InverseInertiaBackwardOp<
+        ContactSolverField::kHessianU,
+        ContactSolverField::kHessianDInv>;
+    using HessianForward = InverseInertiaForwardOp<
+        ContactSolverField::kHessianU,
+        ContactSolverField::kHessianDInv>;
+    const ConvergedOp converged(sim_config.contact_solver.tolerance);
+    if constexpr (Factor) {
+      return engine::pass::Ops<
+          Pass<StepJointOp, LinearBatched>,
+          Pass<StepBodyAccelerationOp, LinearBatched>,
+          Pass<ClearStiffnessOp, LinearBatched>,
+          Pass<ContactForceOp, PairBatched>,
+          Pass<ContactStiffnessOp, PairBatched>,
+          Pass<ConstraintForceOp, BackwardBatched>,
+          Pass<LimitForceOp, LinearBatched>,
+          Pass<GradientOp, LinearBatched>,
+          Pass<SeedHessianOp, LinearBatched>,
+          Pass<FactorHessianOp, BackwardBatched>,
+          Pass<HessianBackward, BackwardBatched>,
+          Pass<HessianForward, ForwardBatched>,
+          Pass<NewtonSearchOp, LinearBatched>,
+          Pass<ConvergedOp, Global>>{
+          StepJointOp{},
+          StepBodyAccelerationOp{},
+          ClearStiffnessOp{},
+          ContactForceOp{},
+          ContactStiffnessOp{},
+          ConstraintForceOp{},
+          LimitForceOp{},
+          GradientOp{},
+          SeedHessianOp{},
+          FactorHessianOp{},
+          HessianBackward{},
+          HessianForward{},
+          NewtonSearchOp{},
+          converged,
+      };
+    } else {
+      return engine::pass::Ops<
+          Pass<StepJointOp, LinearBatched>,
+          Pass<StepBodyAccelerationOp, LinearBatched>,
+          Pass<ContactForceOp, PairBatched>,
+          Pass<ConstraintForceOp, BackwardBatched>,
+          Pass<LimitForceOp, LinearBatched>,
+          Pass<GradientOp, LinearBatched>,
+          Pass<HessianBackward, BackwardBatched>,
+          Pass<HessianForward, ForwardBatched>,
+          Pass<NewtonSearchOp, LinearBatched>,
+          Pass<ConvergedOp, Global>>{
+          StepJointOp{},
+          StepBodyAccelerationOp{},
+          ContactForceOp{},
+          ConstraintForceOp{},
+          LimitForceOp{},
+          GradientOp{},
+          HessianBackward{},
+          HessianForward{},
+          NewtonSearchOp{},
+          converged,
+      };
+    }
   }
 };
 
@@ -192,22 +277,52 @@ struct FinishStep : SolverStep<FinishStep> {
   }
 };
 
-// One CG iteration (mj_solPrimal's loop body): the direction, the line
-// search along it, and the step.
-using Iteration = util::ConcatT<
-    util::TypeList<DirectionStep>,
-    util::RepeatListT<util::TypeList<LineSearchStep>, kLineSearchIterations>,
-    util::TypeList<UpdateStep>>;
-
-// The whole solve, for a tick's step list: set up, take the warmstart (or
-// not), kContactSolverIterations iterations, hand qacc back.
-using Solve = util::ConcatT<
-    util::TypeList<SetupStep, UpdateStep>,
-    util::RepeatListT<Iteration, kContactSolverIterations>,
-    util::TypeList<FinishStep>>;
-
 using ContactSolverAlgorithm =
     engine::Algorithm<ContactSolverField, ContactSolverFieldTraits>;
 static_assert(engine::AlgorithmLike<ContactSolverAlgorithm>);
+
+// One iteration (mj_solPrimal's loop body): the direction, the line search
+// along it, and the step, ending in the convergence test.
+template <typename Update>
+using Iteration = util::ConcatT<
+    util::TypeList<DirectionStep>,
+    util::RepeatListT<util::TypeList<LineSearchStep>, kLineSearchIterations>,
+    util::TypeList<Update>>;
+
+// The iterations: the first always runs, as in mj_solPrimal, whose test
+// follows each iteration; the rest only until converged, up to
+// kContactSolverIterations in all.
+template <typename Update>
+using Iterate = util::ConcatT<
+    Iteration<Update>,
+    util::TypeList<engine::pass::RepeatWhileStep<
+        Iteration<Update>,
+        ContactSolverAlgorithm,
+        ContactSolverField::kContinue,
+        kContactSolverIterations - 1>>>;
+
+// The whole solve, for a tick's step list: set up, take the warmstart (or
+// not), iterate, hand qacc back. Newton factors H in its first update.
+template <ContactSolver Solver>
+struct SolveList;
+template <>
+struct SolveList<ContactSolver::kNewton> {
+  using Type = util::ConcatT<
+      util::TypeList<SetupStep, NewtonUpdateStep<true>>,
+      Iterate<NewtonUpdateStep<false>>,
+      util::TypeList<FinishStep>>;
+};
+template <>
+struct SolveList<ContactSolver::kCG> {
+  using Type = util::ConcatT<
+      util::TypeList<SetupStep, UpdateStep>,
+      Iterate<UpdateStep>,
+      util::TypeList<FinishStep>>;
+};
+template <ContactSolver Solver>
+using SolveFor = typename SolveList<Solver>::Type;
+
+// The default solver's solve (SimConfig's default, MuJoCo's: Newton).
+using Solve = SolveFor<ContactSolver::kNewton>;
 
 }  // namespace achilles::algorithms::contact_solver
