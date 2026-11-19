@@ -368,7 +368,7 @@ class InertiaOperator {
   constexpr std::tuple<Matrix6x6> ToTuple() const {
     return std::make_tuple(data_);
   }
-  constexpr Matrix6x6 AsMatrix() const { return data_; }
+  constexpr const Matrix6x6& AsMatrix() const { return data_; }
   constexpr bool IsInverse() const { return Inverted; }
   constexpr Inertia<T> AsSparse() const {
     static_assert(!Inverted, "Cannot convert InverseInertia to Inertia");

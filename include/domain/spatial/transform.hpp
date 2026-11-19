@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+
 #include "domain/math/quaternion.hpp"
 #include "domain/math/vector3.hpp"
 #include "dual.hpp"
@@ -120,15 +122,36 @@ class Transform {
     return *this;
   }
 
+  // X m X^T, X = [R, t^ R; 0, R] the force transform: how a 6x6 operator
+  // from motion to force (an inertia, a stiffness) moves to this
+  // transform's destination frame. Worked block by block, with
+  // m = [A, B; C, D]:
+  //
+  //   X m X^T = [P R^T + (Q R^T) t^T,  Q R^T;
+  //              (R C) R^T + (R D R^T) t^T,  R D R^T],
+  //   P = R A + t^ (R C),  Q = R B + t^ (R D),
+  //
+  // eight 3x3 products and four cross-product passes, rather than two 6x6
+  // products.
+  //
+  // m: the operator, in this transform's source frame.
+  // Returns: the operator in its destination frame.
+  // Example: Matrix6x6 k_body = x_world.Inverse().Apply(k_world);
   constexpr math::Matrix6x6<T> Apply(const math::Matrix6x6<T>& m) const {
-    math::Matrix3x3<T> r = rotation_.ToRotationMatrix();
-    math::Matrix3x3<T> t = translation_.Skew();
-    math::Matrix6x6<T> x;
-    x.SetSubmatrix(0, 0, r);
-    x.SetSubmatrix(0, 3, t * r);
-    x.SetSubmatrix(3, 0, math::Matrix3x3<T>::Zero());
-    x.SetSubmatrix(3, 3, r);
-    return x * m * x.Transpose();
+    const math::Matrix3x3<T> r = rotation_.ToRotationMatrix();
+    const math::Matrix3x3<T> r_t = r.Transpose();
+    const math::Matrix3x3<T> rc = r * Block(m, 3, 0);
+    const math::Matrix3x3<T> rd = r * Block(m, 3, 3);
+    const math::Matrix3x3<T> p = r * Block(m, 0, 0) + CrossColumns(rc);
+    const math::Matrix3x3<T> q = r * Block(m, 0, 3) + CrossColumns(rd);
+    const math::Matrix3x3<T> top_right = q * r_t;
+    const math::Matrix3x3<T> bottom_right = rd * r_t;
+    math::Matrix6x6<T> result;
+    result.SetSubmatrix(0, 0, p * r_t + CrossRows(top_right));
+    result.SetSubmatrix(0, 3, top_right);
+    result.SetSubmatrix(3, 0, rc * r_t + CrossRows(bottom_right));
+    result.SetSubmatrix(3, 3, bottom_right);
+    return result;
   }
   constexpr SpatialVelocity<T> Apply(const SpatialVelocity<T>& v) const {
     Vector3 omega_dst = rotation_.Rotate(v.Angular());
@@ -163,6 +186,46 @@ class Transform {
   }
 
  private:
+  // The 3x3 block of m starting at (row, col).
+  static constexpr math::Matrix3x3<T> Block(
+      const math::Matrix6x6<T>& m, std::size_t row, std::size_t col
+  ) {
+    math::Matrix3x3<T> block;
+    for (std::size_t i = 0; i < 3; ++i) {
+      for (std::size_t j = 0; j < 3; ++j) {
+        block(i, j) = m(row + i, col + j);
+      }
+    }
+    return block;
+  }
+
+  // t^ y: this translation crossed with each column of y.
+  constexpr math::Matrix3x3<T> CrossColumns(const math::Matrix3x3<T>& y) const {
+    math::Matrix3x3<T> result;
+    for (std::size_t j = 0; j < 3; ++j) {
+      const Vector3 column =
+          translation_.Cross(Vector3(y(0, j), y(1, j), y(2, j)));
+      result(0, j) = column.X();
+      result(1, j) = column.Y();
+      result(2, j) = column.Z();
+    }
+    return result;
+  }
+
+  // y t^T: since t^T = -t^, row i is this translation crossed with row i
+  // of y.
+  constexpr math::Matrix3x3<T> CrossRows(const math::Matrix3x3<T>& y) const {
+    math::Matrix3x3<T> result;
+    for (std::size_t i = 0; i < 3; ++i) {
+      const Vector3 row =
+          translation_.Cross(Vector3(y(i, 0), y(i, 1), y(i, 2)));
+      result(i, 0) = row.X();
+      result(i, 1) = row.Y();
+      result(i, 2) = row.Z();
+    }
+    return result;
+  }
+
   Vector3 translation_;
   Quaternion rotation_;
 };
