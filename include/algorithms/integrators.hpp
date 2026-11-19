@@ -199,59 +199,39 @@ struct IntegratorEntry {
   IntegratorStepFn step;
 };
 
-inline constexpr std::
+// Every Integrator, in enum order. Defined in integrators.cpp, the one
+// place every tick list is instantiated: a file that includes this header
+// only to pick or name an integrator doesn't compile them all again.
+extern const std::
     array<IntegratorEntry, static_cast<std::size_t>(Integrator::kCount)>
-        kIntegrators = {{
-            {Integrator::kSemiImplicitEuler,
-             "euler",
-             &StepIntegrator<SemiImplicitEuler>},
-            {Integrator::kVelocityVerlet,
-             "verlet",
-             &StepIntegrator<VelocityVerlet>},
-            {Integrator::kImplicitMidpoint,
-             "midpoint",
-             &StepIntegrator<ImplicitMidpoint>},
-            {Integrator::kRungeKutta4, "rk4", &StepIntegrator<RungeKutta4>},
-            {Integrator::kImplicitFast,
-             "implicitfast",
-             &StepIntegrator<ImplicitFast>},
-        }};
+        kIntegrators;
 
-namespace detail {
-consteval bool IntegratorsIndexedByEnum() {
-  for (std::size_t i = 0; i < kIntegrators.size(); ++i) {
-    if (static_cast<std::size_t>(kIntegrators[i].integrator) != i) {
-      return false;
-    }
-  }
-  return true;
-}
-}  // namespace detail
-static_assert(
-    detail::IntegratorsIndexedByEnum(),
-    "kIntegrators must list every Integrator, in enum order"
-);
+// integrator's entry in kIntegrators.
+//
+// integrator: the integrator.
+// Returns: its name and tick.
+// Example: std::string_view name = EntryFor(Integrator::kRungeKutta4).name;
+const IntegratorEntry& EntryFor(Integrator integrator);
 
-constexpr const IntegratorEntry& EntryFor(Integrator integrator) {
-  return kIntegrators[static_cast<std::size_t>(integrator)];
-}
+// integrator's tick, to resolve once and call every Step().
+//
+// integrator: the integrator.
+// Returns: its tick.
+// Example: IntegratorStepFn step = StepFnFor(Integrator::kRungeKutta4);
+IntegratorStepFn StepFnFor(Integrator integrator);
 
-constexpr IntegratorStepFn StepFnFor(Integrator integrator) {
-  return EntryFor(integrator).step;
-}
-
-constexpr std::string_view NameOf(Integrator integrator) {
-  return EntryFor(integrator).name;
-}
+// integrator's name in kIntegrators.
+//
+// integrator: the integrator.
+// Returns: its name, e.g. "rk4".
+// Example: std::cout << NameOf(Integrator::kRungeKutta4);
+std::string_view NameOf(Integrator integrator);
 
 // The Integrator called `name` (kIntegrators' names), or std::nullopt.
-constexpr std::optional<Integrator> IntegratorFromName(std::string_view name) {
-  for (const IntegratorEntry& entry : kIntegrators) {
-    if (entry.name == name) {
-      return entry.integrator;
-    }
-  }
-  return std::nullopt;
-}
+//
+// name: an integrator's name, e.g. "rk4".
+// Returns: that integrator, or std::nullopt for an unknown name.
+// Example: auto rk4 = IntegratorFromName("rk4");
+std::optional<Integrator> IntegratorFromName(std::string_view name);
 
 }  // namespace achilles::algorithms

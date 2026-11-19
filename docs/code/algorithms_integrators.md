@@ -23,10 +23,18 @@ also holds the setup list run once at init, and the table that turns an
 - Sensing runs once per tick, at the tick's starting state, after any solve
   and before anything integrates.
 - `kIntegrators` is indexed by the enum; a `static_assert` checks the order.
+- `kIntegrators` and its lookups are defined in `integrators.cpp`, the only
+  place every tick list is instantiated. The header declares them, so a file
+  that includes it to pick or name an integrator doesn't compile every tick
+  again.
 - `Setup` runs ABA at the initial pose before the contact solver's
   `InvWeightStep` and before the attachments start.
 
 ## Pitfalls
+
+- Defining the table or a lookup back in the header makes every file that
+  includes it compile all the tick lists again: about 3.5 s and 1 GB per
+  file.
 
 - Only `SemiImplicitEuler` (and `ImplicitFast`, which equals it) runs the
   collision pipeline and contact solver. The other integrators have no
