@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <filesystem>
@@ -16,6 +17,8 @@
 #include "algorithms/sim_config.hpp"
 #include "domain/archetype/archetype.hpp"
 #include "domain/archetype/archetype_set.hpp"
+#include "domain/attachment/sim_quantities.hpp"
+#include "domain/joint_data.hpp"
 #include "engine/memory/sim_allocator.hpp"
 #include "engine/topology/orderings.hpp"
 #include "interface/archetype_loader.hpp"
@@ -909,4 +912,105 @@ TEST(SimulationClock, FailedStepLeavesTimeAlone) {
   Simulation sim;
   EXPECT_FALSE(sim.Step(0.01F));
   EXPECT_EQ(sim.Time(), 0.0);
+}
+
+namespace {
+
+// A planar pendulum link (unit mass, center 0.5 along its own x) on a
+// revolute-z joint at `x` along its parent's x, at angle q0, as the
+// fields: block of an .arow joint, indented `pad`.
+std::string PendulumLinkFields(float x, float q0, const std::string& pad) {
+  std::ostringstream out;
+  out << pad << "joint_subspace: [0,0,0,0,0,0,0,0,0,0,0,0,1,"
+      << "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]\n"
+      << pad << "joint_activation_mask: [1]\n"
+      << pad << "fixed_joint_transform: [" << x << ",0,0, 1,0,0,0]\n"
+      << pad << "rigid_body_inertia: [1, 0.5,0,0, 0.01,0.26,0.26, 0,0,0]\n"
+      << pad << "joint_position: [0,0,0, " << std::cos(q0 * 0.5F) << ", 0,0, "
+      << std::sin(q0 * 0.5F) << "]\n"
+      << pad << "joint_velocity: [0.5, 0,0,0,0,0]\n";
+  return out.str();
+}
+
+// joint_position's leaves for angle q0, as a per_copy entry.
+std::string PendulumPosition(float q0) {
+  std::ostringstream out;
+  out << "[0,0,0, " << std::cos(q0 * 0.5F) << ", 0,0, " << std::sin(q0 * 0.5F)
+      << "]";
+  return out.str();
+}
+
+constexpr std::array<float, 3> kArmAngles = {0.3F, -0.7F, 1.1F};
+
+float Qdd(Simulation& sim, const achilles::domain::JointAddress& joint) {
+  namespace input = achilles::domain::attachment::input;
+  return sim.State<const input::JointAcceleration>(joint).Read()[0];
+}
+
+}  // namespace
+
+// Three arms hung off one hub as copies of one archetype (their angles per
+// copy) step exactly like the same arms written as three sibling joints:
+// the copies share a lane group whose lanes all read the hub, broadcast,
+// and sum their reactions into it -- only the three real lanes, never the
+// padding beside them.
+TEST(SimulationCopies, CopiesOnOneJointStepLikeSiblingJoints) {
+  TempDir dir;
+  std::filesystem::path config = dir.Write(
+      "config.yaml",
+      "base_acceleration: {angular: [0,0,0], linear: [0,9.8,0]}\n"
+  );
+  std::string siblings =
+      "archetype: scene\njoints:\n  - name: hub\n    fields:\n" +
+      PendulumLinkFields(0.0F, 0.2F, "      ");
+  for (std::size_t i = 0; i < kArmAngles.size(); ++i) {
+    siblings += "  - name: arm" + std::to_string(i) +
+                "\n    parent: hub\n    fields:\n" +
+                PendulumLinkFields(1.0F, kArmAngles[i], "      ");
+  }
+  std::filesystem::path sibling_file = dir.Write("siblings.arow", siblings);
+
+  std::string arm_fields = PendulumLinkFields(1.0F, 0.0F, "      ");
+  arm_fields = arm_fields.substr(0, arm_fields.find("      joint_position"));
+  dir.Write(
+      "arm.arow",
+      "archetype: arm\ncopies: 3\nattach: {archetype: scene, joint: hub}\n"
+      "joints:\n  - name: body\n    fields:\n" +
+          arm_fields + "      joint_position: {per_copy: [" +
+          PendulumPosition(kArmAngles[0]) + ", " +
+          PendulumPosition(kArmAngles[1]) + ", " +
+          PendulumPosition(kArmAngles[2]) +
+          "]}\n      joint_velocity: [0.5, 0,0,0,0,0]\n"
+  );
+  std::filesystem::path copy_file = dir.Write(
+      "copies.arow",
+      "archetype: scene\nincludes: [arm.arow]\njoints:\n  - name: hub\n"
+      "    fields:\n" +
+          PendulumLinkFields(0.0F, 0.2F, "      ")
+  );
+
+  Simulation as_siblings;
+  ASSERT_TRUE(as_siblings.LoadArowFile(sibling_file.string()));
+  ASSERT_TRUE(as_siblings.LoadConfigFile(config.string()));
+  ASSERT_TRUE(as_siblings.Init());
+  Simulation as_copies;
+  ASSERT_TRUE(as_copies.LoadArowFile(copy_file.string()));
+  ASSERT_TRUE(as_copies.LoadConfigFile(config.string()));
+  ASSERT_TRUE(as_copies.Init());
+  ASSERT_TRUE(as_siblings.Step(0.001F));
+  ASSERT_TRUE(as_copies.Step(0.001F));
+
+  EXPECT_NEAR(
+      Qdd(as_copies, {"scene", "hub", 0}),
+      Qdd(as_siblings, {"scene", "hub", 0}),
+      1e-4F
+  );
+  for (std::size_t i = 0; i < kArmAngles.size(); ++i) {
+    EXPECT_NEAR(
+        Qdd(as_copies, {"arm", "body", i}),
+        Qdd(as_siblings, {"scene", "arm" + std::to_string(i), 0}),
+        1e-4F
+    ) << "arm "
+      << i;
+  }
 }

@@ -141,9 +141,7 @@ struct RowTraversal {
   ) {
     const size_t end = Range::template End<Stride>(rows);
     for (size_t j = Range::template Begin<Stride>(rows); j < end; ++j) {
-      Scan::template Visit<Stride>(
-          callable, rows, j, Source::template Of<Stride>(rows, j), rest...
-      );
+      VisitGroup(callable, rows, j, rest...);
     }
   }
 
@@ -154,9 +152,7 @@ struct RowTraversal {
   ) {
     const size_t begin = Range::template Begin<Stride>(rows);
     for (size_t j = Range::template End<Stride>(rows); j-- > begin;) {
-      Scan::template Visit<Stride>(
-          callable, rows, j, Source::template Of<Stride>(rows, j), rest...
-      );
+      VisitGroup(callable, rows, j, rest...);
     }
   }
 
@@ -169,6 +165,33 @@ struct RowTraversal {
         Scan::HasWork(rest...)) {
       callable.Initialize(Source::template InitRow<Stride>(rows));
     }
+  }
+
+ private:
+  // Group j, handed its source -- as one broadcast row when the Source says
+  // the group's lanes share it (ParentSource::SharesParent), which the
+  // topology fixes at load, so the choice never depends on tick data.
+  template <typename Callable, typename Rows, typename... Rest>
+  static constexpr void VisitGroup(
+      const Callable& callable, const Rows& rows, size_t j, const Rest&... rest
+  ) {
+    if constexpr (Stride > 1 && requires {
+                    Source::template SharesParent<Stride>(rows, j);
+                  }) {
+      if (Source::template SharesParent<Stride>(rows, j)) {
+        Scan::template Visit<Stride>(
+            callable,
+            rows,
+            j,
+            Source::template SharedParent<Stride>(rows, j),
+            rest...
+        );
+        return;
+      }
+    }
+    Scan::template Visit<Stride>(
+        callable, rows, j, Source::template Of<Stride>(rows, j), rest...
+    );
   }
 };
 

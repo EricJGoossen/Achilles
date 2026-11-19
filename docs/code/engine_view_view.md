@@ -24,7 +24,8 @@ buffering and ordering, so fields with different policies sit side by side.
 - An index means a row for a scalar shape and a lane group for a batch shape.
   Callers must pass the matching unit.
 - A broadcast input splats one row to every lane; a broadcast output starts
-  from zero and stores as `row += sum of lanes`, read at store time.
+  from zero and stores as `row += sum of the lanes BroadcastIndex::lanes
+  names` (all of them by default), read at store time.
 - A field holding whole records hands them to ops in place, not copied.
 
 ## Pitfalls

@@ -84,9 +84,11 @@
 // interface/attachments.hpp).
 //
 // A field must be given on either every joint of an archetype or none of
-// them (no partial coverage -- see BuildField below), and every instance
-// of an archetype shares the exact same per-joint field values; `copies`
-// only repeats the shape, it never varies the data.
+// them (no partial coverage -- see BuildField below). Every instance of an
+// archetype shares a joint's field value, unless the value is written
+// {per_copy: [v_0, v_1, ...]}: then copy i gets v_i. That's how sibling
+// bodies that differ only in their values (the rollers around a wheel) can
+// be one archetype's copies, and so share SIMD lanes.
 //
 // Static joints aren't supported yet -- every joint this loader produces
 // is non-static, matching Ordering, which has no
@@ -105,7 +107,9 @@ namespace {
 struct ParsedJoint {
   std::string name;
   std::string parent_name;  // empty => this joint is its archetype's root
-  std::vector<std::pair<std::string, std::vector<double>>> fields;
+  // Per field: one value list shared by every copy, or one per copy (a
+  // field given as {per_copy: [...]}).
+  std::vector<std::pair<std::string, std::vector<std::vector<double>>>> fields;
 };
 
 // A sensor or an actuator: the two are declared the same way.
@@ -221,6 +225,38 @@ void ParseAttach(const YAML::Node& doc, ParsedArchetype& parsed) {
   parsed.attach_joint = attach_joint.as<std::string>();
 }
 
+// A field's values: one list every copy shares, or, for a value written
+// {per_copy: [v_0, v_1, ...]}, one list per copy, in copy order. A
+// per_copy list must have exactly `copies` entries.
+std::vector<std::vector<double>> ParseFieldValues(
+    const YAML::Node& node,
+    const ParsedArchetype& parsed,
+    const std::string& where
+) {
+  std::vector<std::vector<double>> result;
+  if (node.IsMap() && node.size() == 1 && node["per_copy"]) {
+    YAML::Node per_copy = node["per_copy"];
+    if (!per_copy.IsSequence() || per_copy.size() != parsed.copies) {
+      Fail(
+          parsed.source_file,
+          "archetype '" + parsed.name + "': '" + where +
+              "' per_copy must list one value for each of its " +
+              std::to_string(parsed.copies) + " copies."
+      );
+    }
+    for (const auto& copy : per_copy) {
+      std::vector<double> values;
+      FlattenNode(copy, parsed.source_file, values);
+      result.push_back(std::move(values));
+    }
+    return result;
+  }
+  std::vector<double> values;
+  FlattenNode(node, parsed.source_file, values);
+  result.push_back(std::move(values));
+  return result;
+}
+
 ParsedJoint ParseJoint(
     const YAML::Node& joint_node, const ParsedArchetype& parsed
 ) {
@@ -238,10 +274,12 @@ ParsedJoint ParseJoint(
   }
   if (YAML::Node fields = joint_node["fields"]; fields && fields.IsMap()) {
     for (const auto& field_entry : fields) {
-      std::vector<double> values;
-      FlattenNode(field_entry.second, parsed.source_file, values);
+      const auto field_name = field_entry.first.as<std::string>();
       joint.fields.emplace_back(
-          field_entry.first.as<std::string>(), std::move(values)
+          field_name,
+          ParseFieldValues(
+              field_entry.second, parsed, joint.name + "." + field_name
+          )
       );
     }
   }
@@ -498,6 +536,43 @@ std::vector<std::size_t> BuildTreeStructure(const ParsedArchetype& archetype) {
 // defined source, which BuildTreeStructure's own caller has no reasonable
 // default for. Returns every such field, broadcasting each joint's one-instance
 // values across every one of the archetype's `copies`.
+// `joint`'s value lists for `field_name`, checking every one has the
+// field's leaf count: `scalars_per_leaf`, or, while that's still 0, setting
+// it from the first.
+const std::vector<std::vector<double>>& JointFieldValues(
+    const ParsedArchetype& archetype,
+    const ParsedJoint& joint,
+    const std::string& field_name,
+    std::size_t& scalars_per_leaf
+) {
+  auto it = std::find_if(
+      joint.fields.begin(),
+      joint.fields.end(),
+      [&](const auto& entry) { return entry.first == field_name; }
+  );
+  if (it == joint.fields.end()) {
+    Fail(
+        archetype.source_file,
+        "archetype '" + archetype.name + "': field '" + field_name +
+            "' is declared on some joints but not joint '" + joint.name + "'."
+    );
+  }
+  for (const std::vector<double>& copy_values : it->second) {
+    if (scalars_per_leaf == 0) {
+      scalars_per_leaf = copy_values.size();
+    } else if (copy_values.size() != scalars_per_leaf) {
+      Fail(
+          archetype.source_file,
+          "archetype '" + archetype.name + "': field '" + field_name +
+              "' has " + std::to_string(copy_values.size()) +
+              " values on joint '" + joint.name + "' but " +
+              std::to_string(scalars_per_leaf) + " elsewhere."
+      );
+    }
+  }
+  return it->second;
+}
+
 std::vector<domain::JointField> BuildFields(const ParsedArchetype& archetype) {
   // Every field any joint declares, in the order first declared -- not just
   // the first joint's, or a field it lacks would be dropped from every
@@ -514,42 +589,28 @@ std::vector<domain::JointField> BuildFields(const ParsedArchetype& archetype) {
 
   std::vector<domain::JointField> result;
   for (const std::string& field_name : field_order) {
+    // Each joint's value lists for this field: one shared, or one per copy.
+    std::vector<const std::vector<std::vector<double>>*> joint_values;
+    joint_values.reserve(archetype.joints.size());
     std::size_t scalars_per_leaf = 0;
-    std::vector<double> per_instance;  // joint-major, leaf-minor
     for (const ParsedJoint& joint : archetype.joints) {
-      auto it = std::find_if(
-          joint.fields.begin(),
-          joint.fields.end(),
-          [&](const auto& entry) { return entry.first == field_name; }
-      );
-      if (it == joint.fields.end()) {
-        Fail(
-            archetype.source_file,
-            "archetype '" + archetype.name + "': field '" + field_name +
-                "' is declared on some joints but not joint '" + joint.name +
-                "'."
-        );
-      }
-      if (scalars_per_leaf == 0) {
-        scalars_per_leaf = it->second.size();
-      } else if (it->second.size() != scalars_per_leaf) {
-        Fail(
-            archetype.source_file,
-            "archetype '" + archetype.name + "': field '" + field_name +
-                "' has " + std::to_string(it->second.size()) +
-                " values on joint '" + joint.name + "' but " +
-                std::to_string(scalars_per_leaf) + " on an earlier joint."
-        );
-      }
-      per_instance.insert(
-          per_instance.end(), it->second.begin(), it->second.end()
+      joint_values.push_back(
+          &JointFieldValues(archetype, joint, field_name, scalars_per_leaf)
       );
     }
 
+    // Instance-major, then joint, then leaf: a shared list repeats for every
+    // copy, a per_copy list gives copy i its own.
     std::vector<double> values;
-    values.reserve(per_instance.size() * archetype.copies);
+    values.reserve(
+        scalars_per_leaf * archetype.joints.size() * archetype.copies
+    );
     for (std::size_t instance = 0; instance < archetype.copies; ++instance) {
-      values.insert(values.end(), per_instance.begin(), per_instance.end());
+      for (const auto* lists : joint_values) {
+        const std::vector<double>& copy_values =
+            lists->size() == 1 ? lists->front() : (*lists)[instance];
+        values.insert(values.end(), copy_values.begin(), copy_values.end());
+      }
     }
     result.push_back(
         domain::JointField{field_name, scalars_per_leaf, std::move(values)}

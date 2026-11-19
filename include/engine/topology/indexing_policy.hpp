@@ -2,6 +2,7 @@
 
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <tuple>
 #include <type_traits>
 
@@ -28,8 +29,13 @@ namespace achilles::engine::topology {
 // adds what each lane group contributes to its broadcast source row, or any
 // pass adds into a GlobalIndexing field below (a lane-group reduction on a
 // CPU, an atomic or segmented one on a GPU).
+//
+// `lanes` limits that sum to the lanes it names (bit i for lane i): a tree
+// pass whose lane group shares one parent row sums only its real rows into
+// it, never its padding.
 struct BroadcastIndex {
   std::size_t row;
+  std::uint64_t lanes = ~std::uint64_t{0};
 };
 
 // The index-space seam: which instances a field holds one value per, and

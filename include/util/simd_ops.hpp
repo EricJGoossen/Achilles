@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <type_traits>
 #include <xsimd/xsimd.hpp>
 
@@ -71,14 +72,29 @@ inline void SimdStore(ElemT* ptr, std::size_t idx, T val) {
 
 // ptr[0] += the sum of val's lanes -- every lane of a batch folded into
 // one element. For a scalar T this is just ptr[0] += val.
+//
+// lanes: which lanes to fold in, bit i for lane i; the rest add nothing.
 template <typename T, typename ElemT>
   requires(xsimd::is_batch<T>::value)
-inline void SimdAccumulate(ElemT* ptr, T val) {
+inline void SimdAccumulate(
+    ElemT* ptr, T val, std::uint64_t lanes = ~std::uint64_t{0}
+) {
+  constexpr std::uint64_t kAll = (std::uint64_t{1} << T::size) - 1;
+  if ((lanes & kAll) != kAll) {
+    using Bool = typename T::batch_bool_type;
+    val = xsimd::select(
+        Bool::from_mask(lanes & kAll), val, T(typename T::value_type{0})
+    );
+  }
   *ptr += xsimd::reduce_add(val);
 }
 template <typename T, typename ElemT>
-inline void SimdAccumulate(ElemT* ptr, T val) {
-  *ptr += val;
+inline void SimdAccumulate(
+    ElemT* ptr, T val, std::uint64_t lanes = ~std::uint64_t{0}
+) {
+  if ((lanes & 1U) != 0) {
+    *ptr += val;
+  }
 }
 
 template <bool IsBatch, typename T>

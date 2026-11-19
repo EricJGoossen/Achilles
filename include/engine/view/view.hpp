@@ -317,13 +317,14 @@ class View {
       );
     }
 
-    // row += (sum of value's lanes) -- see topology::BroadcastIndex.
-    // Read-modify-write at store time, so it lands on top of anything
-    // stored into the same memory earlier in the same call.
+    // row += (sum of value's lanes in index.lanes) -- see
+    // topology::BroadcastIndex. Read-modify-write at store time, so it
+    // lands on top of anything stored into the same memory earlier in the
+    // same call.
     template <FieldShapeLike T>
     void Store(topology::BroadcastIndex index, const Value<F, T>& value) const {
       Assembler<F>::template Accumulate<T, FieldLayout<F>>(
-          ElementAt<T>(index.row), stride_, value
+          ElementAt<T>(index.row), stride_, value, index.lanes
       );
     }
 
