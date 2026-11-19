@@ -110,7 +110,10 @@ CONFIG_HASH="$(cat "$ROOT_DIR/.clang-tidy" "$ROOT_DIR/tests/.clang-tidy" "${BASH
 # CMakeLists.txt, not edited here, and hashing them on every run would be
 # pure overhead.
 project_deps_of() {
-    clang++ "${DEP_ARGS[@]}" -M "$1" 2>/dev/null \
+    # stderr stays visible: the scan fails only when a header is missing
+    # (a new dependency DEP_ARGS lacks), and pipefail then stops the
+    # script, so clang's message is the only clue to which file and why.
+    clang++ "${DEP_ARGS[@]}" -M "$1" \
         | sed 's/^[^:]*://' \
         | tr -d '\\' \
         | tr -s ' \t\n' '\n' \

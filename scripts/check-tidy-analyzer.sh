@@ -63,7 +63,10 @@ CONFIG_HASH="$(cat "$CONFIG_FILE" "${BASH_SOURCE[0]}" | sha256sum | awk '{print 
 # See check-tidy.sh for why this is exact (via the preprocessor) rather
 # than a guess, and why third-party headers are excluded from hashing.
 project_deps_of() {
-    clang++ "${DEP_ARGS[@]}" -M "$1" 2>/dev/null \
+    # stderr stays visible: the scan fails only when a header is missing
+    # (a new dependency DEP_ARGS lacks), and pipefail then stops the
+    # script, so clang's message is the only clue to which file and why.
+    clang++ "${DEP_ARGS[@]}" -M "$1" \
         | sed 's/^[^:]*://' \
         | tr -d '\\' \
         | tr -s ' \t\n' '\n' \
