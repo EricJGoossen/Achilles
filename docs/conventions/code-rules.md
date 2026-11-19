@@ -19,8 +19,11 @@
 - A helper used by only one object lives inside it, as a static or private
   member, never as a free function in `detail`. A helper shared by several
   objects gets its own place, preferably as a method on a type.
-- Each folder has its own namespace and each namespace its own folder; only
-  `detail` is exempt.
+- Each folder has its own namespace, and a file's namespace matches its
+  folder.
+- A file may also have its own namespace, inside its folder's and named
+  after the file. This should be rare.
+- `detail` is exempt from both.
 - No two files share a name, even in different folders.
 - A file gets a `.cpp` when it has more than 100 lines of non-trivial logic.
   Trivial logic is methods of 1-2 lines, getters, setters and methods that

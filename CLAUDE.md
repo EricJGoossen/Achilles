@@ -15,13 +15,17 @@ To find where something lives, read [docs/file-tree.md](docs/file-tree.md).
 - On `EricG/` branches, make zero design decisions unless asked.
 - Never build unbounded (see building-and-testing).
 - Format every changed file before every report back (see workflow).
+- State the expected runtime effect of every edit you propose (see
+  workflow).
+- Push if useful, but never open a PR or MR.
 - Check `git branch --show-current` before changing anything.
 
 ## Conventions
 
 | Doc | Read when |
 |---|---|
-| [workflow](docs/conventions/workflow.md) | Starting work, committing, making blocks or PRs |
+| [workflow](docs/conventions/workflow.md) | Starting work, proposing edits, committing, making blocks, handling review |
+| [pull-requests](docs/conventions/pull-requests.md) | Finishing a branch, or drafting a PR or issue |
 | [building-and-testing](docs/conventions/building-and-testing.md) | Building, running checks or tests |
 | [testing](docs/conventions/testing.md) | Writing or changing tests |
 | [examples](docs/conventions/examples.md) | Adding or changing examples |
@@ -43,7 +47,4 @@ To find where something lives, read [docs/file-tree.md](docs/file-tree.md).
 
 ## Planned
 
-- A check script for include direction, folder depth, unique file names and
-  namespaces.
-- A doc for handling review comments.
 - Defining the public API.

@@ -231,6 +231,8 @@ Mirrors `include/`; see the `(.cpp)` marks above.
 
 - `check-format.sh`, `check-tidy.sh`, `check-tidy-analyzer.sh`: format,
   lint and static analysis checks.
+- `check-conventions.py`: checks the rules in `docs/conventions/` that a
+  script can check exactly.
 - `run-<name>.sh`: builds and runs one example.
 - `validate-long-horizon.sh`: long ABA validation against the closed-form
   double pendulum.
