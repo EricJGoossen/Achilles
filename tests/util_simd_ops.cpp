@@ -93,3 +93,16 @@ TEST(SimdAccumulate, TouchesOnlyTheFirstElement) {
   EXPECT_FLOAT_EQ(stored[1], 2.0F);
   EXPECT_FLOAT_EQ(stored[2], 3.0F);
 }
+
+// SimdAccumulate's lane mask: only the named lanes fold in, so a reduction
+// can leave out a group's padding lanes.
+TEST(SimdAccumulate, FoldsInOnlyTheNamedLanes) {
+  using B = xsimd::batch<float>;
+  std::array<float, B::size> lanes{};
+  for (std::size_t i = 0; i < B::size; ++i) {
+    lanes[i] = static_cast<float>(i + 1);
+  }
+  float sum = 10.0F;
+  achilles::util::SimdAccumulate(&sum, B::load_unaligned(lanes.data()), 0b101U);
+  EXPECT_FLOAT_EQ(sum, 10.0F + 1.0F + 3.0F);
+}
