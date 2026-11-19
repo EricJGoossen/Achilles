@@ -4,10 +4,12 @@
 // started (no display server, as on a headless CI runner).
 #include <gtest/gtest.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "achilles/build_config.hpp"
@@ -61,8 +63,9 @@ void LoadMaze(Simulation& sim) {
 
 // A frame with something of everything a window draws.
 struct Everything {
-  std::vector<std::uint8_t> rgb = std::vector<std::uint8_t>(3U * 4U * 2U, 200);
-  std::vector<float> values = std::vector<float>(4U * 2U, 0.5F);
+  std::vector<std::uint8_t> rgb =
+      std::vector<std::uint8_t>(std::size_t{3} * 4 * 2, 200);
+  std::vector<float> values = std::vector<float>(std::size_t{4} * 2, 0.5F);
   Frame frame;
 
   explicit Everything(double time) {

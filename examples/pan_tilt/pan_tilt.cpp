@@ -16,7 +16,6 @@
 #include <iostream>
 #include <span>
 #include <string>
-#include <tuple>
 
 #include "../shared/flying_camera.hpp"
 #include "display/renderer.hpp"

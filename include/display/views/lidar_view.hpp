@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <numbers>
 #include <string_view>
-#include <utility>
 
 #include "display/contract/display.hpp"
 #include "display/contract/frame.hpp"
@@ -25,7 +24,7 @@ class LidarView final : public IDisplay {
   static constexpr float kHeight = 520.0F;
 
   explicit LidarView(interface::SensorHandle<domain::sensing::Lidar> lidar)
-      : lidar_(std::move(lidar)) {}
+      : lidar_(lidar) {}
 
   void Draw(Frame* out) const override {
     const domain::sensing::Lidar::Params params = lidar_.Config().GetParams();

@@ -2,7 +2,6 @@
 
 #include <numbers>
 #include <optional>
-#include <utility>
 
 #include "display/contract/controller.hpp"
 #include "display/contract/input.hpp"
@@ -64,21 +63,16 @@ class FlyCamera final
   };
 
   FlyCamera(Joint joint, Placement placement, const Pose& joint_from_camera)
-      : FlyCamera(
-            std::move(joint),
-            std::move(placement),
-            joint_from_camera,
-            Settings{}
-        ) {}
+      : FlyCamera(joint, placement, joint_from_camera, Settings{}) {}
   FlyCamera(
       Joint joint,
       Placement placement,
       const Pose& joint_from_camera,
       Settings settings
   )
-      : Controller(std::move(joint)),
+      : Controller(joint),
         settings(settings),
-        placement_(std::move(placement)),
+        placement_(placement),
         joint_from_camera_(joint_from_camera),
         camera_from_joint_(joint_from_camera.Inverse()) {}
 

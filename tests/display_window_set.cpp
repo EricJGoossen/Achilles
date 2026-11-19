@@ -3,10 +3,10 @@
 // -- all without a screen: nothing here draws.
 #include <gtest/gtest.h>
 
+#include <cstddef>
 #include <optional>
 #include <stdexcept>
 #include <string>
-#include <tuple>
 #include <utility>
 
 #include "display/contract/controller.hpp"
@@ -50,7 +50,7 @@ class Steer final
     : public Controller<AngularActuator, StateHandle<input::JointVelocity>> {
  public:
   Steer(AngularActuator motor, StateHandle<input::JointVelocity> wheel)
-      : Controller(std::move(motor), std::move(wheel)) {}
+      : Controller(motor, wheel) {}
 
   float effort = 1.5F;
   float spin = 3.0F;
@@ -97,10 +97,10 @@ class Windows : public ::testing::Test {
     );
   }
   Steer SteerOf(const std::string& wheel) const {
-    return Steer(
+    return {
         sim_.Actuator<achilles::interface::truth::Torque>(wheel + "_motor"),
         Wheel(wheel)
-    );
+    };
   }
 
   float LastEffort(const std::string& motor) const {

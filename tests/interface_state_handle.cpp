@@ -12,6 +12,7 @@
 
 #include "domain/attachment/sim_quantities.hpp"
 #include "domain/joint_data.hpp"
+#include "domain/math/scalar.hpp"
 #include "domain/math/vector3.hpp"
 #include "domain/spatial/transform.hpp"
 #include "interface/simulation.hpp"

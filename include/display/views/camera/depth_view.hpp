@@ -4,7 +4,6 @@
 #include <optional>
 #include <span>
 #include <string_view>
-#include <utility>
 
 #include "display/contract/display.hpp"
 #include "display/contract/frame.hpp"
@@ -25,7 +24,7 @@ class DepthView final : public IDisplay {
   static constexpr float kHeight = 540.0F;
 
   explicit DepthView(interface::SensorHandle<domain::sensing::Camera> camera)
-      : camera_(std::move(camera)) {}
+      : camera_(camera) {}
 
   void Draw(Frame* out) const override {
     const std::optional<CameraImage> latest = CameraImage::Latest(camera_, out);

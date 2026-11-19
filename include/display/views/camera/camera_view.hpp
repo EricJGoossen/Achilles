@@ -6,7 +6,6 @@
 #include <optional>
 #include <span>
 #include <string_view>
-#include <utility>
 
 #include "display/contract/display.hpp"
 #include "display/contract/frame.hpp"
@@ -37,11 +36,11 @@ class BasicCameraView final : public IDisplay {
   explicit BasicCameraView(
       interface::SensorHandle<domain::sensing::Camera> camera
   )
-      : BasicCameraView(std::move(camera), Settings{}) {}
+      : BasicCameraView(camera, Settings{}) {}
   BasicCameraView(
       interface::SensorHandle<domain::sensing::Camera> camera, Settings settings
   )
-      : settings(settings), camera_(std::move(camera)) {}
+      : settings(settings), camera_(camera) {}
 
   Settings settings;
 
