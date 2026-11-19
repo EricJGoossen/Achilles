@@ -1,3 +1,6 @@
+// Runs every sensor and actuator kind, and starts them at init.
+// Doc: docs/code/algorithms_attachment_attachment_step.md
+
 #pragma once
 
 #include "algorithms/attachment/attachment_data.hpp"

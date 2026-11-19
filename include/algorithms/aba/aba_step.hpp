@@ -1,3 +1,6 @@
+// ABA's steps: the three dynamics passes, and the torque swap.
+// Doc: docs/code/algorithms_aba_aba_step.md
+
 #pragma once
 
 #include "aba_data.hpp"

@@ -1,3 +1,6 @@
+// Builds the arena and the SimContext from the archetypes at init.
+// Doc: docs/code/engine_memory_sim_allocator.md
+
 #pragma once
 
 #include <algorithm>

@@ -1,3 +1,6 @@
+// The tags that make fields of different algorithms one block.
+// Doc: docs/code/algorithms_shared_slots.md
+
 #pragma once
 
 namespace achilles::algorithms {

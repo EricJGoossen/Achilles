@@ -1,3 +1,6 @@
+// An algorithm's typed access to its fields.
+// Doc: docs/code/engine_view_view.md
+
 #pragma once
 
 #include <array>

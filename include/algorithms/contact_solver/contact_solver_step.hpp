@@ -1,3 +1,6 @@
+// The contact solver's stages, run as step lists.
+// Doc: docs/code/algorithms_contact_solver_contact_solver_step.md
+
 #pragma once
 
 #include "algorithms/contact_solver/contact_solver_data.hpp"

@@ -1,3 +1,6 @@
+// The ordering policies: linear, topological, list, pair.
+// Doc: docs/code/engine_topology_orderings.md
+
 #pragma once
 
 #include <cstddef>

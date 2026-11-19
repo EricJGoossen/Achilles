@@ -1,3 +1,6 @@
+// The tick lists, the setup list and integrator selection.
+// Doc: docs/code/algorithms_integrators.md
+
 #pragma once
 
 #include <array>

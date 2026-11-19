@@ -1,3 +1,6 @@
+// Calls an op with the field values a traversal points at.
+// Doc: docs/code/engine_pass_op_invoker.md
+
 #pragma once
 
 #include <algorithm>

@@ -1,3 +1,6 @@
+// Each row's parent or link, plus segmented and pair topologies.
+// Doc: docs/code/domain_joint_topology.md
+
 #pragma once
 
 #include <cassert>

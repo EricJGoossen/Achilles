@@ -1,3 +1,6 @@
+// Reads each field's traits: sharing, ordering, indexing, layout, buffering.
+// Doc: docs/code/engine_memory_binding.md
+
 #pragma once
 
 #include <concepts>

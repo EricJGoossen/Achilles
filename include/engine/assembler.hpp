@@ -1,3 +1,6 @@
+// Converts domain types to and from flat scalar leaves.
+// Doc: docs/code/engine_assembler.md
+
 #pragma once
 
 #include <bit>

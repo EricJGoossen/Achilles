@@ -1,3 +1,6 @@
+// Single and double buffering for a field's block.
+// Doc: docs/code/engine_memory_buffering_policy.md
+
 #pragma once
 
 #include <bit>

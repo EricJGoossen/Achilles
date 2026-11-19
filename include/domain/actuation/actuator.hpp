@@ -1,3 +1,6 @@
+// The base every actuator kind is written in.
+// Doc: docs/code/domain_actuation_actuator.md
+
 #pragma once
 
 #include <cmath>

@@ -1,3 +1,6 @@
+// Holds every view and topology, and runs step lists.
+// Doc: docs/code/engine_pass_sim_context.md
+
 #pragma once
 
 #include <cstddef>

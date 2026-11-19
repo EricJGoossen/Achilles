@@ -1,3 +1,6 @@
+// A raw handle on one sim quantity at one joint.
+// Doc: docs/code/interface_state_handle.md
+
 #pragma once
 
 #include <concepts>

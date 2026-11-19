@@ -1,3 +1,6 @@
+// The registered sensor and actuator kinds.
+// Doc: docs/code/algorithms_attachment_kinds_attachment_kinds.md
+
 #pragma once
 
 #include <type_traits>

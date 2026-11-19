@@ -1,3 +1,6 @@
+// Binds each sim quantity to the field that holds it.
+// Doc: docs/code/algorithms_attachment_kinds_sim_input.md
+
 #pragma once
 
 #include <type_traits>

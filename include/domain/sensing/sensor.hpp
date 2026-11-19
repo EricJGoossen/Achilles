@@ -1,3 +1,6 @@
+// The base every sensor kind is written in.
+// Doc: docs/code/domain_sensing_sensor.md
+
 #pragma once
 
 #include <cstddef>

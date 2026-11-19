@@ -1,3 +1,6 @@
+// The handle for one sensor or actuator.
+// Doc: docs/code/interface_attachment_handle.md
+
 #pragma once
 
 #include <concepts>

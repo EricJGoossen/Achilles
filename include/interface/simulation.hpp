@@ -1,3 +1,6 @@
+// The Simulation object: load, init, step, and handle lookups.
+// Doc: docs/code/interface_simulation.md
+
 #pragma once
 
 #include <cstddef>

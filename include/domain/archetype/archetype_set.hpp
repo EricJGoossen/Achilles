@@ -1,3 +1,6 @@
+// Every archetype together: name lookups and instance numbering.
+// Doc: docs/code/domain_archetype_archetype_set.md
+
 #pragma once
 
 #include <algorithm>

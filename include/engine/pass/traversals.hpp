@@ -1,3 +1,6 @@
+// Row, tree, linear, segment and pair traversals.
+// Doc: docs/code/engine_pass_traversals.md
+
 #pragma once
 
 #include <concepts>
