@@ -13,7 +13,8 @@ integrator.
 - `Init` builds the sim with `engine::memory::SimAllocatorForT` over the
   hosting list, configures every attachment (`interface/attachments.hpp`),
   then runs `algorithms::Setup`.
-- `Step` calls the integrator function resolved by `SetIntegrator`
+- `Step` calls the tick resolved by `SetIntegrator` and `LoadConfigFile`,
+  for the integrator and the config's contact solver
   (`algorithms/integrators.hpp`).
 - `Sensor`, `Actuator` and `State` build handles
   (`attachment_handle.hpp`, `state_handle.hpp`) from names, through

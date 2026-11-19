@@ -13,8 +13,8 @@ using achilles::algorithms::BatchOperationT;
 using achilles::algorithms::Quaternion;
 using achilles::algorithms::SimConfig;
 using achilles::algorithms::Transform;
-using achilles::algorithms::Velocity;
 using achilles::algorithms::Vector3;
+using achilles::algorithms::Velocity;
 using achilles::interface::LoadSimConfig;
 using achilles::test_support::TempDir;
 using achilles::util::AllTrue;
@@ -28,7 +28,8 @@ namespace {
 ::testing::AssertionResult ConfigApprox(
     const SimConfig& actual, const SimConfig& expected
 ) {
-  if (!AllTrue(actual.world_base_transform.IsApprox(expected.world_base_transform)
+  if (!AllTrue(
+          actual.world_base_transform.IsApprox(expected.world_base_transform)
       )) {
     return ::testing::AssertionFailure() << "world_base_transform mismatch";
   }
@@ -56,7 +57,8 @@ TEST(SimConfigLoader, MissingFileFallsBackToDefault) {
 // file does, not throw or propagate a yaml-cpp parse error.
 TEST(SimConfigLoader, UnparsableYamlFallsBackToDefault) {
   TempDir dir;
-  std::filesystem::path file = dir.Write("bad.yaml", "not: [valid: yaml: at: all");
+  std::filesystem::path file =
+      dir.Write("bad.yaml", "not: [valid: yaml: at: all");
 
   SimConfig config = LoadSimConfig(file);
 
@@ -94,7 +96,9 @@ base_acceleration:
 
   SimConfig expected;
   expected.world_base_transform = Transform(
-      Vector3(BatchOperationT(1.0F), BatchOperationT(2.0F), BatchOperationT(3.0F)),
+      Vector3(
+          BatchOperationT(1.0F), BatchOperationT(2.0F), BatchOperationT(3.0F)
+      ),
       Quaternion(
           BatchOperationT(0.0F),
           BatchOperationT(1.0F),
@@ -103,12 +107,18 @@ base_acceleration:
       )
   );
   expected.base_velocity = Velocity(
-      Vector3(BatchOperationT(0.1F), BatchOperationT(0.2F), BatchOperationT(0.3F)),
-      Vector3(BatchOperationT(1.0F), BatchOperationT(0.0F), BatchOperationT(0.0F))
+      Vector3(
+          BatchOperationT(0.1F), BatchOperationT(0.2F), BatchOperationT(0.3F)
+      ),
+      Vector3(
+          BatchOperationT(1.0F), BatchOperationT(0.0F), BatchOperationT(0.0F)
+      )
   );
   expected.base_acceleration = Acceleration(
       Vector3::Zero(),
-      Vector3(BatchOperationT(0.0F), BatchOperationT(0.0F), BatchOperationT(-9.8F))
+      Vector3(
+          BatchOperationT(0.0F), BatchOperationT(0.0F), BatchOperationT(-9.8F)
+      )
   );
 
   EXPECT_TRUE(ConfigApprox(config, expected));
@@ -132,8 +142,43 @@ base_velocity:
   SimConfig expected;
   expected.base_velocity = Velocity(
       Vector3::Zero(),
-      Vector3(BatchOperationT(5.0F), BatchOperationT(0.0F), BatchOperationT(0.0F))
+      Vector3(
+          BatchOperationT(5.0F), BatchOperationT(0.0F), BatchOperationT(0.0F)
+      )
   );
 
   EXPECT_TRUE(ConfigApprox(config, expected));
+}
+
+// contact_solver's keys: the solver by name and the tolerance.
+TEST(SimConfigLoader, ParsesTheContactSolver) {
+  TempDir dir;
+  std::filesystem::path file = dir.Write("solver.yaml", R"(
+contact_solver:
+  solver: cg
+  tolerance: 1e-5
+)");
+
+  SimConfig config = LoadSimConfig(file);
+
+  EXPECT_EQ(
+      config.contact_solver.solver, achilles::algorithms::ContactSolver::kCG
+  );
+  EXPECT_FLOAT_EQ(config.contact_solver.tolerance, 1e-5F);
+}
+
+// An unknown solver name keeps the default, MuJoCo's Newton.
+TEST(SimConfigLoader, UnknownContactSolverKeepsTheDefault) {
+  TempDir dir;
+  std::filesystem::path file =
+      dir.Write("solver.yaml", "contact_solver: {solver: pgs}\n");
+
+  SimConfig config = LoadSimConfig(file);
+
+  EXPECT_EQ(
+      config.contact_solver.solver, achilles::algorithms::ContactSolver::kNewton
+  );
+  EXPECT_FLOAT_EQ(
+      config.contact_solver.tolerance, SimConfig{}.contact_solver.tolerance
+  );
 }

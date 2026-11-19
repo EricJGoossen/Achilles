@@ -60,8 +60,13 @@ config:                      # optional; each a number or list of numbers
 world_base_transform: {translation: [0, 0, 0], rotation: [1, 0, 0, 0]}
 base_velocity: {angular: [0, 0, 0], linear: [0, 0, 0]}
 base_acceleration: {angular: [0, 0, 0], linear: [0, 9.81, 0]}
+contact_solver: {solver: newton, tolerance: 1e-6}
 ```
 
 - Every key is optional and defaults to zero, or identity for the
   transform.
 - `base_acceleration` is minus gravity: `[0, 9.81, 0]` is gravity along -y.
+- `contact_solver.solver` is `newton` (the default, as in MuJoCo) or `cg`.
+  `contact_solver.tolerance` (default `1e-6`) stops the solve once an
+  iteration's expected improvement, scaled by `1 / trace(M)`, is below it.
+  An unknown solver name keeps the default.

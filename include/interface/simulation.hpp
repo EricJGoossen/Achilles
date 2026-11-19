@@ -64,15 +64,20 @@ class Simulation {
   // here, so Step() itself never branches on which integrator is selected.
   // Valid before or after Init().
   void SetIntegrator(Integrator integrator) {
-    integrator_step_ = algorithms::StepFnFor(integrator);
+    integrator_ = integrator;
+    integrator_step_ =
+        algorithms::StepFnFor(integrator_, config_.contact_solver.solver);
   }
 
+  // Reads the sim config (sim_config_loader.hpp), and resolves the tick
+  // again for the contact solver it names.
   bool LoadConfigFile(const std::string& path) {
     try {
       config_ = LoadSimConfig(path);
     } catch (const std::exception& e) {
       return util::Warning("Failed to read config from file", e.what());
     }
+    SetIntegrator(integrator_);
     return true;
   }
 
@@ -316,6 +321,7 @@ class Simulation {
   std::optional<Allocator::State> state_;
   domain::archetype::ArchetypeSet archetypes_;
   std::uint64_t seed_ = 0;
+  Integrator integrator_ = Integrator::kSemiImplicitEuler;
   algorithms::IntegratorStepFn integrator_step_ =
       algorithms::StepFnFor(Integrator::kSemiImplicitEuler);
 };

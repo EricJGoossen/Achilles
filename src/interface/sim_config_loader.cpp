@@ -5,6 +5,7 @@
 #include <array>
 #include <cstddef>
 #include <filesystem>
+#include <string>
 
 #include "algorithms/conventions.hpp"
 #include "algorithms/sim_config.hpp"
@@ -107,6 +108,32 @@ Acceleration ParseAcceleration(
   };
 }
 
+// contact_solver: {solver: newton | cg, tolerance: <float>}. A missing or
+// unrecognized key keeps the fallback's value for it.
+algorithms::ContactSolverConfig ParseContactSolver(
+    const YAML::Node& node, const algorithms::ContactSolverConfig& fallback
+) {
+  algorithms::ContactSolverConfig config = fallback;
+  if (!node.IsDefined() || !node.IsMap()) {
+    return config;
+  }
+  const YAML::Node solver = node["solver"];
+  if (solver.IsDefined() && solver.IsScalar()) {
+    const auto name = solver.as<std::string>();
+    if (name == "newton") {
+      config.solver = algorithms::ContactSolver::kNewton;
+    } else if (name == "cg") {
+      config.solver = algorithms::ContactSolver::kCG;
+    }
+  }
+  float tolerance = 0.0F;
+  if (node["tolerance"].IsDefined() &&
+      util::TryParseNumber(node["tolerance"], tolerance)) {
+    config.tolerance = tolerance;
+  }
+  return config;
+}
+
 }  // namespace
 
 algorithms::SimConfig LoadSimConfig(const std::filesystem::path& path) {
@@ -125,6 +152,8 @@ algorithms::SimConfig LoadSimConfig(const std::filesystem::path& path) {
         ParseVelocity(root["base_velocity"], config.base_velocity);
     config.base_acceleration =
         ParseAcceleration(root["base_acceleration"], config.base_acceleration);
+    config.contact_solver =
+        ParseContactSolver(root["contact_solver"], config.contact_solver);
   } catch (const YAML::Exception&) {
     return SimConfig::Default();
   }
