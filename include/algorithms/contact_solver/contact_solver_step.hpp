@@ -6,31 +6,40 @@
 #include "algorithms/contact_solver/contact_solver_data.hpp"
 #include "algorithms/contact_solver/contact_solver_ops.hpp"
 #include "algorithms/conventions.hpp"
-#include "algorithms/orderings/collision_pairs.hpp"
+#include "algorithms/row_sets/collision_pairs.hpp"
 #include "algorithms/sim_config.hpp"
-#include "domain/joint_topology.hpp"
-#include "engine/algorithm_contract.hpp"
-#include "engine/pass/algorithm_step.hpp"
-#include "engine/pass/sim_context.hpp"
-#include "engine/pass/traversals.hpp"
-#include "engine/topology/orderings.hpp"
+#include "domain/topology/joint_topology.hpp"
+#include "domain/topology/pair_topology.hpp"
+#include "engine/algorithm.hpp"
+#include "engine/context/sim_context.hpp"
+#include "engine/op_invoker/algorithm_step.hpp"
+#include "engine/spec/step_contract.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
+#include "policy/traversal/base_traversal.hpp"
+#include "policy/traversal/global_traversal.hpp"
+#include "policy/traversal/pair_traversal.hpp"
+#include "policy/traversal/row_traversal.hpp"
 #include "util/tmp.hpp"
 
 namespace achilles::algorithms::contact_solver {
 
-using ForwardBatched =
-    engine::pass::TreeTraversal<engine::pass::Direction::kForward, kLanes>;
-using BackwardBatched =
-    engine::pass::TreeTraversal<engine::pass::Direction::kBackward, kLanes>;
-using LinearBatched =
-    engine::pass::LinearTraversal<engine::pass::Direction::kForward, kLanes>;
-using PairBatched =
-    engine::pass::PairTraversal<engine::pass::Direction::kForward, kLanes>;
-using Global = engine::pass::GlobalTraversal;
+using ForwardBatched = policy::traversal::
+    TreeTraversal<policy::traversal::Direction::kForward, kLanes>;
+using BackwardBatched = policy::traversal::
+    TreeTraversal<policy::traversal::Direction::kBackward, kLanes>;
+using LinearBatched = policy::traversal::
+    LinearTraversal<policy::traversal::Direction::kForward, kLanes>;
+using PairBatched = policy::traversal::
+    PairTraversal<policy::traversal::Direction::kForward, kLanes>;
+using Global = policy::traversal::GlobalTraversal;
 
-// Every solver Step: one engine::pass::Step over the ContactSolverView, the
-// TopologicalOrdering topology and CollisionPairs'
-// (orderings/collision_pairs.hpp), of whatever Ops Derived::MakeOps returns --
+// Every solver Step: one engine::op_invoker::Step over the ContactSolverView,
+// the TopologicalOrdering topology and CollisionPairs'
+// (row_sets/collision_pairs.hpp), of whatever Ops Derived::MakeOps returns --
 // tree, linear, pair and global passes alike: the body passes walk the first,
 // the pair passes the second. The Steps below are the solver's own stages; how
 // often each runs is the tick's step list (algorithms/integrators.hpp), never a
@@ -39,7 +48,7 @@ template <typename Derived>
 struct SolverStep {
   using FieldEnum = ContactSolverField;
 
-  template <engine::pass::SimContextLike SimStateT>
+  template <engine::context::SimContextLike SimStateT>
   static void Step(
       const SimStateT& sim_state,
       const SimConfig& sim_config,
@@ -47,14 +56,16 @@ struct SolverStep {
   ) {
     const auto view = sim_state.template ViewFor<ContactSolverView>();
     const ContactSolverTopology& topology =
-        sim_state.template TopologyFor<engine::topology::TopologicalOrdering>();
-    const domain::PairTopology& pairs =
-        sim_state.template TopologyFor<CollisionPairs>();
-    engine::pass::Step(Derived::MakeOps(sim_config, dt), view, topology, pairs);
+        sim_state.template TopologyFor<policy::ordering::TopologicalOrdering>();
+    const domain::topology::PairTopology& pairs =
+        sim_state.template TopologyFor<row_sets::CollisionPairs>();
+    engine::op_invoker::Step(
+        Derived::MakeOps(sim_config, dt), view, topology, pairs
+    );
   }
 };
 
-using engine::pass::Pass;
+using engine::op_invoker::OpWalk;
 
 // Once per sim, after an ABAStep at the initial pose (mj_setConst's
 // setInertia0): every body's inverse inertia, body_invweight0 and
@@ -62,7 +73,8 @@ using engine::pass::Pass;
 struct InvWeightStep : SolverStep<InvWeightStep> {
   static auto
   MakeOps(const SimConfig& /*sim_config*/, ScalarOperationT /*dt*/) {
-    return engine::pass::Ops<Pass<ComputeInverseInertiaOp, ForwardBatched>>{
+    return engine::op_invoker::Ops<
+        OpWalk<ComputeInverseInertiaOp, ForwardBatched>>{
         ComputeInverseInertiaOp{}
     };
   }
@@ -76,23 +88,23 @@ struct InvWeightStep : SolverStep<InvWeightStep> {
 // to.
 struct SetupStep : SolverStep<SetupStep> {
   static auto MakeOps(const SimConfig& /*sim_config*/, ScalarOperationT dt) {
-    return engine::pass::Ops<
-        Pass<BeginSolveOp, LinearBatched>,
-        Pass<
+    return engine::op_invoker::Ops<
+        OpWalk<BeginSolveOp, LinearBatched>,
+        OpWalk<
             ApplyInertiaForwardOp<ContactSolverField::kQaccSmooth>,
             ForwardBatched>,
-        Pass<SetupRowsOp, PairBatched>,
-        Pass<SetupLimitRowsOp, LinearBatched>,
-        Pass<
+        OpWalk<SetupRowsOp, PairBatched>,
+        OpWalk<SetupLimitRowsOp, LinearBatched>,
+        OpWalk<
             ApplyInertiaForwardOp<ContactSolverField::kSearch>,
             ForwardBatched>,
-        Pass<ApplyInertiaBackwardOp, BackwardBatched>,
-        Pass<ProjectSearchOp, PairBatched>,
-        Pass<ProjectLimitSearchOp, LinearBatched>,
-        Pass<GaussTermsOp, LinearBatched>,
-        Pass<WarmstartCostOp, PairBatched>,
-        Pass<WarmstartLimitCostOp, LinearBatched>,
-        Pass<ChooseWarmstartOp, Global>>{
+        OpWalk<ApplyInertiaBackwardOp, BackwardBatched>,
+        OpWalk<ProjectSearchOp, PairBatched>,
+        OpWalk<ProjectLimitSearchOp, LinearBatched>,
+        OpWalk<GaussTermsOp, LinearBatched>,
+        OpWalk<WarmstartCostOp, PairBatched>,
+        OpWalk<WarmstartLimitCostOp, LinearBatched>,
+        OpWalk<ChooseWarmstartOp, Global>>{
         BeginSolveOp{},
         ApplyInertiaForwardOp<ContactSolverField::kQaccSmooth>{},
         SetupRowsOp(dt),
@@ -114,15 +126,15 @@ struct SetupStep : SolverStep<SetupStep> {
 struct DirectionStep : SolverStep<DirectionStep> {
   static auto
   MakeOps(const SimConfig& /*sim_config*/, ScalarOperationT /*dt*/) {
-    return engine::pass::Ops<
-        Pass<
+    return engine::op_invoker::Ops<
+        OpWalk<
             ApplyInertiaForwardOp<ContactSolverField::kSearch>,
             ForwardBatched>,
-        Pass<ApplyInertiaBackwardOp, BackwardBatched>,
-        Pass<ProjectSearchOp, PairBatched>,
-        Pass<ProjectLimitSearchOp, LinearBatched>,
-        Pass<GaussTermsOp, LinearBatched>,
-        Pass<BeginLineSearchOp, Global>>{
+        OpWalk<ApplyInertiaBackwardOp, BackwardBatched>,
+        OpWalk<ProjectSearchOp, PairBatched>,
+        OpWalk<ProjectLimitSearchOp, LinearBatched>,
+        OpWalk<GaussTermsOp, LinearBatched>,
+        OpWalk<BeginLineSearchOp, Global>>{
         ApplyInertiaForwardOp<ContactSolverField::kSearch>{},
         ApplyInertiaBackwardOp{},
         ProjectSearchOp{},
@@ -138,10 +150,10 @@ struct DirectionStep : SolverStep<DirectionStep> {
 struct LineSearchStep : SolverStep<LineSearchStep> {
   static auto
   MakeOps(const SimConfig& /*sim_config*/, ScalarOperationT /*dt*/) {
-    return engine::pass::Ops<
-        Pass<LineSearchRowsOp, PairBatched>,
-        Pass<LineSearchLimitsOp, LinearBatched>,
-        Pass<NewtonStepOp, Global>>{
+    return engine::op_invoker::Ops<
+        OpWalk<LineSearchRowsOp, PairBatched>,
+        OpWalk<LineSearchLimitsOp, LinearBatched>,
+        OpWalk<NewtonStepOp, Global>>{
         LineSearchRowsOp{}, LineSearchLimitsOp{}, NewtonStepOp{}
     };
   }
@@ -156,18 +168,18 @@ struct LineSearchStep : SolverStep<LineSearchStep> {
 struct UpdateStep : SolverStep<UpdateStep> {
   static auto
   MakeOps(const SimConfig& /*sim_config*/, ScalarOperationT /*dt*/) {
-    return engine::pass::Ops<
-        Pass<StepJointOp, LinearBatched>,
-        Pass<StepBodyAccelerationOp, LinearBatched>,
-        Pass<ContactForceOp, PairBatched>,
-        Pass<ConstraintForceOp, BackwardBatched>,
-        Pass<LimitForceOp, LinearBatched>,
-        Pass<GradientOp, LinearBatched>,
-        Pass<InverseInertiaBackwardOp, BackwardBatched>,
-        Pass<InverseInertiaForwardOp, ForwardBatched>,
-        Pass<ConjugacyTermsOp, LinearBatched>,
-        Pass<ConjugateOp, Global>,
-        Pass<UpdateSearchOp, LinearBatched>>{
+    return engine::op_invoker::Ops<
+        OpWalk<StepJointOp, LinearBatched>,
+        OpWalk<StepBodyAccelerationOp, LinearBatched>,
+        OpWalk<ContactForceOp, PairBatched>,
+        OpWalk<ConstraintForceOp, BackwardBatched>,
+        OpWalk<LimitForceOp, LinearBatched>,
+        OpWalk<GradientOp, LinearBatched>,
+        OpWalk<InverseInertiaBackwardOp, BackwardBatched>,
+        OpWalk<InverseInertiaForwardOp, ForwardBatched>,
+        OpWalk<ConjugacyTermsOp, LinearBatched>,
+        OpWalk<ConjugateOp, Global>,
+        OpWalk<UpdateSearchOp, LinearBatched>>{
         StepJointOp{},
         StepBodyAccelerationOp{},
         ContactForceOp{},
@@ -187,7 +199,8 @@ struct UpdateStep : SolverStep<UpdateStep> {
 struct FinishStep : SolverStep<FinishStep> {
   static auto
   MakeOps(const SimConfig& /*sim_config*/, ScalarOperationT /*dt*/) {
-    return engine::pass::Ops<Pass<FinishSolveOp, LinearBatched>>{FinishSolveOp{}
+    return engine::op_invoker::Ops<OpWalk<FinishSolveOp, LinearBatched>>{
+        FinishSolveOp{}
     };
   }
 };

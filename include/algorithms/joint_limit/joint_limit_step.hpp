@@ -4,11 +4,19 @@
 #include "algorithms/joint_limit/joint_limit_data.hpp"
 #include "algorithms/joint_limit/joint_limit_ops.hpp"
 #include "algorithms/sim_config.hpp"
-#include "engine/algorithm_contract.hpp"
-#include "engine/pass/algorithm_step.hpp"
-#include "engine/pass/sim_context.hpp"
-#include "engine/pass/traversals.hpp"
-#include "engine/topology/orderings.hpp"
+#include "engine/algorithm.hpp"
+#include "engine/context/sim_context.hpp"
+#include "engine/op_invoker/algorithm_step.hpp"
+#include "engine/spec/step_contract.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
+#include "policy/traversal/base_traversal.hpp"
+#include "policy/traversal/global_traversal.hpp"
+#include "policy/traversal/pair_traversal.hpp"
+#include "policy/traversal/row_traversal.hpp"
 
 namespace achilles::algorithms::joint_limit {
 
@@ -22,10 +30,10 @@ namespace achilles::algorithms::joint_limit {
 struct JointLimitStep {
   using FieldEnum = JointLimitField;
 
-  using LinearBatched =
-      engine::pass::LinearTraversal<engine::pass::Direction::kForward, kLanes>;
+  using LinearBatched = policy::traversal::
+      LinearTraversal<policy::traversal::Direction::kForward, kLanes>;
 
-  template <engine::pass::SimContextLike SimStateT>
+  template <engine::context::SimContextLike SimStateT>
   static void Step(
       const SimStateT& sim_state,
       const SimConfig& sim_config,
@@ -33,14 +41,14 @@ struct JointLimitStep {
   ) {
     (void)sim_config;
     (void)dt;
-    using engine::pass::Pass;
+    using engine::op_invoker::OpWalk;
 
     const auto view = sim_state.template ViewFor<JointLimitView>();
     const JointLimitTopology& topology =
-        sim_state.template TopologyFor<engine::topology::TopologicalOrdering>();
+        sim_state.template TopologyFor<policy::ordering::TopologicalOrdering>();
 
-    engine::pass::Step(
-        engine::pass::Ops<Pass<DetectJointLimitOp, LinearBatched>>{
+    engine::op_invoker::Step(
+        engine::op_invoker::Ops<OpWalk<DetectJointLimitOp, LinearBatched>>{
             DetectJointLimitOp{}
         },
         view,

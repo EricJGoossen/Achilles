@@ -1,13 +1,17 @@
 #pragma once
 
+#include "algorithms/base/every_row_step.hpp"
 #include "algorithms/conventions.hpp"
 #include "algorithms/sim_config.hpp"
 #include "algorithms/verlet/verlet_data.hpp"
 #include "algorithms/verlet/verlet_ops.hpp"
-#include "engine/algorithm_contract.hpp"
-#include "engine/pass/algorithm_step.hpp"
-#include "engine/pass/traversals.hpp"
-#include "engine/pass/view_step.hpp"
+#include "engine/algorithm.hpp"
+#include "engine/op_invoker/algorithm_step.hpp"
+#include "engine/spec/step_contract.hpp"
+#include "policy/traversal/base_traversal.hpp"
+#include "policy/traversal/global_traversal.hpp"
+#include "policy/traversal/pair_traversal.hpp"
+#include "policy/traversal/row_traversal.hpp"
 #include "util/tmp.hpp"
 
 namespace achilles::algorithms::verlet {
@@ -27,29 +31,28 @@ namespace achilles::algorithms::verlet {
 //
 // Like vi/pi, each pass is independent per row, so it runs as a
 // LinearTraversal over view.Size().
-using ForwardBatched =
-    engine::pass::LinearTraversal<engine::pass::Direction::kForward, kLanes>;
+using ForwardBatched = policy::traversal::
+    LinearTraversal<policy::traversal::Direction::kForward, kLanes>;
 
 using VerletAlgorithm = engine::Algorithm<VerletField, VerletFieldTraits>;
 static_assert(engine::AlgorithmLike<VerletAlgorithm>);
 
 // qd += qdd * (DtFraction * dt).
 template <typename DtFraction>
-struct KickStep
-    : engine::pass::ViewStep<KickStep<DtFraction>, VerletAlgorithm> {
+struct KickStep : base::EveryRowStep<KickStep<DtFraction>, VerletAlgorithm> {
   static auto MakeOps(const SimConfig& /*sim_config*/, ScalarOperationT dt) {
-    using engine::pass::Pass;
-    return engine::pass::Ops<Pass<KickVelocityOp, ForwardBatched>>{
+    using engine::op_invoker::OpWalk;
+    return engine::op_invoker::Ops<OpWalk<KickVelocityOp, ForwardBatched>>{
         KickVelocityOp(dt * util::kRatioValueV<ScalarOperationT, DtFraction>)
     };
   }
 };
 
 // q = q * Exp(S qd dt).
-struct DriftStep : engine::pass::ViewStep<DriftStep, VerletAlgorithm> {
+struct DriftStep : base::EveryRowStep<DriftStep, VerletAlgorithm> {
   static auto MakeOps(const SimConfig& /*sim_config*/, ScalarOperationT dt) {
-    using engine::pass::Pass;
-    return engine::pass::Ops<Pass<DriftPositionOp, ForwardBatched>>{
+    using engine::op_invoker::OpWalk;
+    return engine::op_invoker::Ops<OpWalk<DriftPositionOp, ForwardBatched>>{
         DriftPositionOp(dt)
     };
   }

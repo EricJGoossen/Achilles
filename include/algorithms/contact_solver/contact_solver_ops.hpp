@@ -6,7 +6,8 @@
 #include "algorithms/conventions.hpp"
 #include "algorithms/joint_limit/joint_limit_data.hpp"
 #include "algorithms/narrow_phase/narrow_phase_data.hpp"
-#include "engine/op_contract.hpp"
+#include "engine/spec/arg_data.hpp"
+#include "engine/spec/op_contract.hpp"
 
 namespace achilles::algorithms::contact_solver {
 
@@ -14,13 +15,13 @@ namespace achilles::algorithms::contact_solver {
 // names its kInputs/kOutputs are spelled in.
 struct SolverOp {
   using FieldEnum = ContactSolverField;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 };
 
 // A whole-sim scalar as a GlobalTraversal Op reads/writes it: one plain
-// value (see topology::GlobalIndexing). A batched Op reads the same field
-// as a Scalar, splatted, and adds into it as a lane reduction.
+// value (see policy::indexing::GlobalIndexing). A batched Op reads the same
+// field as a Scalar, splatted, and adds into it as a lane reduction.
 using GlobalScalar = math::Scalar<ScalarOperationT>;
 
 // One value per joint DOF (see joint_limit_data.hpp).

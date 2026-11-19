@@ -4,7 +4,8 @@
 
 #include "algorithms/conventions.hpp"
 #include "algorithms/joint_limit/joint_limit_data.hpp"
-#include "engine/op_contract.hpp"
+#include "engine/spec/arg_data.hpp"
+#include "engine/spec/op_contract.hpp"
 
 namespace achilles::algorithms::joint_limit {
 
@@ -14,8 +15,8 @@ namespace achilles::algorithms::joint_limit {
 // linear pass.
 struct DetectJointLimitOp {
   using FieldEnum = JointLimitField;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 
   static constexpr std::array<ArgData, 6> kInputs = {
       ArgData{FieldEnum::kJointSubspace, ArgIndex::kTarget},
@@ -44,11 +45,11 @@ struct DetectJointLimitOp {
   ) const;
 };
 static_assert(
-    engine::OpLike<DetectJointLimitOp>,
+    engine::spec::OpLike<DetectJointLimitOp>,
     "DetectJointLimitOp must satisfy OpLike concept"
 );
 static_assert(
-    engine::OpArgsMatchView<DetectJointLimitOp, JointLimitView>,
+    engine::spec::OpArgsMatchView<DetectJointLimitOp, JointLimitView>,
     "DetectJointLimitOp's operator() must line up with kInputs/kOutputs"
 );
 

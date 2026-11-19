@@ -1,8 +1,14 @@
+// What sensors and actuators share: options, readings, ticks, what an
+// actuator pushes, and the Attachment base.
+
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
-#include "domain/sim_clock.hpp"
+#include "domain/attachment/attachment_contract.hpp"
+#include "domain/clock/sim_clock.hpp"
+#include "domain/spatial/dual.hpp"
 #include "util/tmp.hpp"
 
 // What sensors and actuators have in common: each is an attachment, mounted on
@@ -55,6 +61,16 @@ struct AttachmentTick {
   std::uint64_t stream = 0;
 };
 
+// What an actuator pushes along its axis: a force (linear) or a torque
+// (angular).
+enum class EffortKind : std::uint8_t { kLinear, kAngular };
+
+// Which half of a motion subspace an effort kind acts in (spatial/dual.hpp).
+constexpr std::size_t FirstSpatialRow(EffortKind kind) {
+  return kind == EffortKind::kAngular ? spatial::kAngularRows
+                                      : spatial::kLinearRows;
+}
+
 // The base of Sensor and Actuator.
 class Attachment {
  public:
@@ -79,7 +95,7 @@ class Attachment {
   }
 
   // What it's handed for a tick at `clock`.
-  AttachmentTick TickAt(const SimClock& clock, float dt) const {
+  AttachmentTick TickAt(const clock::SimClock& clock, float dt) const {
     return {dt, clock.time, clock.tick, stream_};
   }
 
@@ -87,7 +103,7 @@ class Attachment {
   // makes a new output, stamped into `out`; otherwise `last` carries forward.
   template <typename OutputT, typename UpdateFn>
   void UpdateIfDue(
-      const SimClock& clock,
+      const clock::SimClock& clock,
       float dt,
       const Reading<OutputT>& last,
       Reading<OutputT>* out,
@@ -102,6 +118,27 @@ class Attachment {
     reading.sample_time = clock.time;
     reading.sequence = last.sequence + 1;
     *out = reading;
+  }
+
+  // Seeds an instance's state from its configuration: its kind's own Initialize
+  // if it declares one; otherwise the state stays value-initialized.
+  template <AttachmentLike S>
+  static void InitializeState(const S& kind, typename S::State* state) {
+    if constexpr (AttachmentHasInit<S>) {
+      kind.Initialize(AttachmentTick{0.0F, 0.0, 0, kind.Stream()}, state);
+    }
+  }
+
+  // Fills an instance's first output from its inputs, if its kind has one.
+  template <AttachmentLike S, typename... Values>
+  static void InitializeOutput(
+      const S& kind, typename S::Output* out, const Values&... inputs
+  ) {
+    if constexpr (AttachmentHasOutputInit<S>) {
+      kind.InitializeOutput(
+          AttachmentTick{0.0F, 0.0, 0, kind.Stream()}, inputs..., out
+      );
+    }
   }
 
  private:

@@ -14,13 +14,21 @@
 #include "domain/math/scalar.hpp"
 #include "domain/math/vector3.hpp"
 #include "domain/spatial/transform.hpp"
-#include "engine/assembler.hpp"
-#include "engine/field_contract.hpp"
-#include "engine/memory/buffering_policy.hpp"
-#include "engine/topology/layout_policy.hpp"
-#include "engine/topology/orderings.hpp"
-#include "engine/view/view_contract.hpp"
+#include "engine/assembly/assembler.hpp"
+#include "engine/spec/field_contract.hpp"
+#include "engine/spec/view_contract.hpp"
 #include "engine/view/view_factory.hpp"
+#include "policy/buffering/base_buffering.hpp"
+#include "policy/buffering/double_buffering.hpp"
+#include "policy/buffering/single_buffering.hpp"
+#include "policy/layout/base_layout.hpp"
+#include "policy/layout/planar_layout.hpp"
+#include "policy/layout/segmented_layout.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
 #include "util/tmp.hpp"
 
 namespace achilles::algorithms::attachment {
@@ -42,7 +50,7 @@ enum class AttachmentField : std::uint8_t {
 
   kCount = kFirstInput + util::kSizeV<AttachmentInputs>
 };
-static_assert(engine::FieldEnumLike<AttachmentField>);
+static_assert(engine::spec::FieldEnumLike<AttachmentField>);
 
 template <AttachmentField F>
 struct AttachmentFieldTraits;
@@ -52,73 +60,80 @@ struct AttachmentFieldTraits;
 // size.
 template <>
 struct AttachmentFieldTraits<AttachmentField::kConfig> {
-  using Assembler = util::ApplyT<engine::LeafAssembler, AttachmentKinds>;
+  using Assembler =
+      util::ApplyT<engine::assembly::LeafAssembler, AttachmentKinds>;
   using Ordering = AttachmentOrdering;
-  using Layout = engine::topology::SegmentedLayout;
+  using Layout = policy::layout::SegmentedLayout;
 };
 template <>
 struct AttachmentFieldTraits<AttachmentField::kCommand> {
-  using Assembler = util::ApplyT<engine::LeafAssembler, AttachmentCommands>;
+  using Assembler =
+      util::ApplyT<engine::assembly::LeafAssembler, AttachmentCommands>;
   using Ordering = AttachmentOrdering;
-  using Layout = engine::topology::SegmentedLayout;
+  using Layout = policy::layout::SegmentedLayout;
 };
 template <>
 struct AttachmentFieldTraits<AttachmentField::kState> {
-  using Assembler = util::ApplyT<engine::LeafAssembler, AttachmentStates>;
+  using Assembler =
+      util::ApplyT<engine::assembly::LeafAssembler, AttachmentStates>;
   using Ordering = AttachmentOrdering;
-  using Layout = engine::topology::SegmentedLayout;
+  using Layout = policy::layout::SegmentedLayout;
 };
 // Only the output is double-buffered: it's the one thing handed to the
 // user. This is the sim's side, the half this tick's output goes into;
 // ReadStep flips the group once its passes are done, so it becomes kPublished.
 template <>
 struct AttachmentFieldTraits<AttachmentField::kOutput> {
-  using Assembler = util::ApplyT<engine::LeafAssembler, AttachmentOutputs>;
+  using Assembler =
+      util::ApplyT<engine::assembly::LeafAssembler, AttachmentOutputs>;
   using SharedAs = AttachmentOutputSlot;
-  using Buffering = engine::memory::
-      DoubleBuffered<AttachmentOutputSlot, engine::memory::BufferSide::kWrite>;
+  using Buffering = engine::memory::DoubleBuffering<
+      AttachmentOutputSlot,
+      policy::buffering::BufferSide::kWrite>;
   using Ordering = AttachmentOrdering;
-  using Layout = engine::topology::SegmentedLayout;
+  using Layout = policy::layout::SegmentedLayout;
 };
 // The user's side: the last complete output, read between ticks, and by the
 // Read and Drive passes as the output to carry forward when none is due.
 template <>
 struct AttachmentFieldTraits<AttachmentField::kPublished> {
-  using Assembler = util::ApplyT<engine::LeafAssembler, AttachmentOutputs>;
+  using Assembler =
+      util::ApplyT<engine::assembly::LeafAssembler, AttachmentOutputs>;
   using SharedAs = AttachmentOutputSlot;
-  using Buffering = engine::memory::
-      DoubleBuffered<AttachmentOutputSlot, engine::memory::BufferSide::kRead>;
+  using Buffering = engine::memory::DoubleBuffering<
+      AttachmentOutputSlot,
+      policy::buffering::BufferSide::kRead>;
   using Ordering = AttachmentOrdering;
-  using Layout = engine::topology::SegmentedLayout;
+  using Layout = policy::layout::SegmentedLayout;
 };
 // The visual fields are one value per joint, loaded from the .arow under their
 // kName; nothing writes them after.
 template <>
 struct AttachmentFieldTraits<AttachmentField::kVisualPose> {
   using Assembler = domain::spatial::TransformAssembler<ScalarOperationT>;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "visual_pose";
 };
 template <>
 struct AttachmentFieldTraits<AttachmentField::kVisualExtents> {
   using Assembler = domain::math::Vector3Assembler<ScalarOperationT>;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "visual_extents";
 };
 template <>
 struct AttachmentFieldTraits<AttachmentField::kVisualColor> {
   using Assembler = domain::math::Vector3Assembler<ScalarOperationT>;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "visual_color";
 };
 template <>
 struct AttachmentFieldTraits<AttachmentField::kVisualShape> {
   using Assembler = domain::math::ScalarAssembler<ScalarOperationT>;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "visual_shape";
 };
 // An input's source field, exactly as its own Algorithm declared it -- the
@@ -138,11 +153,12 @@ struct AttachmentFieldTraits<F> {
   using Buffering = typename Source::Buffering;
   using Layout = typename Source::Layout;
 };
-static_assert(engine::FieldTraitsLike<AttachmentField, AttachmentFieldTraits>);
+static_assert(engine::spec::
+                  FieldTraitsLike<AttachmentField, AttachmentFieldTraits>);
 
 using AttachmentView =
     engine::view::ViewFactory<AttachmentField, AttachmentFieldTraits>;
-static_assert(engine::view::ViewLike<AttachmentView, AttachmentField>);
+static_assert(engine::spec::ViewLike<AttachmentView, AttachmentField>);
 
 // The field each own input is.
 template <typename Quantity>
@@ -174,7 +190,7 @@ inline constexpr AttachmentField kInputFieldOf<OwnInput<Quantity>> =
 template <typename Quantity>
 inline constexpr bool kOwnFieldGivesValue = std::is_same_v<
     typename Quantity::Value,
-    engine::AssembledT<
+    engine::assembly::AssembledT<
         typename AttachmentFieldTraits<kOwnFieldOf<Quantity>>::Assembler>>;
 static_assert(kOwnFieldGivesValue<input::VisualPose>);
 static_assert(kOwnFieldGivesValue<input::VisualExtents>);

@@ -20,8 +20,12 @@
 #include "domain/sensing/lidar.hpp"
 #include "domain/sensing/magnetometer.hpp"
 #include "domain/sensing/truth_sensor.hpp"
-#include "engine/topology/orderings.hpp"
 #include "interface/simulation.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
 #include "support/joint_row.hpp"
 #include "support/sensing_scene.hpp"
 #include "support/temp_dir.hpp"
@@ -34,8 +38,8 @@ using achilles::domain::sensing::Encoder;
 using achilles::domain::sensing::Gyroscope;
 using achilles::domain::sensing::Lidar;
 using achilles::domain::sensing::Magnetometer;
-using achilles::engine::topology::TopologicalOrdering;
 using achilles::interface::Simulation;
+using achilles::policy::ordering::TopologicalOrdering;
 using achilles::test_support::Archetype;
 using achilles::test_support::JointRow;
 using achilles::test_support::kZUpConfig;

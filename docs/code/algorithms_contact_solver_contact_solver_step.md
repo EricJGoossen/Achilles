@@ -9,9 +9,9 @@ loops.
 
 ## Connections
 
-- Every stage derives from `SolverStep`, which runs one `engine::pass::Step`
+- Every stage derives from `SolverStep`, which runs one `engine::op_invoker::Step`
   over the solver's view with both the joint topology and the collision pair
-  topology (`algorithms/orderings/collision_pairs.hpp`).
+  topology (`algorithms/row_sets/collision_pairs.hpp`).
 - Reads ABA's factors and body state, the narrow phase's contacts and the
   joint limit rows through shared slots.
 - `Solve` is part of the `SemiImplicitEuler` tick list; `InvWeightStep` is

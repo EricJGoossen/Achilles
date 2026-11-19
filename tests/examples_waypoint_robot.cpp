@@ -19,17 +19,21 @@
 #include "algorithms/aba/aba_data.hpp"
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
-#include "engine/topology/orderings.hpp"
 #include "interface/attachment_handle.hpp"
 #include "interface/simulation.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
 #include "support/joint_row.hpp"
 
 using achilles::algorithms::ScalarOperationT;
 using achilles::algorithms::aba::ABAAlgorithm;
 using achilles::algorithms::aba::ABAField;
-using achilles::engine::topology::TopologicalOrdering;
 using achilles::interface::AngularActuator;
 using achilles::interface::Simulation;
+using achilles::policy::ordering::TopologicalOrdering;
 using achilles::test_support::JointRow;
 
 namespace {

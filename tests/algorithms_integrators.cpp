@@ -24,9 +24,13 @@
 #include "algorithms/registry.hpp"
 #include "algorithms/sim_config.hpp"
 #include "domain/archetype/archetype_set.hpp"
-#include "engine/memory/sim_allocator.hpp"
-#include "engine/topology/orderings.hpp"
+#include "engine/allocation/sim_allocator.hpp"
 #include "interface/archetype_loader.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
 #include "support/registered_sim.hpp"
 #include "support/temp_dir.hpp"
 #include "util/tmp.hpp"
@@ -67,7 +71,7 @@ using achilles::interface::LoadArchetypes;
 using achilles::test_support::TempDir;
 using achilles::util::TypeList;
 using Allocator =
-    achilles::engine::memory::SimAllocatorForT<RegisteredAlgorithms>;
+    achilles::engine::allocation::SimAllocatorForT<RegisteredAlgorithms>;
 
 namespace {
 
@@ -158,7 +162,7 @@ Sim MakePendulum(
 void ApplyTorque(const Sim& sim) {
   const std::size_t row =
       sim.state.context
-          .LayoutFor<achilles::engine::topology::TopologicalOrdering>()
+          .LayoutFor<achilles::policy::ordering::TopologicalOrdering>()
           .ToSorted(0, 0);
   // The joint's one coordinate, straight into the torque the next tick reads:
   // this joint has no declared actuators.

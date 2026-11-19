@@ -11,7 +11,7 @@ the same block.
 
 - Named in `*_data.hpp` traits across ABA, the integrators, the collision
   pipeline, joint limits, the contact solver, the attachments and the clock.
-- `engine/memory/sim_allocator.hpp` carves each tag once and reuses it.
+- `engine/allocation/sim_allocator.hpp` carves each tag once and reuses it.
 - `algorithms/attachment_kinds/sim_input.hpp` reads physics values through
   these slots.
 - `JointTorqueSlot` and `AttachmentOutputSlot` are also buffer groups.

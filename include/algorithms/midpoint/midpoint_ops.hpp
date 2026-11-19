@@ -4,7 +4,8 @@
 
 #include "algorithms/conventions.hpp"
 #include "algorithms/midpoint/midpoint_data.hpp"
-#include "engine/pass/op_invoker.hpp"
+#include "engine/op_invoker/op_initializer.hpp"
+#include "engine/op_invoker/op_invoker.hpp"
 
 namespace achilles::algorithms::midpoint {
 
@@ -12,8 +13,8 @@ namespace achilles::algorithms::midpoint {
 // the fixed-point estimate qd_{n+1} = qd_n.
 struct BeginStepOp {
   using FieldEnum = MidpointField;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 
   static constexpr std::array<ArgData, 2> kInputs = {
       ArgData{FieldEnum::kJointPosition, ArgIndex::kTarget},
@@ -34,10 +35,10 @@ struct BeginStepOp {
   ) const;
 };
 static_assert(
-    engine::OpLike<BeginStepOp>, "BeginStepOp must satisfy OpLike concept"
+    engine::spec::OpLike<BeginStepOp>, "BeginStepOp must satisfy OpLike concept"
 );
 static_assert(
-    engine::OpArgsMatchView<BeginStepOp, MidpointView>,
+    engine::spec::OpArgsMatchView<BeginStepOp, MidpointView>,
     "BeginStepOp's operator() must line up with kInputs/kOutputs"
 );
 
@@ -46,8 +47,8 @@ static_assert(
 // The trial q_mid is discarded within the tick, so it isn't renormalized.
 struct MidpointTrialOp {
   using FieldEnum = MidpointField;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 
   explicit MidpointTrialOp(ScalarOperationT dt) : dt_(dt) {}
 
@@ -75,11 +76,11 @@ struct MidpointTrialOp {
   ScalarOperationT dt_;
 };
 static_assert(
-    engine::OpLike<MidpointTrialOp>,
+    engine::spec::OpLike<MidpointTrialOp>,
     "MidpointTrialOp must satisfy OpLike concept"
 );
 static_assert(
-    engine::OpArgsMatchView<MidpointTrialOp, MidpointView>,
+    engine::spec::OpArgsMatchView<MidpointTrialOp, MidpointView>,
     "MidpointTrialOp's operator() must line up with kInputs/kOutputs"
 );
 
@@ -87,8 +88,8 @@ static_assert(
 // qd_{n+1} = qd_n + qdd_mid dt.
 struct UpdateNextVelocityOp {
   using FieldEnum = MidpointField;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 
   explicit UpdateNextVelocityOp(ScalarOperationT dt) : dt_(dt) {}
 
@@ -110,11 +111,11 @@ struct UpdateNextVelocityOp {
   ScalarOperationT dt_;
 };
 static_assert(
-    engine::OpLike<UpdateNextVelocityOp>,
+    engine::spec::OpLike<UpdateNextVelocityOp>,
     "UpdateNextVelocityOp must satisfy OpLike concept"
 );
 static_assert(
-    engine::OpArgsMatchView<UpdateNextVelocityOp, MidpointView>,
+    engine::spec::OpArgsMatchView<UpdateNextVelocityOp, MidpointView>,
     "UpdateNextVelocityOp's operator() must line up with kInputs/kOutputs"
 );
 
@@ -123,8 +124,8 @@ static_assert(
 // one each trial uses -- and qd_{n+1} as estimated.
 struct CommitOp {
   using FieldEnum = MidpointField;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 
   explicit CommitOp(ScalarOperationT dt) : dt_(dt) {}
 
@@ -151,9 +152,11 @@ struct CommitOp {
  private:
   ScalarOperationT dt_;
 };
-static_assert(engine::OpLike<CommitOp>, "CommitOp must satisfy OpLike concept");
 static_assert(
-    engine::OpArgsMatchView<CommitOp, MidpointView>,
+    engine::spec::OpLike<CommitOp>, "CommitOp must satisfy OpLike concept"
+);
+static_assert(
+    engine::spec::OpArgsMatchView<CommitOp, MidpointView>,
     "CommitOp's operator() must line up with kInputs/kOutputs"
 );
 

@@ -12,8 +12,8 @@
 #include "algorithms/attachment/attachment_step.hpp"
 #include "algorithms/attachment_kinds/sim_input.hpp"
 #include "domain/attachment/sim_quantities.hpp"
-#include "engine/assembler.hpp"
-#include "engine/pass/sim_context.hpp"
+#include "engine/assembly/assembler.hpp"
+#include "engine/context/sim_context.hpp"
 #include "interface/state_quantities.hpp"
 
 namespace achilles::interface {
@@ -86,7 +86,7 @@ class StateHandle {
   using Quantity = Spec;
   // The field's value, as the sim keeps it (e.g. Transform<float> for a
   // joint's position).
-  using Value = engine::AssembledT<typename Traits::Type::Assembler>;
+  using Value = engine::assembly::AssembledT<typename Traits::Type::Assembler>;
   // What Write() takes (writable_handle.hpp): the value itself.
   using Written = Value;
   // Whether this handle may write.
@@ -119,7 +119,7 @@ class StateHandle {
 
   // The handle on row `row` of S's field: a joint's row, from the sim's
   // per-joint layout.
-  template <engine::pass::SimContextLike SimStateT>
+  template <engine::context::SimContextLike SimStateT>
   static StateHandle At(const SimStateT& sim_state, std::size_t row) {
     return StateHandle(sim_state.template ViewFor<Source>(), row);
   }

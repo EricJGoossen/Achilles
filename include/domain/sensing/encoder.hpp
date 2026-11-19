@@ -5,7 +5,8 @@
 #include <stdexcept>
 #include <string_view>
 
-#include "domain/error/effects.hpp"
+#include "domain/error/error_model.hpp"
+#include "domain/error/loss_model.hpp"
 #include "domain/math/vector3.hpp"
 #include "domain/random/counter_rng.hpp"
 #include "domain/sensing/sensor.hpp"
@@ -22,8 +23,8 @@ struct EncoderReading {
 // What an encoder remembers: its error models' state, and -- for a
 // multi-turn rotary encoder -- the unwrapped angle so far.
 struct EncoderState {
-  domain::error::ErrorChain<float>::State position_error;
-  domain::error::ErrorChain<float>::State velocity_error;
+  domain::error::ErrorModel<float>::State position_error;
+  domain::error::ErrorModel<float>::State velocity_error;
   float last_angle = 0.0F;
   float unwrapped = 0.0F;
   bool started = false;
@@ -60,8 +61,8 @@ class Encoder : public Sensor<
     domain::math::Vector3<float> axis = domain::math::Vector3<float>::UnitX();
     Motion motion = Motion::kRotary;
     bool multi_turn = true;
-    domain::error::ErrorChain<float>::Params position_error;
-    domain::error::ErrorChain<float>::Params velocity_error;
+    domain::error::ErrorModel<float>::Params position_error;
+    domain::error::ErrorModel<float>::Params velocity_error;
   };
 
   Encoder() = default;
@@ -105,10 +106,10 @@ class Encoder : public Sensor<
                                   : rates.Linear().Dot(params_.axis);
 
     domain::random::CounterRng rng(tick.stream, tick.tick);
-    out->position = domain::error::ErrorChain<float>::Apply(
+    out->position = domain::error::ErrorModel<float>::Apply(
         params_.position_error, state->position_error, rng, tick.dt, position
     );
-    out->velocity = domain::error::ErrorChain<float>::Apply(
+    out->velocity = domain::error::ErrorModel<float>::Apply(
         params_.velocity_error, state->velocity_error, rng, tick.dt, velocity
     );
   }

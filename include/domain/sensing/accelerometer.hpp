@@ -2,7 +2,8 @@
 
 #include <string_view>
 
-#include "domain/error/effects.hpp"
+#include "domain/error/error_model.hpp"
+#include "domain/error/loss_model.hpp"
 #include "domain/random/counter_rng.hpp"
 #include "domain/sensing/sensor.hpp"
 #include "domain/spatial/transform.hpp"
@@ -25,10 +26,10 @@ class Accelerometer
     : public Sensor<
           Accelerometer,
           SimInputs<input::SpatialVelocity, input::SpatialAcceleration>,
-          domain::error::ErrorChain<domain::error::Vec3>::State,
+          domain::error::ErrorModel<domain::error::Vec3>::State,
           domain::error::Vec3> {
  public:
-  using ErrorModel = domain::error::ErrorChain<domain::error::Vec3>;
+  using ErrorModel = domain::error::ErrorModel<domain::error::Vec3>;
   using Velocity = input::SpatialVelocity::Value;
   using Acceleration = input::SpatialAcceleration::Value;
 

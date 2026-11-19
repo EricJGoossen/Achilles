@@ -5,7 +5,7 @@
 #include <tuple>
 #include <xsimd/xsimd.hpp>
 
-#include "engine/assembler.hpp"
+#include "engine/assembly/assembler.hpp"
 #include "util/simd_ops.hpp"
 
 namespace achilles::domain::math {
@@ -99,8 +99,10 @@ class Scalar {
 };
 
 template <typename T>
-using ScalarAssembler = engine::Assembler<Scalar, T, engine::RepeatTypes<1>>;
-static_assert(engine::BatchAssemblerLike<ScalarAssembler<float>>);
-static_assert(engine::BatchAssemblerLike<ScalarAssembler<std::int32_t>>);
+using ScalarAssembler =
+    engine::assembly::Assembler<Scalar, T, engine::assembly::RepeatTypes<1>>;
+static_assert(engine::assembly::BatchAssemblerLike<ScalarAssembler<float>>);
+static_assert(engine::assembly::BatchAssemblerLike<
+              ScalarAssembler<std::int32_t>>);
 
 }  // namespace achilles::domain::math

@@ -11,17 +11,21 @@
 #include "algorithms/sim_config.hpp"
 #include "domain/archetype/archetype.hpp"
 #include "domain/archetype/archetype_set.hpp"
-#include "domain/joint_data.hpp"
-#include "domain/joint_layout.hpp"
-#include "engine/memory/sim_allocator.hpp"
-#include "engine/topology/orderings.hpp"
+#include "domain/layout/joint_layout.hpp"
+#include "domain/layout/joint_records.hpp"
+#include "engine/allocation/sim_allocator.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
 #include "support/aba_reference.hpp"
 #include "util/simd_ops.hpp"
 
 // aba::Step wires the three Propagate*Op passes (each seeding its own
 // base-row state) into a real ABAView, ABATopology and (now that
-// engine::pass::TreeTraversal takes a Stride -- see aba_step.hpp) a real,
-// multi-joint-capable engine::memory::SimAllocator. Every ABA Op is always
+// policy::traversal::TreeTraversal takes a Stride -- see aba_step.hpp) a real,
+// multi-joint-capable engine::allocation::SimAllocator. Every ABA Op is always
 // called with TargetScalar = MathematicalT = xsimd::batch<float>, so a
 // View index here is always a batch-GROUP index (Stride raw rows per
 // group), never a raw row -- every helper below that turns a real
@@ -37,10 +41,10 @@
 
 using namespace achilles::algorithms;
 using namespace achilles::algorithms::aba;
-using achilles::domain::JointRef;
 using achilles::domain::archetype::Archetype;
-using achilles::engine::memory::SimAllocator;
-using achilles::engine::topology::TopologicalOrdering;
+using achilles::domain::layout::JointRef;
+using achilles::engine::allocation::SimAllocator;
+using achilles::policy::ordering::TopologicalOrdering;
 using achilles::test_support::AbaInertiaOutputs;
 using achilles::test_support::AbaVelocityOutputs;
 using achilles::test_support::AccumulateAbaInertia;
@@ -85,7 +89,7 @@ SimAllocator<ABAAlgorithm> MakeSim(std::vector<std::size_t> tree_structure) {
 }
 
 std::size_t BatchGroup(
-    const achilles::domain::JointLayout& layout, std::size_t joint
+    const achilles::domain::layout::JointLayout& layout, std::size_t joint
 ) {
   return layout.ToSorted(0, joint) / Lane();
 }
@@ -118,7 +122,7 @@ void PopulateRevoluteZJoint(
 // NonzeroJointAngleRotatesWorldTransform/RepeatedStepsProduceConsistentResults
 // below.
 SimAllocator<ABAAlgorithm> MakeSingleJointSim() {
-  return MakeSim({achilles::domain::kNoParent});
+  return MakeSim({achilles::domain::layout::kNoParent});
 }
 
 }  // namespace
@@ -188,7 +192,8 @@ TEST(AbaStep, NonzeroJointAngleRotatesWorldTransform) {
 // proves the += contract directly -- this is that same contract exercised
 // through a real tree traversal instead of a direct call.
 TEST(AbaStep, PropagatesThroughTwoJointChain) {
-  SimAllocator<ABAAlgorithm> sim = MakeSim({achilles::domain::kNoParent, 0});
+  SimAllocator<ABAAlgorithm> sim =
+      MakeSim({achilles::domain::layout::kNoParent, 0});
   ABAView view = sim.ViewFor<ABAAlgorithm>();
   const auto& layout = sim.LayoutFor<TopologicalOrdering>();
   std::size_t group0 = BatchGroup(layout, 0);
@@ -245,7 +250,8 @@ TEST(AbaStep, PropagatesThroughTwoJointChain) {
 // accumulator) to prove the same thing actually happens when the traversal
 // itself drives two real sibling joints into the same real parent row.
 TEST(AbaStep, AccumulatesMultipleChildrenIntoSharedParent) {
-  SimAllocator<ABAAlgorithm> sim = MakeSim({achilles::domain::kNoParent, 0, 0});
+  SimAllocator<ABAAlgorithm> sim =
+      MakeSim({achilles::domain::layout::kNoParent, 0, 0});
   ABAView view = sim.ViewFor<ABAAlgorithm>();
   const auto& layout = sim.LayoutFor<TopologicalOrdering>();
   std::size_t group0 = BatchGroup(layout, 0);
@@ -291,7 +297,8 @@ TEST(AbaStep, AccumulatesMultipleChildrenIntoSharedParent) {
 // directly, in the same order ABAStep::Step's own passes run them, so this
 // is an exact comparison, not just a "did anything change at all" check.
 TEST(AbaStep, PropagatesThroughMultiLevelTree) {
-  SimAllocator<ABAAlgorithm> sim = MakeSim({achilles::domain::kNoParent, 0, 1});
+  SimAllocator<ABAAlgorithm> sim =
+      MakeSim({achilles::domain::layout::kNoParent, 0, 1});
   ABAView view = sim.ViewFor<ABAAlgorithm>();
   const auto& layout = sim.LayoutFor<TopologicalOrdering>();
   std::size_t group0 = BatchGroup(layout, 0);
@@ -367,7 +374,7 @@ TEST(AbaStep, PropagatesThroughMultiLevelTree) {
 // Initialize mechanism PropagateVelocityOp/PropagateAccelerationOp use to
 // seed their own base-row reads (see the header comment on aba_ops.hpp).
 // RunPass calls it once, unconditionally, at the base row before every
-// single Apply pass (engine/pass/algorithm_step.hpp), so it runs on every
+// single Apply pass (engine/op_invoker/algorithm_step.hpp), so it runs on every
 // Step() call, not just the first -- resolving what used to be an open
 // question without needing aba::Step, the allocator, or the simulation
 // loop to take on that responsibility themselves.

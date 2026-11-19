@@ -5,19 +5,29 @@
 
 #include "algorithms/conventions.hpp"
 #include "algorithms/shared_slots.hpp"
-#include "domain/joint_topology.hpp"
 #include "domain/math/activation_mask.hpp"
 #include "domain/math/matrix.hpp"
 #include "domain/spatial/dual.hpp"
 #include "domain/spatial/inertia.hpp"
 #include "domain/spatial/transform.hpp"
-#include "engine/field_contract.hpp"
-#include "engine/memory/buffering_policy.hpp"
-#include "engine/topology/layout_policy.hpp"
-#include "engine/topology/orderings.hpp"
+#include "domain/topology/joint_topology.hpp"
+#include "domain/topology/topology_contract.hpp"
+#include "engine/spec/field_binding.hpp"
+#include "engine/spec/field_contract.hpp"
+#include "engine/spec/view_contract.hpp"
 #include "engine/view/view.hpp"
-#include "engine/view/view_contract.hpp"
 #include "engine/view/view_factory.hpp"
+#include "policy/buffering/base_buffering.hpp"
+#include "policy/buffering/double_buffering.hpp"
+#include "policy/buffering/single_buffering.hpp"
+#include "policy/layout/base_layout.hpp"
+#include "policy/layout/planar_layout.hpp"
+#include "policy/layout/segmented_layout.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
 
 namespace achilles::algorithms::aba {
 
@@ -51,7 +61,7 @@ enum class ABAField : uint8_t {
 
   kCount
 };
-static_assert(engine::FieldEnumLike<ABAField>);
+static_assert(engine::spec::FieldEnumLike<ABAField>);
 
 template <ABAField F>
 struct ABAFieldTraits;
@@ -60,8 +70,8 @@ struct ABAFieldTraits;
 // must respect the shared JointTopology's parent/child dependencies (see
 // aba_step.hpp's tree traversal and domain::JointTopology's own batch-
 // safety assertion), so every field below binds
-// Ordering = topology::TopologicalOrdering -- there is no ABA field that
-// could safely use the (looser, no-cross-batch-dependency) default.
+// Ordering = policy::ordering::TopologicalOrdering -- there is no ABA field
+// that could safely use the (looser, no-cross-batch-dependency) default.
 //
 // kName is a field's one name: what a .arow field is matched
 // against when loading (memory::SimAllocator's Populate pass), and what a
@@ -74,30 +84,30 @@ template <>
 struct ABAFieldTraits<ABAField::kJointSubspace> {
   using Assembler = math::Matrix6x6Assembler<ScalarOperationT>;
   using SharedAs = JointSubspaceSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "joint_subspace";
 };
 template <>
 struct ABAFieldTraits<ABAField::kJointActivationMask> {
   using Assembler = math::ActivationMaskAssembler<6, ScalarOperationT>;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "joint_activation_mask";
 };
 template <>
 struct ABAFieldTraits<ABAField::kFixedJointTransform> {
   using Assembler = spatial::TransformAssembler<ScalarOperationT>;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "fixed_joint_transform";
 };
 template <>
 struct ABAFieldTraits<ABAField::kRigidBodyInertia> {
   using Assembler = spatial::InertiaAssembler<ScalarOperationT>;
   using SharedAs = RigidBodyInertiaSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "rigid_body_inertia";
 };
 template <>
@@ -107,8 +117,8 @@ struct ABAFieldTraits<ABAField::kJointPosition> {
   // shared_slots.hpp).
   using Assembler = spatial::TransformAssembler<ScalarOperationT>;
   using SharedAs = JointPositionSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "joint_position";
 };
 template <>
@@ -117,13 +127,13 @@ struct ABAFieldTraits<ABAField::kJointVelocity> {
   // IntegratePositionOp both read/write this exact block.
   using Assembler = spatial::SpatialVelocityAssembler<ScalarOperationT>;
   using SharedAs = JointVelocitySlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "joint_velocity";
 };
 template <>
 struct ABAFieldTraits<ABAField::kJointTorque> {
-  // Double-buffered (engine/memory/buffering_policy.hpp) so actuators
+  // Double-buffered (policy/buffering/) so actuators
   // (algorithms/attachment) accumulate next tick's torque into one half
   // while this tick's ABA passes read the other; SwapTorqueStep
   // (aba_step.hpp) swaps them and zeroes the half handed back, so a tick's
@@ -134,9 +144,9 @@ struct ABAFieldTraits<ABAField::kJointTorque> {
   using Assembler = spatial::SpatialForceAssembler<ScalarOperationT>;
   using SharedAs = JointTorqueSlot;
   using Buffering = engine::memory::
-      DoubleBuffered<JointTorqueSlot, engine::memory::BufferSide::kRead>;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+      DoubleBuffering<JointTorqueSlot, policy::buffering::BufferSide::kRead>;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
 };
 template <>
 struct ABAFieldTraits<ABAField::kJointTorqueNext> {
@@ -145,16 +155,16 @@ struct ABAFieldTraits<ABAField::kJointTorqueNext> {
   using Assembler = spatial::SpatialForceAssembler<ScalarOperationT>;
   using SharedAs = JointTorqueSlot;
   using Buffering = engine::memory::
-      DoubleBuffered<JointTorqueSlot, engine::memory::BufferSide::kWrite>;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+      DoubleBuffering<JointTorqueSlot, policy::buffering::BufferSide::kWrite>;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
 };
 template <>
 struct ABAFieldTraits<ABAField::kParentToBodyTransform> {
   using Assembler = spatial::TransformAssembler<ScalarOperationT>;
   using SharedAs = ParentToBodyTransformSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
 };
 template <>
 struct ABAFieldTraits<ABAField::kWorldTransform> {
@@ -163,55 +173,55 @@ struct ABAFieldTraits<ABAField::kWorldTransform> {
   // world pose from kJointPosition/kFixedJointTransform itself.
   using Assembler = spatial::TransformAssembler<ScalarOperationT>;
   using SharedAs = WorldTransformSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "world_transform";
 };
 template <>
 struct ABAFieldTraits<ABAField::kSpatialVelocity> {
   using Assembler = spatial::SpatialVelocityAssembler<ScalarOperationT>;
   using SharedAs = SpatialVelocitySlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "spatial_velocity";
 };
 template <>
 struct ABAFieldTraits<ABAField::kBiasAcceleration> {
   using Assembler = spatial::SpatialAccelerationAssembler<ScalarOperationT>;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
 };
 template <>
 struct ABAFieldTraits<ABAField::kArticulatedInertia> {
   using Assembler = spatial::InertiaOperatorAssembler<ScalarOperationT>;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
 };
 template <>
 struct ABAFieldTraits<ABAField::kArticulatedBiasForce> {
   using Assembler = spatial::SpatialForceAssembler<ScalarOperationT>;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
 };
 template <>
 struct ABAFieldTraits<ABAField::kUTerm> {
   using Assembler = spatial::InertiaOperatorAssembler<ScalarOperationT>;
   using SharedAs = UTermSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
 };
 template <>
 struct ABAFieldTraits<ABAField::kDInvTerm> {
   using Assembler = spatial::InvertedInertiaOperatorAssembler<ScalarOperationT>;
   using SharedAs = DInvTermSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
 };
 template <>
 struct ABAFieldTraits<ABAField::kJointBiasForce> {
   using Assembler = spatial::SpatialForceAssembler<ScalarOperationT>;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
 };
 template <>
 struct ABAFieldTraits<ABAField::kJointAcceleration> {
@@ -219,8 +229,8 @@ struct ABAFieldTraits<ABAField::kJointAcceleration> {
   // this exact block rather than a private, unconnected copy.
   using Assembler = spatial::SpatialAccelerationAssembler<ScalarOperationT>;
   using SharedAs = JointAccelerationSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "joint_acceleration";
 };
 template <>
@@ -229,20 +239,20 @@ struct ABAFieldTraits<ABAField::kSpatialAcceleration> {
   // to the constrained body acceleration as it solves.
   using Assembler = spatial::SpatialAccelerationAssembler<ScalarOperationT>;
   using SharedAs = SpatialAccelerationSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "spatial_acceleration";
 };
-static_assert(engine::FieldTraitsLike<ABAField, ABAFieldTraits>);
+static_assert(engine::spec::FieldTraitsLike<ABAField, ABAFieldTraits>);
 
 // ABAAlgorithm (which needs ABAStep) lives in aba_step.hpp -- ABAView and
 // ABATopology don't depend on stepping at all, so they're computed directly
 // here instead of via ABAAlgorithm::View, keeping this file usable (e.g. by
 // aba_ops.hpp's own static_asserts) without pulling in aba_step.hpp.
 using ABAView = engine::view::ViewFactory<ABAField, ABAFieldTraits>;
-static_assert(engine::view::ViewLike<ABAView, ABAField>);
+static_assert(engine::spec::ViewLike<ABAView, ABAField>);
 
-using ABATopology = domain::JointTopology;
-static_assert(domain::TopologyLike<ABATopology>);
+using ABATopology = domain::topology::JointTopology;
+static_assert(domain::topology::TopologyLike<ABATopology>);
 
 }  // namespace achilles::algorithms::aba

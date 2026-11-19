@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "domain/attachment/sim_quantities.hpp"
-#include "domain/joint_data.hpp"
+#include "domain/layout/joint_records.hpp"
 #include "domain/math/scalar.hpp"
 #include "domain/math/vector3.hpp"
 #include "domain/spatial/transform.hpp"
@@ -22,7 +22,7 @@
 #include "support/sensing_scene.hpp"
 #include "support/temp_dir.hpp"
 
-using achilles::domain::JointAddress;
+using achilles::domain::layout::JointAddress;
 using achilles::domain::math::Vector3;
 using achilles::interface::Simulation;
 using achilles::interface::StateHandle;

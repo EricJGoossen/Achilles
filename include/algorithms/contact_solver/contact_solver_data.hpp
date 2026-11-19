@@ -7,9 +7,8 @@
 #include "algorithms/conventions.hpp"
 #include "algorithms/joint_limit/joint_limit_data.hpp"
 #include "algorithms/narrow_phase/narrow_phase_data.hpp"
-#include "algorithms/orderings/collision_pairs.hpp"
+#include "algorithms/row_sets/collision_pairs.hpp"
 #include "algorithms/shared_slots.hpp"
-#include "domain/joint_topology.hpp"
 #include "domain/math/activation_mask.hpp"
 #include "domain/math/matrix.hpp"
 #include "domain/math/scalar.hpp"
@@ -17,12 +16,23 @@
 #include "domain/spatial/dual.hpp"
 #include "domain/spatial/inertia.hpp"
 #include "domain/spatial/transform.hpp"
-#include "engine/field_contract.hpp"
-#include "engine/topology/indexing_policy.hpp"
-#include "engine/topology/layout_policy.hpp"
-#include "engine/topology/orderings.hpp"
-#include "engine/view/view_contract.hpp"
+#include "domain/topology/joint_topology.hpp"
+#include "domain/topology/topology_contract.hpp"
+#include "engine/spec/field_contract.hpp"
+#include "engine/spec/view_contract.hpp"
 #include "engine/view/view_factory.hpp"
+#include "policy/indexing/base_indexing.hpp"
+#include "policy/indexing/global_indexing.hpp"
+#include "policy/indexing/group_indexing.hpp"
+#include "policy/indexing/row_indexing.hpp"
+#include "policy/layout/base_layout.hpp"
+#include "policy/layout/planar_layout.hpp"
+#include "policy/layout/segmented_layout.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
 
 namespace achilles::algorithms::contact_solver {
 
@@ -175,7 +185,7 @@ enum class ContactSolverField : uint8_t {
 
   kCount
 };
-static_assert(engine::FieldEnumLike<ContactSolverField>);
+static_assert(engine::spec::FieldEnumLike<ContactSolverField>);
 
 template <ContactSolverField F>
 struct ContactSolverFieldTraits;
@@ -183,24 +193,24 @@ struct ContactSolverFieldTraits;
 // Row and global fields share ABA's TopologicalOrdering, for the same reason
 // the collision fields do: rows are joints, numbered once for every
 // algorithm. Row fields hold one value per joint; pair fields one per pair
-// (CollisionPairs, orderings/collision_pairs.hpp -- so ordered by it instead),
+// (CollisionPairs, row_sets/collision_pairs.hpp -- so ordered by it instead),
 // a lane group at a time, lined up with the narrow phase's own; global fields
-// one value for the whole sim (topology::GlobalIndexing).
+// one value for the whole sim (policy::indexing::GlobalIndexing).
 template <typename A>
 struct RowField {
   using Assembler = A;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
 };
 template <typename A>
 struct PairField {
   using Assembler = A;
-  using Ordering = CollisionPairs;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = row_sets::CollisionPairs;
+  using Layout = policy::layout::PlanarLayout;
 };
 template <typename A>
 struct GlobalField : RowField<A> {
-  using Indexing = engine::topology::GlobalIndexing;
+  using Indexing = policy::indexing::GlobalIndexing;
 };
 
 template <typename A, typename Slot>
@@ -307,8 +317,8 @@ struct ContactSolverFieldTraits<ContactSolverField::kContactActive>
     : RowField<math::ActivationMaskAssembler<
           kLanes * narrow_phase::kSweptBoxContactSlots>> {
   using SharedAs = ContactActiveSlot;
-  using Ordering = CollisionPairs;
-  using Indexing = engine::topology::LaneGroupIndexing<kLanes>;
+  using Ordering = row_sets::CollisionPairs;
+  using Indexing = policy::indexing::GroupIndexing<kLanes>;
 };
 
 // --- Joint limits (shared) ---
@@ -512,15 +522,15 @@ struct ContactSolverFieldTraits<ContactSolverField::kBeta>
 template <>
 struct ContactSolverFieldTraits<ContactSolverField::kRestart>
     : GlobalField<ScalarAssembler> {};
-static_assert(engine::FieldTraitsLike<
+static_assert(engine::spec::FieldTraitsLike<
               ContactSolverField,
               ContactSolverFieldTraits>);
 
 using ContactSolverView =
     engine::view::ViewFactory<ContactSolverField, ContactSolverFieldTraits>;
-static_assert(engine::view::ViewLike<ContactSolverView, ContactSolverField>);
+static_assert(engine::spec::ViewLike<ContactSolverView, ContactSolverField>);
 
-using ContactSolverTopology = domain::JointTopology;
-static_assert(domain::TopologyLike<ContactSolverTopology>);
+using ContactSolverTopology = domain::topology::JointTopology;
+static_assert(domain::topology::TopologyLike<ContactSolverTopology>);
 
 }  // namespace achilles::algorithms::contact_solver

@@ -11,11 +11,14 @@ or the engine.
 
 | Layer | Folders |
 |---|---|
-| 0 | `math`, `random`, `clock`, `joint` |
+| 0 | `math`, `random`, `clock`, `layout`, `topology` |
 | 1 | `spatial`, `geometry`, `error`, `archetype` |
 | 2 | `attachment` |
 | 3 | `sensing`, `actuation` |
-| 4 | `kind` |
+
+- A concept that applies to several objects gets its own
+  `<topic>_contract.hpp`; one that applies to a single object lives in that
+  object's file.
 
 ## Objects
 

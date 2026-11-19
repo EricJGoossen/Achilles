@@ -10,7 +10,7 @@ streams.
 
 - Built by `interface::Simulation::LoadArowFile` from
   `interface::LoadArchetypes`.
-- `engine/memory/sim_allocator.hpp` builds the sim from it and populates
+- `engine/allocation/sim_allocator.hpp` builds the sim from it and populates
   fields by name.
 - `interface/attachments.hpp` walks every attachment with
   `ForEachAttachment` at init.
@@ -36,6 +36,6 @@ streams.
 
 ## When changing it
 
-- `engine/topology/orderings.hpp` if numbering changes; both must stay in
+- `policy/ordering/` if numbering changes; both must stay in
   step.
 - `interface/simulation.hpp` and `interface/attachments.hpp`.

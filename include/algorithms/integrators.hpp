@@ -25,15 +25,15 @@
 #include "algorithms/sim_config.hpp"
 #include "algorithms/verlet/verlet_step.hpp"
 #include "algorithms/vi/vi_step.hpp"
-#include "engine/pass/sim_context.hpp"
+#include "engine/context/sim_context.hpp"
 #include "util/tmp.hpp"
 
 namespace achilles::algorithms {
 
 // Integrators: each is the ordered list of Steps one tick runs (see
-// engine::StepLike). Every Step is a single pass of its own Algorithm's
-// Ops; aba::ABAStep is the dynamics evaluation qdd = f(q, qd), and each
-// integrator is just where it evaluates that and what it does with the
+// engine::spec::StepLike). Every Step is a single pass of its own
+// Algorithm's Ops; aba::ABAStep is the dynamics evaluation qdd = f(q, qd), and
+// each integrator is just where it evaluates that and what it does with the
 // result. ABA's fields are SharedAs-aliased with every integrator's, so
 // each ABAStep reads whatever state the Step before it wrote. Every
 // integrator starts with Effort: the actuators run on the tick's starting
@@ -176,7 +176,8 @@ using Setup = util::ConcatT<
 
 // The SimContext every hosted Algorithm lives in, and the shape of one
 // integrator tick over it.
-using RegisteredSimContext = engine::pass::SimContextForT<RegisteredAlgorithms>;
+using RegisteredSimContext =
+    engine::context::SimContextForT<RegisteredAlgorithms>;
 using IntegratorStepFn =
     void (*)(const RegisteredSimContext&, const SimConfig&, ScalarOperationT);
 

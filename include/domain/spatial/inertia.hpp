@@ -13,7 +13,7 @@
 #include "domain/math/quaternion.hpp"
 #include "domain/math/vector3.hpp"
 #include "dual.hpp"
-#include "engine/assembler.hpp"
+#include "engine/assembly/assembler.hpp"
 #include "util/simd_ops.hpp"
 
 namespace achilles::domain::spatial {
@@ -332,9 +332,13 @@ class Inertia {
 // constructor -- Inertia::ToTuple() must agree with it for Read/Write to
 // round-trip through this Assembler correctly.
 template <typename T>
-using InertiaAssembler = engine::
-    Assembler<Inertia, T, T, math::Vector3Assembler<T>, engine::RepeatTypes<6>>;
-static_assert(engine::BatchAssemblerLike<InertiaAssembler<float>>);
+using InertiaAssembler = engine::assembly::Assembler<
+    Inertia,
+    T,
+    T,
+    math::Vector3Assembler<T>,
+    engine::assembly::RepeatTypes<6>>;
+static_assert(engine::assembly::BatchAssemblerLike<InertiaAssembler<float>>);
 
 template <util::ArithmeticLike T, bool Inverted>
 class InertiaOperator {
@@ -564,13 +568,14 @@ using InvertedArticulatedInertiaOperator = InertiaOperator<T, true>;
 template <typename T>
 using InertiaOperatorAssembler = engine::
     Assembler<ArticulatedInertiaOperator, T, math::Matrix6x6Assembler<T>>;
-static_assert(engine::BatchAssemblerLike<InertiaOperatorAssembler<float>>);
+static_assert(engine::assembly::BatchAssemblerLike<
+              InertiaOperatorAssembler<float>>);
 template <typename T>
-using InvertedInertiaOperatorAssembler = engine::Assembler<
+using InvertedInertiaOperatorAssembler = engine::assembly::Assembler<
     InvertedArticulatedInertiaOperator,
     T,
     math::Matrix6x6Assembler<T>>;
-static_assert(engine::BatchAssemblerLike<
+static_assert(engine::assembly::BatchAssemblerLike<
               InvertedInertiaOperatorAssembler<float>>);
 
 }  // namespace achilles::domain::spatial

@@ -10,8 +10,8 @@
 
 #include "algorithms/attachment_kinds/attachment_kinds.hpp"
 #include "domain/archetype/archetype.hpp"
-#include "domain/joint_data.hpp"
-#include "engine/pass/sim_context.hpp"
+#include "domain/layout/joint_records.hpp"
+#include "engine/context/sim_context.hpp"
 #include "interface/attachment_handle.hpp"
 #include "util/tmp.hpp"
 
@@ -28,7 +28,7 @@ struct NamedAttachment {
   std::string name;
   std::size_t instance = 0;
   AttachmentHandle<K> handle;
-  domain::JointAddress joint;
+  domain::layout::JointAddress joint;
 };
 
 template <domain::attachment::AttachmentLike K>
@@ -67,13 +67,13 @@ bool WithKindNamed(
 // list (whose InitSteps seed each attachment's state from its configuration).
 // Throws std::invalid_argument for an attachment of no registered kind, and
 // whatever its own Configure throws.
-template <engine::pass::SimContextLike SimStateT, typename Archetypes>
+template <engine::context::SimContextLike SimStateT, typename Archetypes>
 void ConfigureAttachments(
     const SimStateT& sim_state, const Archetypes& archetypes, std::uint64_t seed
 ) {
   archetypes.ForEachAttachment(
       seed,
-      [&](const domain::JointAttachment& attachment,
+      [&](const domain::layout::JointAttachment& attachment,
           std::size_t instance,
           std::size_t /*local_instance*/,
           std::size_t entry,

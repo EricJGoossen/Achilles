@@ -7,21 +7,30 @@
 #include "aba_ops.hpp"
 #include "algorithms/conventions.hpp"
 #include "algorithms/sim_config.hpp"
-#include "engine/algorithm_contract.hpp"
-#include "engine/memory/sim_allocator.hpp"
-#include "engine/pass/algorithm_step.hpp"
-#include "engine/pass/sim_context.hpp"
-#include "engine/pass/traversals.hpp"
-#include "engine/topology/orderings.hpp"
+#include "engine/algorithm.hpp"
+#include "engine/allocation/sim_allocator.hpp"
+#include "engine/context/sim_context.hpp"
+#include "engine/op_invoker/algorithm_step.hpp"
+#include "engine/spec/field_binding.hpp"
+#include "engine/spec/step_contract.hpp"
+#include "engine/spec/view_contract.hpp"
 #include "engine/view/view.hpp"
-#include "engine/view/view_contract.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
+#include "policy/traversal/base_traversal.hpp"
+#include "policy/traversal/global_traversal.hpp"
+#include "policy/traversal/pair_traversal.hpp"
+#include "policy/traversal/row_traversal.hpp"
 
 namespace achilles::algorithms::aba {
 
 // Runs one full ABA step (velocity, inertia, acceleration passes) for a
 // single archetype. `sim_state` supplies both this Step's own ABAView
 // (looked up via ViewFor<ABAView>(), the same way it names its own View type
-// as engine::pass::Step's Op arguments below) and the JointTopology for
+// as engine::op_invoker::Step's Op arguments below) and the JointTopology for
 // joint order/parentage (looked up by ABA's own TopologicalOrdering policy);
 // `sim_config` supplies the base row's seed state --
 // `world_base_transform`/`base_velocity` (PropagateVelocityOp::Initialize)
@@ -33,17 +42,17 @@ namespace achilles::algorithms::aba {
 // separate seed pass to keep in sync with them. `dt` is unused -- ABA
 // solves for acceleration, it doesn't integrate -- but still declared, the
 // same (SimContext, Config, dt) shape every Step::Step takes (see
-// engine/pass/sim_step.hpp).
+// engine/op_invoker/sim_step.hpp).
 //
 // A struct (rather than a bare free function) so it can be named in a step
 // list (see algorithms/registry.hpp).
 //
-// SimStateT is a template parameter, not engine::pass::SimContext<...>
+// SimStateT is a template parameter, not engine::context::SimContext<...>
 // named directly: SimContext is templated on the full Algorithms... pack of
 // whichever sim hosts this Algorithm, which ABAStep itself has no reason to
 // know -- it only ever calls sim_state.ViewFor<ABAView>()/
-// TopologyFor<Policy>(), constrained by engine::pass::SimContextLike
-// (engine/pass/sim_context.hpp) purely to check "is this actually a
+// TopologyFor<Policy>(), constrained by engine::context::SimContextLike
+// (engine/context/sim_context.hpp) purely to check "is this actually a
 // SimContext<...>", not "does it structurally have ABA's own View/Policy" --
 // see SimContextLike's own comment on why the latter can't be probed
 // generically now that both ViewFor and TopologyFor are std::get on real
@@ -56,10 +65,10 @@ namespace achilles::algorithms::aba {
 // (engine::pass itself stays generic over Config; ABA just always asks for
 // this one).
 //
-// All three passes here walk the tree, but nothing about engine::pass::Step
-// (the Op-level one, run inside Step below) requires that -- a future pass
-// could name engine::LinearTraversal instead and still take `topology` (via
-// its Size()).
+// All three passes here walk the tree, but nothing about
+// engine::op_invoker::Step (the Op-level one, run inside Step below) requires
+// that -- a future pass could name engine::LinearTraversal instead and still
+// take `topology` (via its Size()).
 struct ABAStep {
   using FieldEnum = ABAField;
 
@@ -67,36 +76,36 @@ struct ABAStep {
   // BatchOperationT (see algorithms/conventions.hpp), never a scalar -- so the
   // traversal driving them must walk batch-GROUPS of the real,
   // TopologicalOrdering-built topology, not its raw rows one at a time
-  // (see engine::pass::TreeTraversal's own comment on Stride for why a raw
+  // (see policy::traversal::TreeTraversal's own comment on Stride for why a raw
   // row and a batch group aren't the same index space once more than one
   // group exists). Stride = kLanes is the one
   // piece of information that was missing before Stride existed: without
   // it, a topology with more than one lane's worth of real+padding rows
   // silently ran the traversal's own loop bound (and every parent lookup)
   // in the wrong units.
-  using ForwardBatched =
-      engine::pass::TreeTraversal<engine::pass::Direction::kForward, kLanes>;
-  using BackwardBatched =
-      engine::pass::TreeTraversal<engine::pass::Direction::kBackward, kLanes>;
+  using ForwardBatched = policy::traversal::
+      TreeTraversal<policy::traversal::Direction::kForward, kLanes>;
+  using BackwardBatched = policy::traversal::
+      TreeTraversal<policy::traversal::Direction::kBackward, kLanes>;
 
-  template <engine::pass::SimContextLike SimStateT>
+  template <engine::context::SimContextLike SimStateT>
   static void Step(
       const SimStateT& sim_state,
       const SimConfig& sim_config,
       ScalarOperationT dt
   ) {
     (void)dt;
-    using engine::pass::Pass;
+    using engine::op_invoker::OpWalk;
 
     const auto view = sim_state.template ViewFor<ABAView>();
     const ABATopology& topology =
-        sim_state.template TopologyFor<engine::topology::TopologicalOrdering>();
+        sim_state.template TopologyFor<policy::ordering::TopologicalOrdering>();
 
-    engine::pass::Step(
-        engine::pass::Ops<
-            Pass<PropagateVelocityOp, ForwardBatched>,
-            Pass<PropagateInertiaOp, BackwardBatched>,
-            Pass<PropagateAccelerationOp, ForwardBatched>>{
+    engine::op_invoker::Step(
+        engine::op_invoker::Ops<
+            OpWalk<PropagateVelocityOp, ForwardBatched>,
+            OpWalk<PropagateInertiaOp, BackwardBatched>,
+            OpWalk<PropagateAccelerationOp, ForwardBatched>>{
             PropagateVelocityOp(
                 sim_config.world_base_transform, sim_config.base_velocity
             ),
@@ -116,22 +125,21 @@ struct ABAStep {
 // however many times that list evaluates ABA.
 struct SwapTorqueStep {
   using FieldEnum = ABAField;
-  using LinearBatched =
-      engine::pass::LinearTraversal<engine::pass::Direction::kForward, kLanes>;
+  using LinearBatched = policy::traversal::
+      LinearTraversal<policy::traversal::Direction::kForward, kLanes>;
 
-  template <engine::pass::SimContextLike SimStateT>
+  template <engine::context::SimContextLike SimStateT>
   static void Step(
       const SimStateT& sim_state,
       const SimConfig& /*sim_config*/,
       ScalarOperationT /*dt*/
   ) {
     sim_state.template FlipParity<JointTorqueSlot>();
-    engine::pass::Step(
-        engine::pass::Ops<engine::pass::Pass<ZeroJointTorqueOp, LinearBatched>>{
-            {}
-        },
+    engine::op_invoker::Step(
+        engine::op_invoker::Ops<
+            engine::op_invoker::OpWalk<ZeroJointTorqueOp, LinearBatched>>{{}},
         sim_state.template ViewFor<ABAView>(),
-        sim_state.template TopologyFor<engine::topology::TopologicalOrdering>()
+        sim_state.template TopologyFor<policy::ordering::TopologicalOrdering>()
     );
   }
 };

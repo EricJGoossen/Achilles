@@ -12,8 +12,8 @@
 #include "domain/attachment/attachment.hpp"
 #include "domain/attachment/attachment_config.hpp"
 #include "domain/attachment/sim_quantities.hpp"
+#include "domain/clock/sim_clock.hpp"
 #include "domain/math/vector3.hpp"
-#include "domain/sim_clock.hpp"
 #include "domain/spatial/dual.hpp"
 #include "util/tmp.hpp"
 
@@ -27,15 +27,8 @@ using attachment::NoState;
 using attachment::SimInputs;
 namespace input = attachment::input;
 
-// What an actuator pushes along its axis: a force (linear) or a torque
-// (angular).
-enum class EffortKind : std::uint8_t { kLinear, kAngular };
-
-// Which half of a motion subspace an effort kind acts in (spatial/dual.hpp).
-constexpr std::size_t FirstSpatialRow(EffortKind kind) {
-  return kind == EffortKind::kAngular ? spatial::kAngularRows
-                                      : spatial::kLinearRows;
-}
+using attachment::EffortKind;
+using attachment::FirstSpatialRow;
 
 // Below this an axis counts as zero, and a coordinate's weight as no coupling
 // -- so float noise from an axis meant to be orthogonal to a joint's freedom
@@ -135,7 +128,7 @@ class Actuator<
 
   // One tick: drives when an update is due, else carries `last` forward.
   void Update(
-      const SimClock& clock,
+      const clock::SimClock& clock,
       float dt,
       const typename Inputs::Value&... inputs,
       const attachment::Reading<OutputT>& last,

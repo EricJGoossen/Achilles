@@ -39,7 +39,7 @@ The math that operates on the data. Each algorithm has its own folder with
 - Each step is a struct with `FieldEnum` and a
   `static Step(sim_state, sim_config, dt)` templated on `SimContextLike`.
 - The body fetches the view and topology, builds the ops from config, and
-  makes one `engine::pass::Step(Ops<Pass<Op, Traversal>...>)` call.
+  makes one `engine::op_invoker::Step(Ops<OpWalk<Op, Traversal>...>)` call.
 - A step may make other engine calls, such as flipping a buffer's parity,
   but has no loops, conditions or math.
 - Traversal aliases are chosen here.
@@ -69,11 +69,13 @@ The math that operates on the data. Each algorithm has its own folder with
 - Step lists: tick lists built only from `TypeList`, `ConcatT` and
   `RepeatListT`, plus their repeat counts. Each tick advances the clock
   exactly once, at the end.
+- `base/`: base classes for steps and ops that several algorithms share,
+  such as `EveryRowStep`.
 - `row_sets/`: orderings for rows other than one per joint, such as
   collision pairs, shared by several algorithms, plus the field-name tags
   they read.
 - Algorithm folders include only `conventions`, `shared_slots` and
-  `row_sets/` from the top level, never the hosting or step lists. The
+  `row_sets/` and `base/` from the top level, never the hosting or step lists. The
   top-level files may include any algorithm.
 
 ## Concrete types

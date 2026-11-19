@@ -131,7 +131,7 @@ using UniqueT = typename Unique<List>::Type;
 // can't itself be a distinct std::get key -- e.g. two different ordering
 // policies both resolving to the exact same domain::JointTopology type) and
 // each element needs wrapping in something that's *per-element* distinct
-// (e.g. TopologySlot<Policy>, engine/pass/sim_context.hpp) before ToTupleT
+// (e.g. TopologySlot<Policy>, engine/context/sim_context.hpp) before ToTupleT
 // turns the list into a std::tuple a real std::get can key into.
 template <template <typename> class F, typename List>
 struct Transform;

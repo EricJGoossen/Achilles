@@ -16,11 +16,15 @@
 #include "algorithms/sim_config.hpp"
 #include "domain/archetype/archetype.hpp"
 #include "domain/archetype/archetype_set.hpp"
-#include "engine/memory/sim_allocator.hpp"
-#include "engine/topology/orderings.hpp"
+#include "engine/allocation/sim_allocator.hpp"
 #include "interface/archetype_loader.hpp"
 #include "interface/attachment_handle.hpp"
 #include "interface/simulation.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
 #include "support/aba_reference.hpp"
 #include "support/temp_dir.hpp"
 #include "util/simd_ops.hpp"
@@ -38,12 +42,12 @@ using achilles::algorithms::aba::ABAAlgorithm;
 using achilles::algorithms::aba::ABAField;
 using achilles::algorithms::aba::ABAStep;
 using achilles::domain::archetype::Archetype;
-using achilles::engine::memory::SimAllocator;
-using achilles::engine::topology::TopologicalOrdering;
+using achilles::engine::allocation::SimAllocator;
 using achilles::interface::AngularActuator;
 using achilles::interface::LinearActuator;
 using achilles::interface::LoadArchetypes;
 using achilles::interface::Simulation;
+using achilles::policy::ordering::TopologicalOrdering;
 using achilles::test_support::AccumulateAbaInertia;
 using achilles::test_support::ComputeAbaAcceleration;
 using achilles::test_support::ComputeAbaVelocity;
@@ -285,7 +289,7 @@ TEST(Simulation, StepReturnsFalseBeforeInit) {
 // through the real ABAStep -- verifies the joint's own nonzero initial
 // position actually reaches kWorldTransform as a nonzero rotation, proving
 // every layer (archetype loading, allocation, View construction, the
-// engine::pass::Step dispatch, ABAStep's own strided traversal) is wired
+// engine::op_invoker::Step dispatch, ABAStep's own strided traversal) is wired
 // together correctly end to end, not just that each layer works in
 // isolation (which algorithms_aba_aba_step.cpp,
 // engine_memory_sim_allocator.cpp, etc. already cover).

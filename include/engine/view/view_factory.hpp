@@ -3,8 +3,9 @@
 #include <cstddef>
 #include <utility>
 
-#include "engine/field_contract.hpp"
-#include "engine/memory/binding.hpp"
+#include "engine/binding.hpp"
+#include "engine/spec/field_binding.hpp"
+#include "engine/spec/field_contract.hpp"
 #include "engine/view/view.hpp"
 
 namespace achilles::engine::view {
@@ -12,30 +13,31 @@ namespace achilles::engine::view {
 // Builds one FieldBinding<Policy, Assembler, Indexing, Buffering, Ordering>
 // per field:
 // Assembler from Traits<F>::Assembler, Policy from Traits<F>::Layout, Indexing
-// from Traits<F>::Indexing (topology::RowIndexing if it names none), and
-// Buffering from Traits<F>::Buffering (memory::SingleBuffered if it names
-// none), Ordering from Traits<F>::Ordering (topology::LinearOrdering if it
-// names none), all exactly as Traits<F> declares them, and instantiates
-// View<EnumT, Bindings...> from them. View itself is never a parameter here:
-// it's the one view class that exists, and which Layout policy each field
-// declares is already what determines its shape -- there's nothing left for a
-// caller to choose between. This is the only place a field's Traits
-// specialization gets translated into what View stores per field, so binding a
-// field to a different Layout policy is a one-line change to that field's own
-// Traits<F> -- nothing here or in View changes further.
+// from Traits<F>::Indexing (policy::indexing::RowIndexing if it names none),
+// and Buffering from Traits<F>::Buffering (policy::buffering::SingleBuffering
+// if it names none), Ordering from Traits<F>::Ordering
+// (policy::ordering::LinearOrdering if it names none), all exactly as Traits<F>
+// declares them, and instantiates View<EnumT, Bindings...> from them. View
+// itself is never a parameter here: it's the one view class that exists, and
+// which Layout policy each field declares is already what determines its shape
+// -- there's nothing left for a caller to choose between. This is the only
+// place a field's Traits specialization gets translated into what View stores
+// per field, so binding a field to a different Layout policy is a one-line
+// change to that field's own Traits<F> -- nothing here or in View changes
+// further.
 template <typename EnumT, template <EnumT> class Traits, size_t... Is>
 auto MakeViewFromTraits(std::index_sequence<Is...>)
     -> View<
         EnumT,
-        FieldBinding<
-            memory::FieldLayoutT<EnumT, Traits, static_cast<EnumT>(Is)>,
+        spec::FieldBinding<
+            engine::FieldLayoutT<EnumT, Traits, static_cast<EnumT>(Is)>,
             typename Traits<static_cast<EnumT>(Is)>::Assembler,
-            memory::FieldIndexingT<EnumT, Traits, static_cast<EnumT>(Is)>,
-            memory::FieldBufferingT<EnumT, Traits, static_cast<EnumT>(Is)>,
-            memory::FieldOrderingT<EnumT, Traits, static_cast<EnumT>(Is)>>...>;
+            engine::FieldIndexingT<EnumT, Traits, static_cast<EnumT>(Is)>,
+            engine::FieldBufferingT<EnumT, Traits, static_cast<EnumT>(Is)>,
+            engine::FieldOrderingT<EnumT, Traits, static_cast<EnumT>(Is)>>...>;
 
 template <typename EnumT, template <EnumT> class Traits>
-  requires FieldTraitsLike<EnumT, Traits>
+  requires spec::FieldTraitsLike<EnumT, Traits>
 using ViewFactory = decltype(MakeViewFromTraits<EnumT, Traits>(
     std::make_index_sequence<static_cast<size_t>(EnumT::kCount)>{}
 ));

@@ -2,7 +2,8 @@
 
 #include <string_view>
 
-#include "domain/error/effects.hpp"
+#include "domain/error/error_model.hpp"
+#include "domain/error/loss_model.hpp"
 #include "domain/random/counter_rng.hpp"
 #include "domain/sensing/sensor.hpp"
 #include "domain/spatial/transform.hpp"
@@ -18,10 +19,10 @@ namespace achilles::domain::sensing {
 class Magnetometer : public Sensor<
                          Magnetometer,
                          SimInputs<input::WorldTransform>,
-                         domain::error::ErrorChain<domain::error::Vec3>::State,
+                         domain::error::ErrorModel<domain::error::Vec3>::State,
                          domain::error::Vec3> {
  public:
-  using ErrorModel = domain::error::ErrorChain<domain::error::Vec3>;
+  using ErrorModel = domain::error::ErrorModel<domain::error::Vec3>;
   using Pose = input::WorldTransform::Value;
 
   static constexpr std::string_view kListName = "magnetometer";

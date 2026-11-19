@@ -8,12 +8,12 @@
 
 #include "domain/archetype/archetype.hpp"
 #include "domain/archetype/archetype_set.hpp"
-#include "domain/joint_data.hpp"
+#include "domain/layout/joint_records.hpp"
 
-using achilles::domain::JointField;
-using achilles::domain::JointRef;
 using achilles::domain::archetype::Archetype;
 using achilles::domain::archetype::ArchetypeSet;
+using achilles::domain::layout::JointField;
+using achilles::domain::layout::JointRef;
 
 namespace {
 
@@ -29,7 +29,9 @@ struct RowNumbers {
 // instance-major/joint-major/leaf-minor indexing without it being
 // coincidentally symmetric (every value below is distinct).
 Archetype MakeTwoJointArchetype() {
-  std::vector<std::size_t> tree_structure = {achilles::domain::kNoParent, 0};
+  std::vector<std::size_t> tree_structure = {
+      achilles::domain::layout::kNoParent, 0
+  };
   std::vector<JointRef> root_parents = {JointRef{0, 0}, JointRef{1, 0}};
   std::vector<JointField> fields;
   fields.push_back(JointField{
@@ -53,7 +55,7 @@ Archetype MakeTwoJointArchetype() {
 Archetype MakeNamedChain(std::string name, std::size_t copies) {
   return {
       std::move(name),
-      {achilles::domain::kNoParent, 0},
+      {achilles::domain::layout::kNoParent, 0},
       std::vector<JointRef>(copies),
       copies == 1,
       {},
@@ -80,7 +82,7 @@ TEST(ArchetypeAccessors, TreeStructureBorrowsOwnStorage) {
 
   EXPECT_TRUE(tree.is_root_archetype);
   ASSERT_EQ(tree.tree_structure.size(), 2U);
-  EXPECT_EQ(tree.tree_structure[0], achilles::domain::kNoParent);
+  EXPECT_EQ(tree.tree_structure[0], achilles::domain::layout::kNoParent);
   EXPECT_EQ(tree.tree_structure[1], 0U);
   ASSERT_EQ(tree.root_parents.size(), 2U);
   EXPECT_EQ(tree.root_parents[1].instance_index, 1U);
@@ -114,10 +116,10 @@ TEST(JointFieldAt, IndexesInstanceMajorJointMajorLeafMinor) {
   const JointField* field = ArchetypeSet::FindField(archetype, "transform");
   ASSERT_NE(field, nullptr);
 
-  EXPECT_DOUBLE_EQ(JointFieldAt(*field, 0, 0, 0, 2), 0.0);
-  EXPECT_DOUBLE_EQ(JointFieldAt(*field, 0, 1, 2, 2), 5.0);
-  EXPECT_DOUBLE_EQ(JointFieldAt(*field, 1, 0, 0, 2), 6.0);
-  EXPECT_DOUBLE_EQ(JointFieldAt(*field, 1, 1, 2, 2), 11.0);
+  EXPECT_DOUBLE_EQ(field->At(0, 0, 0, 2), 0.0);
+  EXPECT_DOUBLE_EQ(field->At(0, 1, 2, 2), 5.0);
+  EXPECT_DOUBLE_EQ(field->At(1, 0, 0, 2), 6.0);
+  EXPECT_DOUBLE_EQ(field->At(1, 1, 2, 2), 11.0);
 }
 
 // Proves the assert in JointFieldAt actually fires for a genuine
@@ -127,7 +129,7 @@ TEST(JointFieldAt, DiesOnOutOfRangeIndex) {
   const JointField* field = ArchetypeSet::FindField(archetype, "transform");
   ASSERT_NE(field, nullptr);
 
-  EXPECT_DEATH(JointFieldAt(*field, 5, 5, 5, 2), "out of range");
+  EXPECT_DEATH(field->At(5, 5, 5, 2), "out of range");
 }
 
 // JointIndex is the name -> local index lookup RowOf is built on.
@@ -151,7 +153,7 @@ TEST(ArchetypeJointNames, DiesWhenNamesDoNotCoverEveryJoint) {
   EXPECT_DEATH(
       Archetype(
           "short",
-          {achilles::domain::kNoParent, 0},
+          {achilles::domain::layout::kNoParent, 0},
           {JointRef{0, 0}},
           true,
           {},

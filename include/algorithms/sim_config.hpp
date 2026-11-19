@@ -5,9 +5,9 @@
 namespace achilles::algorithms {
 
 // The whole-simulation, caller-supplied config every hosted Algorithm's Step
-// may read (see engine::pass::SimContext::Step/engine::pass::Step, both
-// generic over whatever Config type a caller passes -- this is just the one
-// this codebase actually uses). One concrete struct for the whole sim, not
+// may read (see engine::context::SimContext::Step/engine::op_invoker::Step,
+// both generic over whatever Config type a caller passes -- this is just the
+// one this codebase actually uses). One concrete struct for the whole sim, not
 // a per-algorithm/templated shape: today only ABA reads
 // world_base_transform/base_velocity/base_acceleration (its base-row seed
 // state -- base_acceleration is typically -gravity for the common

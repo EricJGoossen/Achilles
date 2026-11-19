@@ -10,13 +10,17 @@
 #include "domain/archetype/archetype.hpp"
 #include "domain/archetype/archetype_set.hpp"
 #include "domain/math/vector3.hpp"
-#include "engine/algorithm_contract.hpp"
-#include "engine/field_contract.hpp"
-#include "engine/memory/sim_allocator.hpp"
-#include "engine/topology/layout_policy.hpp"
+#include "engine/algorithm.hpp"
+#include "engine/allocation/sim_allocator.hpp"
+#include "engine/spec/field_binding.hpp"
+#include "engine/spec/field_contract.hpp"
+#include "engine/spec/step_contract.hpp"
+#include "engine/spec/view_contract.hpp"
 #include "engine/view/view.hpp"
-#include "engine/view/view_contract.hpp"
 #include "engine/view/view_factory.hpp"
+#include "policy/layout/base_layout.hpp"
+#include "policy/layout/planar_layout.hpp"
+#include "policy/layout/segmented_layout.hpp"
 
 namespace achilles::test_support {
 
@@ -39,42 +43,45 @@ struct ToyFieldTraits;
 template <>
 struct ToyFieldTraits<ToyField::kPosition> {
   using Assembler = achilles::domain::math::Vector3Assembler<float>;
-  using Layout = achilles::engine::topology::PlanarLayout;
+  using Layout = achilles::policy::layout::PlanarLayout;
 };
 template <>
 struct ToyFieldTraits<ToyField::kVelocity> {
   using Assembler = achilles::domain::math::Vector3Assembler<float>;
-  using Layout = achilles::engine::topology::PlanarLayout;
+  using Layout = achilles::policy::layout::PlanarLayout;
 };
 
-static_assert(achilles::engine::FieldTraitsLike<ToyField, ToyFieldTraits>);
+static_assert(achilles::engine::spec::
+                  FieldTraitsLike<ToyField, ToyFieldTraits>);
 
 using ToyView = achilles::engine::view::ViewFactory<ToyField, ToyFieldTraits>;
-static_assert(achilles::engine::view::ViewLike<ToyView, ToyField>);
+static_assert(achilles::engine::spec::ViewLike<ToyView, ToyField>);
 
 // Never stepped -- exists purely so tests can drive a real
-// engine::memory::SimAllocator to get a real, memory-backed ToyView, instead
-// of hand-rolling one (see the now-deleted tests/support/view_fixture.hpp).
+// engine::allocation::SimAllocator to get a real, memory-backed ToyView,
+// instead of hand-rolling one (see the now-deleted
+// tests/support/view_fixture.hpp).
 using ToyAlgorithm = achilles::engine::Algorithm<ToyField, ToyFieldTraits>;
 
 // `instance_count` standalone single-joint instances of one root archetype
 // -- no field data (neither ToyField declares kName, so SimAllocator's
 // Populate pass has nothing to copy in), no parent/child relationship
-// between them. Under the default topology::LinearOrdering (neither
+// between them. Under the default policy::ordering::LinearOrdering (neither
 // ToyFieldTraits specialization names an Ordering), SimAllocator places
 // instance i's own joint at sorted row i exactly -- see
-// topology::Ordering::Consolidate: a single-joint archetype's block has
-// exactly one local position, so row = 0 * padded_instance_count + i = i --
+// policy::ordering::BaseOrdering::Consolidate: a single-joint archetype's block
+// has exactly one local position, so row = 0 * padded_instance_count + i = i --
 // so a caller that wants `instance_count` distinct, individually
 // addressable real rows (row 0, 1, ..., instance_count - 1) via
 // View::Load/Store<Field, float> gets exactly that, the same guarantee
 // tests/support/view_fixture.hpp used to provide by construction instead of
 // by this file's own derivation from the real ordering policy.
-inline domain::archetype::Archetype MakeToyArchetype(std::size_t instance_count) {
-  std::vector<std::size_t> tree_structure = {domain::kNoParent};
-  std::vector<domain::JointRef> root_parents(
+inline domain::archetype::Archetype MakeToyArchetype(std::size_t instance_count
+) {
+  std::vector<std::size_t> tree_structure = {domain::layout::kNoParent};
+  std::vector<domain::layout::JointRef> root_parents(
       instance_count,
-      domain::JointRef{
+      domain::layout::JointRef{
           std::numeric_limits<std::size_t>::max(),
           std::numeric_limits<std::size_t>::max()
       }
@@ -89,12 +96,13 @@ inline domain::archetype::Archetype MakeToyArchetype(std::size_t instance_count)
 // SimAllocator itself documents. SimAllocator only reads `archetypes` for
 // the duration of its own constructor call, so the local array here doesn't
 // need to outlive this function.
-inline engine::memory::SimAllocator<ToyAlgorithm> MakeToySim(
+inline engine::allocation::SimAllocator<ToyAlgorithm> MakeToySim(
     std::size_t instance_count
 ) {
-  std::array<domain::archetype::Archetype, 1> archetypes = {MakeToyArchetype(instance_count
-  )};
-  return engine::memory::SimAllocator<ToyAlgorithm>(
+  std::array<domain::archetype::Archetype, 1> archetypes = {
+      MakeToyArchetype(instance_count)
+  };
+  return engine::allocation::SimAllocator<ToyAlgorithm>(
       achilles::domain::archetype::ArchetypeSet(archetypes)
   );
 }

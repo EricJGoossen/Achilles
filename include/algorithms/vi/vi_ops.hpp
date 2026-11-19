@@ -2,14 +2,15 @@
 
 #include "algorithms/conventions.hpp"
 #include "algorithms/vi/vi_data.hpp"
-#include "engine/pass/op_invoker.hpp"
+#include "engine/op_invoker/op_initializer.hpp"
+#include "engine/op_invoker/op_invoker.hpp"
 
 namespace achilles::algorithms::vi {
 
 struct IntegrateVelocityOp {
   using FieldEnum = VIField;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 
   explicit IntegrateVelocityOp(ScalarOperationT dt) : dt_(dt) {}
 
@@ -26,11 +27,11 @@ struct IntegrateVelocityOp {
   ScalarOperationT dt_;
 };
 static_assert(
-    engine::OpLike<IntegrateVelocityOp>,
+    engine::spec::OpLike<IntegrateVelocityOp>,
     "IntegrateVelocityOp must satisfy OpLike concept"
 );
 static_assert(
-    engine::OpArgsMatchView<IntegrateVelocityOp, VIView>,
+    engine::spec::OpArgsMatchView<IntegrateVelocityOp, VIView>,
     "IntegrateVelocityOp's operator() must line up with kInputs/kOutputs"
 );
 

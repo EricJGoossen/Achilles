@@ -10,7 +10,7 @@
 // lists depend on (SimContext::Step<StepList>'s "is every Step hosted"
 // check, and the std::ratio stage weights/dt fractions in
 // algorithms/integrators.hpp) -- and DetectedOrT, which resolves every
-// optional per-field policy (engine/memory/binding.hpp). All are
+// optional per-field policy (engine/binding.hpp). All are
 // compile-time, so the static_asserts below are the real checks; the TESTs
 // exist so a failure names which check broke, and so the runtime-visible
 // float values get an EXPECT_FLOAT_EQ too.

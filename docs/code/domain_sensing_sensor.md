@@ -15,7 +15,7 @@ storage and passes that run it are generated from those declarations.
   `algorithms/attachment_kinds/attachment_kinds.hpp`.
 - Inputs are bound to fields by `algorithms/attachment_kinds/sim_input.hpp`;
   `attachment::ReadStep` calls `Update` and `Observe`.
-- Error models come from `domain/error/effects.hpp`.
+- Error models come from the effects in `domain/error/`.
 - Users read results through `interface::SensorHandle`.
 
 ## Invariants

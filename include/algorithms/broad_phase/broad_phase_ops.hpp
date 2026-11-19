@@ -4,8 +4,17 @@
 
 #include "algorithms/broad_phase/broad_phase_data.hpp"
 #include "algorithms/conventions.hpp"
-#include "engine/pass/op_invoker.hpp"
-#include "engine/pass/row_policies.hpp"
+#include "engine/op_invoker/op_initializer.hpp"
+#include "engine/op_invoker/op_invoker.hpp"
+#include "policy/range/all_range.hpp"
+#include "policy/range/segment_range.hpp"
+#include "policy/scan/no_scan.hpp"
+#include "policy/scan/pair_scan.hpp"
+#include "policy/scan/row_scan.hpp"
+#include "policy/source/link_source.hpp"
+#include "policy/source/pair_source.hpp"
+#include "policy/source/parent_source.hpp"
+#include "policy/source/self_source.hpp"
 
 namespace achilles::algorithms::broad_phase {
 
@@ -27,8 +36,8 @@ namespace achilles::algorithms::broad_phase {
 // so every lane runs the same instructions whatever its orientation.
 struct ComputeSweptBoxBoundsOp {
   using FieldEnum = BroadPhaseField;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 
   static constexpr std::array<ArgData, 5> kInputs = {
       ArgData{FieldEnum::kWorldTransform, ArgIndex::kTarget},
@@ -55,11 +64,11 @@ struct ComputeSweptBoxBoundsOp {
   ) const;
 };
 static_assert(
-    engine::OpLike<ComputeSweptBoxBoundsOp>,
+    engine::spec::OpLike<ComputeSweptBoxBoundsOp>,
     "ComputeSweptBoxBoundsOp must satisfy OpLike concept"
 );
 static_assert(
-    engine::OpArgsMatchView<ComputeSweptBoxBoundsOp, BroadPhaseView>,
+    engine::spec::OpArgsMatchView<ComputeSweptBoxBoundsOp, BroadPhaseView>,
     "ComputeSweptBoxBoundsOp's operator() must line up with kInputs/kOutputs"
 );
 
@@ -70,13 +79,13 @@ static_assert(
 // A pair also has to pass the group filter both ways (see broad_phase_data.hpp)
 // -- the target's group in the source's mask, and the source's group in the
 // target's -- and be one the traversal marks as a distinct, non-parent/child
-// pair (engine::pass::PairStructure, via kTraversalInputs). The
+// pair (policy::scan::PairStructure, via kTraversalInputs). The
 // per-lane result is packed into one LaneMask word, bit t for lane t,
 // the same movemask a GPU port would get from a warp ballot.
 struct TestBoundsOverlapOp {
   using FieldEnum = BroadPhaseField;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 
   static constexpr std::array<ArgData, 8> kInputs = {
       ArgData{FieldEnum::kWorldBoundCenter, ArgIndex::kPartner},
@@ -104,16 +113,16 @@ struct TestBoundsOverlapOp {
       const Vector3& h_source,
       const CollisionGroupMask& group_source,
       const CollisionGroupMask& mask_source,
-      const engine::pass::PairStructure& structure,
+      const policy::scan::PairStructure& structure,
       LaneMask* overlap_out
   ) const;
 };
 static_assert(
-    engine::OpLike<TestBoundsOverlapOp>,
+    engine::spec::OpLike<TestBoundsOverlapOp>,
     "TestBoundsOverlapOp must satisfy OpLike concept"
 );
 static_assert(
-    engine::OpArgsMatchView<TestBoundsOverlapOp, BroadPhaseView>,
+    engine::spec::OpArgsMatchView<TestBoundsOverlapOp, BroadPhaseView>,
     "TestBoundsOverlapOp's operator() must line up with kInputs/kOutputs"
 );
 

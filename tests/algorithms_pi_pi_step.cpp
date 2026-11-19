@@ -12,10 +12,14 @@
 #include "algorithms/sim_config.hpp"
 #include "domain/archetype/archetype.hpp"
 #include "domain/archetype/archetype_set.hpp"
-#include "domain/joint_data.hpp"
-#include "domain/joint_layout.hpp"
-#include "engine/memory/sim_allocator.hpp"
-#include "engine/topology/orderings.hpp"
+#include "domain/layout/joint_layout.hpp"
+#include "domain/layout/joint_records.hpp"
+#include "engine/allocation/sim_allocator.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
 #include "util/simd_ops.hpp"
 
 // PIStep::Step wires IntegratePositionOp into a real PIView via a real
@@ -27,10 +31,10 @@
 
 using namespace achilles::algorithms;
 using namespace achilles::algorithms::pi;
-using achilles::domain::JointRef;
 using achilles::domain::archetype::Archetype;
-using achilles::engine::memory::SimAllocator;
-using achilles::engine::topology::TopologicalOrdering;
+using achilles::domain::layout::JointRef;
+using achilles::engine::allocation::SimAllocator;
+using achilles::policy::ordering::TopologicalOrdering;
 
 namespace {
 
@@ -64,7 +68,11 @@ Matrix6x6 PrismaticXSubspace() {
 SimAllocator<PIAlgorithm> MakeSim(std::size_t instance_count) {
   std::vector<JointRef> root_parents(instance_count, JointRef{0, 0});
   std::array<Archetype, 1> archetypes = {Archetype(
-      "joints", {achilles::domain::kNoParent}, std::move(root_parents), true, {}
+      "joints",
+      {achilles::domain::layout::kNoParent},
+      std::move(root_parents),
+      true,
+      {}
   )};
   return SimAllocator<PIAlgorithm>(
       achilles::domain::archetype::ArchetypeSet(archetypes)
@@ -72,7 +80,7 @@ SimAllocator<PIAlgorithm> MakeSim(std::size_t instance_count) {
 }
 
 std::size_t BatchGroup(
-    const achilles::domain::JointLayout& layout, std::size_t instance
+    const achilles::domain::layout::JointLayout& layout, std::size_t instance
 ) {
   return layout.ToSorted(instance, 0) / Lane();
 }

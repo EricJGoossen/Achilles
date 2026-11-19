@@ -18,25 +18,31 @@
 #include "algorithms/sim_config.hpp"
 #include "domain/actuation/truth_actuator.hpp"
 #include "domain/archetype/archetype_set.hpp"
-#include "domain/joint_layout.hpp"
-#include "domain/joint_topology.hpp"
+#include "domain/clock/sim_clock.hpp"
+#include "domain/layout/joint_layout.hpp"
 #include "domain/math/vector3.hpp"
 #include "domain/random/seed.hpp"
 #include "domain/sensing/truth_sensor.hpp"
-#include "domain/sim_clock.hpp"
-#include "engine/memory/sim_allocator.hpp"
-#include "engine/topology/layout_policy.hpp"
-#include "engine/topology/orderings.hpp"
+#include "domain/topology/joint_topology.hpp"
+#include "engine/allocation/sim_allocator.hpp"
 #include "interface/archetype_loader.hpp"
 #include "interface/attachment_handle.hpp"
 #include "interface/attachments.hpp"
 #include "interface/sim_config_loader.hpp"
 #include "interface/state_handle.hpp"
+#include "policy/layout/base_layout.hpp"
+#include "policy/layout/planar_layout.hpp"
+#include "policy/layout/segmented_layout.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
 #include "util/io.hpp"
 
 namespace achilles::interface {
 
-using domain::JointAddress;
+using domain::layout::JointAddress;
 
 // The truth sensors, by what they read, and truth actuators, by what they push
 // with: sim.Sensor<truth::WorldTransform>(...),
@@ -54,7 +60,7 @@ using domain::sensing::truth::WorldTransform;
 
 class Simulation {
   using Allocator =
-      engine::memory::SimAllocatorForT<algorithms::RegisteredAlgorithms>;
+      engine::allocation::SimAllocatorForT<algorithms::RegisteredAlgorithms>;
 
  public:
   // See algorithms/integrators.hpp for what each one is.
@@ -227,7 +233,7 @@ class Simulation {
     AttachmentLists lists;
     archetypes_.ForEachAttachment(
         seed_,
-        [&](const domain::JointAttachment& attachment,
+        [&](const domain::layout::JointAttachment& attachment,
             std::size_t /*instance*/,
             std::size_t local_instance,
             std::size_t entry,
@@ -260,14 +266,14 @@ class Simulation {
 
  private:
   // The sim's clock; a stopped one before Init().
-  domain::SimClock Clock() const {
+  domain::clock::SimClock Clock() const {
     using algorithms::clock::ClockField;
     using algorithms::clock::ClockView;
     if (!state_.has_value()) {
       return {};
     }
     return state_->context.template ViewFor<ClockView>()
-        .template Load<ClockField::kClock, domain::SimClock>(0);
+        .template Load<ClockField::kClock, domain::clock::SimClock>(0);
   }
 
   // The row of joint `joint` in every field kept per joint. Throws as
@@ -276,7 +282,7 @@ class Simulation {
     return archetypes_.RowOf(
         joint,
         Context(caller)
-            .template LayoutFor<engine::topology::TopologicalOrdering>()
+            .template LayoutFor<policy::ordering::TopologicalOrdering>()
     );
   }
 

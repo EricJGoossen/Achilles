@@ -3,14 +3,23 @@
 #include "algorithms/conventions.hpp"
 #include "algorithms/narrow_phase/narrow_phase_data.hpp"
 #include "algorithms/narrow_phase/narrow_phase_ops.hpp"
-#include "algorithms/orderings/collision_pairs.hpp"
+#include "algorithms/row_sets/collision_pairs.hpp"
 #include "algorithms/sim_config.hpp"
-#include "domain/joint_topology.hpp"
-#include "engine/algorithm_contract.hpp"
-#include "engine/pass/algorithm_step.hpp"
-#include "engine/pass/sim_context.hpp"
-#include "engine/pass/traversals.hpp"
-#include "engine/topology/orderings.hpp"
+#include "domain/topology/joint_topology.hpp"
+#include "domain/topology/pair_topology.hpp"
+#include "engine/algorithm.hpp"
+#include "engine/context/sim_context.hpp"
+#include "engine/op_invoker/algorithm_step.hpp"
+#include "engine/spec/step_contract.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
+#include "policy/traversal/base_traversal.hpp"
+#include "policy/traversal/global_traversal.hpp"
+#include "policy/traversal/pair_traversal.hpp"
+#include "policy/traversal/row_traversal.hpp"
 
 namespace achilles::algorithms::narrow_phase {
 
@@ -20,7 +29,7 @@ namespace achilles::algorithms::narrow_phase {
 //
 // ComputeSweptBoxContactOp over PairBatched -- the same PairTraversal, with
 // the same Stride over the same pairs (CollisionPairs,
-// orderings/collision_pairs.hpp) the broad phase's own pair test ran over, so
+// row_sets/collision_pairs.hpp) the broad phase's own pair test ran over, so
 // each call lines up with exactly the kBoundsOverlap word that test wrote for
 // it. Every lane is computed and kBoundsOverlap masks the result; the
 // traversal's own PairStructure isn't read again, since every candidate bit
@@ -35,10 +44,10 @@ namespace achilles::algorithms::narrow_phase {
 struct NarrowPhaseStep {
   using FieldEnum = NarrowPhaseField;
 
-  using PairBatched =
-      engine::pass::PairTraversal<engine::pass::Direction::kForward, kLanes>;
+  using PairBatched = policy::traversal::
+      PairTraversal<policy::traversal::Direction::kForward, kLanes>;
 
-  template <engine::pass::SimContextLike SimStateT>
+  template <engine::context::SimContextLike SimStateT>
   static void Step(
       const SimStateT& sim_state,
       const SimConfig& sim_config,
@@ -46,16 +55,16 @@ struct NarrowPhaseStep {
   ) {
     (void)sim_config;
     (void)dt;
-    using engine::pass::Pass;
+    using engine::op_invoker::OpWalk;
 
     const auto view = sim_state.template ViewFor<NarrowPhaseView>();
     const NarrowPhaseTopology& topology =
-        sim_state.template TopologyFor<engine::topology::TopologicalOrdering>();
-    const domain::PairTopology& pairs =
-        sim_state.template TopologyFor<CollisionPairs>();
+        sim_state.template TopologyFor<policy::ordering::TopologicalOrdering>();
+    const domain::topology::PairTopology& pairs =
+        sim_state.template TopologyFor<row_sets::CollisionPairs>();
 
-    engine::pass::Step(
-        engine::pass::Ops<Pass<ComputeSweptBoxContactOp, PairBatched>>{
+    engine::op_invoker::Step(
+        engine::op_invoker::Ops<OpWalk<ComputeSweptBoxContactOp, PairBatched>>{
             ComputeSweptBoxContactOp{}
         },
         view,

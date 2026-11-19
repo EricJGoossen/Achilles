@@ -14,9 +14,13 @@
 #include "algorithms/attachment/attachment_data.hpp"
 #include "algorithms/attachment_kinds/attachment_kinds.hpp"
 #include "algorithms/conventions.hpp"
-#include "domain/joint_data.hpp"
-#include "engine/pass/sim_context.hpp"
-#include "engine/topology/orderings.hpp"
+#include "domain/layout/joint_records.hpp"
+#include "engine/context/sim_context.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
 #include "util/tmp.hpp"
 
 namespace achilles::interface {
@@ -59,15 +63,15 @@ class AttachmentHandle {
   // move along -- and writes it into its row: `entry` of K's list, on instance
   // `instance` of its archetype, with `stream` as its random stream. Throws
   // std::invalid_argument naming the attachment, whatever was wrong with it.
-  template <engine::pass::SimContextLike SimStateT>
+  template <engine::context::SimContextLike SimStateT>
   static void Configure(
       const SimStateT& sim_state,
-      const domain::JointAttachment& attachment,
+      const domain::layout::JointAttachment& attachment,
       std::size_t instance,
       std::size_t entry,
       std::uint64_t stream
   ) {
-    domain::RequireKey(attachment, K::kKey);
+    attachment.RequireKey(K::kKey);
     try {
       domain::attachment::AttachmentConfig config(attachment.config);
       K kind = K::FromConfig(config);
@@ -80,7 +84,7 @@ class AttachmentHandle {
                        kInputFieldOf<SubspaceInput>,
                        algorithms::ScalarOperationT>(
             sim_state
-                .template LayoutFor<engine::topology::TopologicalOrdering>()
+                .template LayoutFor<policy::ordering::TopologicalOrdering>()
                 .ToSorted(instance, attachment.joint)
         ));
         kind.NormalizeAxis();
@@ -95,7 +99,7 @@ class AttachmentHandle {
   }
 
   // The handle for `entry` of kind K's list.
-  template <engine::pass::SimContextLike SimStateT>
+  template <engine::context::SimContextLike SimStateT>
   static AttachmentHandle Find(const SimStateT& sim_state, std::size_t entry) {
     return AttachmentHandle(
         sim_state.template ViewFor<View>(), RowOf(sim_state, entry)
@@ -138,7 +142,7 @@ class AttachmentHandle {
     KindState<K>* state =
         view_.template Field<Field::kState>().template Ref<KindState<K>>(row_);
     std::construct_at(state);
-    domain::attachment::InitializeState(config, &state->value);
+    domain::attachment::Attachment::InitializeState(config, &state->value);
     view_.template Store<Field::kCommand, KindCommand<K>>(
         row_, KindCommand<K>{}
     );

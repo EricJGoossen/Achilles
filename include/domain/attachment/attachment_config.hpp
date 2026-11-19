@@ -11,7 +11,8 @@
 #include <vector>
 
 #include "domain/attachment/attachment.hpp"
-#include "domain/error/effects.hpp"
+#include "domain/error/error_model.hpp"
+#include "domain/error/loss_model.hpp"
 #include "domain/math/quaternion.hpp"
 #include "domain/math/vector3.hpp"
 #include "domain/spatial/transform.hpp"
@@ -97,17 +98,17 @@ class AttachmentConfig {
   // identity when absent.
   spatial::Transform<float> BodyFromSensor() { return Pose("mount", {}); }
 
-  // One error model (error::ErrorChain), from the settings named
+  // One error model (error::ErrorModel), from the settings named
   // `prefix` + scale_error, bias, bias_instability (the random walk's
   // density), noise_density, noise_sigma, range, resolution and delay_samples
   // -- each
   // left off when absent. A three-axis model's scale_error and bias take
   // three numbers.
   template <error::ErrorValueLike V>
-  typename error::ErrorChain<V>::Params ErrorModel(
+  typename error::ErrorModel<V>::Params ErrorModel(
       std::string_view prefix = {}
   ) {
-    using Chain = error::ErrorChain<V>;
+    using Chain = error::ErrorModel<V>;
     typename Chain::Params params;
     params.scale.error = Value(Key(prefix, "scale_error"), V{});
     params.bias.bias = Value(Key(prefix, "bias"), V{});

@@ -4,7 +4,8 @@
 
 #include "algorithms/conventions.hpp"
 #include "algorithms/narrow_phase/narrow_phase_data.hpp"
-#include "engine/pass/op_invoker.hpp"
+#include "engine/op_invoker/op_initializer.hpp"
+#include "engine/op_invoker/op_invoker.hpp"
 
 namespace achilles::algorithms::narrow_phase {
 
@@ -60,8 +61,8 @@ namespace achilles::algorithms::narrow_phase {
 // within m_s + m_t, MuJoCo's pair margin (mj_assignMargin's sum).
 struct ComputeSweptBoxContactOp {
   using FieldEnum = NarrowPhaseField;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 
   static constexpr std::array<ArgData, 9> kInputs = {
       ArgData{FieldEnum::kWorldShapePose, ArgIndex::kPartner},
@@ -98,11 +99,11 @@ struct ComputeSweptBoxContactOp {
   ) const;
 };
 static_assert(
-    engine::OpLike<ComputeSweptBoxContactOp>,
+    engine::spec::OpLike<ComputeSweptBoxContactOp>,
     "ComputeSweptBoxContactOp must satisfy OpLike concept"
 );
 static_assert(
-    engine::OpArgsMatchView<ComputeSweptBoxContactOp, NarrowPhaseView>,
+    engine::spec::OpArgsMatchView<ComputeSweptBoxContactOp, NarrowPhaseView>,
     "ComputeSweptBoxContactOp's operator() must line up with kInputs/kOutputs"
 );
 

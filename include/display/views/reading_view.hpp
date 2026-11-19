@@ -14,7 +14,7 @@
 #include "display/contract/frame.hpp"
 #include "domain/actuation/dc_motor.hpp"
 #include "domain/actuation/truth_actuator.hpp"
-#include "domain/attachment/attachment_kind.hpp"
+#include "domain/attachment/attachment_contract.hpp"
 #include "domain/math/vector3.hpp"
 #include "domain/sensing/encoder.hpp"
 #include "domain/spatial/transform.hpp"

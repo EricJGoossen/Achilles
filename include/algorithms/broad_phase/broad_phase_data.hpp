@@ -5,19 +5,29 @@
 #include <string_view>
 
 #include "algorithms/conventions.hpp"
-#include "algorithms/orderings/collision_pairs.hpp"
+#include "algorithms/row_sets/collision_pairs.hpp"
 #include "algorithms/shared_slots.hpp"
-#include "domain/joint_topology.hpp"
 #include "domain/math/activation_mask.hpp"
 #include "domain/math/scalar.hpp"
 #include "domain/math/vector3.hpp"
 #include "domain/spatial/transform.hpp"
-#include "engine/field_contract.hpp"
-#include "engine/topology/indexing_policy.hpp"
-#include "engine/topology/layout_policy.hpp"
-#include "engine/topology/orderings.hpp"
-#include "engine/view/view_contract.hpp"
+#include "domain/topology/joint_topology.hpp"
+#include "domain/topology/topology_contract.hpp"
+#include "engine/spec/field_contract.hpp"
+#include "engine/spec/view_contract.hpp"
 #include "engine/view/view_factory.hpp"
+#include "policy/indexing/base_indexing.hpp"
+#include "policy/indexing/global_indexing.hpp"
+#include "policy/indexing/group_indexing.hpp"
+#include "policy/indexing/row_indexing.hpp"
+#include "policy/layout/base_layout.hpp"
+#include "policy/layout/planar_layout.hpp"
+#include "policy/layout/segmented_layout.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
 #include "util/simd_ops.hpp"
 
 namespace achilles::algorithms::broad_phase {
@@ -86,16 +96,16 @@ using CollisionGroupMask = math::
 //
 // Groups and masks never change, so the pairs they rule out are dropped
 // once, before the first tick: the pair test runs over CollisionPairs
-// (orderings/collision_pairs.hpp), one row per pair of bodies that can collide,
+// (row_sets/collision_pairs.hpp), one row per pair of bodies that can collide,
 // not every pair of rows. Its lanes are distinct, non-parent/child pairs with
-// the partner row above the source row (engine::pass::PairStructure), and
+// the partner row above the source row (policy::scan::PairStructure), and
 // the pair test ANDs that in, still without a branch -- dropping a
 // parent/child pair, which always touches at the joint it shares (MuJoCo's
 // filterparent), a body paired with itself, the duplicate half of every
 // pair, and every pair the filter rules out.
 //
 // The result, kBoundsOverlap, is one LaneMask word per lane group of
-// CollisionPairs (topology::LaneGroupIndexing): bit t set when lane t's
+// CollisionPairs (policy::indexing::GroupIndexing): bit t set when lane t's
 // pair both passes the filter and overlaps. Every set bit is a real,
 // distinct candidate pair with partner row > source row.
 enum class BroadPhaseField : uint8_t {
@@ -116,7 +126,7 @@ enum class BroadPhaseField : uint8_t {
 
   kCount
 };
-static_assert(engine::FieldEnumLike<BroadPhaseField>);
+static_assert(engine::spec::FieldEnumLike<BroadPhaseField>);
 
 template <BroadPhaseField F>
 struct BroadPhaseFieldTraits;
@@ -134,89 +144,92 @@ struct BroadPhaseFieldTraits<BroadPhaseField::kWorldTransform> {
   // algorithms::broad_phase itself ever writes it.
   using Assembler = spatial::TransformAssembler<ScalarOperationT>;
   using SharedAs = WorldTransformSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
 };
 template <>
 struct BroadPhaseFieldTraits<BroadPhaseField::kCollisionPose> {
   using Assembler = spatial::TransformAssembler<ScalarOperationT>;
   using SharedAs = CollisionPoseSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "collision_pose";
 };
 template <>
 struct BroadPhaseFieldTraits<BroadPhaseField::kCollisionExtents> {
   using Assembler = math::Vector3Assembler<ScalarOperationT>;
   using SharedAs = CollisionExtentsSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "collision_extents";
 };
 template <>
 struct BroadPhaseFieldTraits<BroadPhaseField::kCollisionRadius> {
   using Assembler = math::ScalarAssembler<ScalarOperationT>;
   using SharedAs = CollisionRadiusSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "collision_radius";
 };
 template <>
 struct BroadPhaseFieldTraits<BroadPhaseField::kCollisionMargin> {
   using Assembler = math::ScalarAssembler<ScalarOperationT>;
   using SharedAs = CollisionMarginSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "collision_margin";
 };
 template <>
 struct BroadPhaseFieldTraits<BroadPhaseField::kCollisionGroup> {
   using Assembler = math::ActivationMaskAssembler<kCollisionGroupCount>;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
-  static constexpr std::string_view kName = CollisionMaskFields::kGroup;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
+  static constexpr std::string_view kName =
+      row_sets::CollisionMaskFields::kGroup;
 };
 template <>
 struct BroadPhaseFieldTraits<BroadPhaseField::kCollisionMask> {
   using Assembler = math::ActivationMaskAssembler<kCollisionGroupCount>;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
-  static constexpr std::string_view kName = CollisionMaskFields::kMask;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
+  static constexpr std::string_view kName =
+      row_sets::CollisionMaskFields::kMask;
 };
 template <>
 struct BroadPhaseFieldTraits<BroadPhaseField::kWorldShapePose> {
   using Assembler = spatial::TransformAssembler<ScalarOperationT>;
   using SharedAs = WorldShapePoseSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
 };
 template <>
 struct BroadPhaseFieldTraits<BroadPhaseField::kWorldBoundCenter> {
   using Assembler = math::Vector3Assembler<ScalarOperationT>;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
 };
 template <>
 struct BroadPhaseFieldTraits<BroadPhaseField::kWorldBoundExtents> {
   using Assembler = math::Vector3Assembler<ScalarOperationT>;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
 };
 template <>
 struct BroadPhaseFieldTraits<BroadPhaseField::kBoundsOverlap> {
   using Assembler = math::ActivationMaskAssembler<kLanes>;
   using SharedAs = BoundsOverlapSlot;
-  using Ordering = CollisionPairs;
-  using Indexing = engine::topology::LaneGroupIndexing<kLanes>;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = row_sets::CollisionPairs;
+  using Indexing = policy::indexing::GroupIndexing<kLanes>;
+  using Layout = policy::layout::PlanarLayout;
 };
-static_assert(engine::FieldTraitsLike<BroadPhaseField, BroadPhaseFieldTraits>);
+static_assert(engine::spec::
+                  FieldTraitsLike<BroadPhaseField, BroadPhaseFieldTraits>);
 
 using BroadPhaseView =
     engine::view::ViewFactory<BroadPhaseField, BroadPhaseFieldTraits>;
-static_assert(engine::view::ViewLike<BroadPhaseView, BroadPhaseField>);
+static_assert(engine::spec::ViewLike<BroadPhaseView, BroadPhaseField>);
 
-using BroadPhaseTopology = domain::JointTopology;
-static_assert(domain::TopologyLike<BroadPhaseTopology>);
+using BroadPhaseTopology = domain::topology::JointTopology;
+static_assert(domain::topology::TopologyLike<BroadPhaseTopology>);
 
 }  // namespace achilles::algorithms::broad_phase

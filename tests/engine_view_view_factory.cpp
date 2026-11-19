@@ -4,16 +4,19 @@
 
 #include "algorithms/aba/aba_data.hpp"
 #include "domain/math/vector3.hpp"
-#include "engine/topology/layout_policy.hpp"
+#include "engine/spec/field_binding.hpp"
 #include "engine/view/view.hpp"
 #include "engine/view/view_factory.hpp"
+#include "policy/layout/base_layout.hpp"
+#include "policy/layout/planar_layout.hpp"
+#include "policy/layout/segmented_layout.hpp"
 #include "support/toy_field.hpp"
 
 using achilles::domain::math::Vector3Assembler;
-using achilles::engine::topology::PlanarLayout;
-using achilles::engine::view::FieldBinding;
+using achilles::engine::spec::FieldBinding;
 using achilles::engine::view::View;
 using achilles::engine::view::ViewFactory;
+using achilles::policy::layout::PlanarLayout;
 using achilles::test_support::ToyField;
 using achilles::test_support::ToyFieldTraits;
 using achilles::test_support::ToyView;

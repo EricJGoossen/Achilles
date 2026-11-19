@@ -48,11 +48,15 @@
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/conventions.hpp"
 #include "algorithms/integrators.hpp"
-#include "domain/joint_topology.hpp"
 #include "domain/math/vector3.hpp"
-#include "engine/topology/orderings.hpp"
+#include "domain/topology/joint_topology.hpp"
 #include "interface/sim_config_loader.hpp"
 #include "interface/simulation.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
 #include "support/temp_dir.hpp"
 
 using achilles::algorithms::MathematicalT;
@@ -60,10 +64,10 @@ using achilles::algorithms::ScalarOperationT;
 using achilles::algorithms::aba::ABAAlgorithm;
 using achilles::algorithms::aba::ABAField;
 using achilles::algorithms::aba::ABAStep;
-using achilles::domain::JointTopology;
 using achilles::domain::math::Vector3;
-using achilles::engine::topology::TopologicalOrdering;
+using achilles::domain::topology::JointTopology;
 using achilles::interface::Simulation;
+using achilles::policy::ordering::TopologicalOrdering;
 using achilles::test_support::TempDir;
 
 using B = MathematicalT;

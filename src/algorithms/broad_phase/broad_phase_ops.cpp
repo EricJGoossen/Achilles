@@ -6,7 +6,15 @@
 
 #include "algorithms/broad_phase/broad_phase_data.hpp"
 #include "algorithms/conventions.hpp"
-#include "engine/pass/row_policies.hpp"
+#include "policy/range/all_range.hpp"
+#include "policy/range/segment_range.hpp"
+#include "policy/scan/no_scan.hpp"
+#include "policy/scan/pair_scan.hpp"
+#include "policy/scan/row_scan.hpp"
+#include "policy/source/link_source.hpp"
+#include "policy/source/pair_source.hpp"
+#include "policy/source/parent_source.hpp"
+#include "policy/source/self_source.hpp"
 #include "util/simd_ops.hpp"
 
 namespace achilles::algorithms::broad_phase {
@@ -50,7 +58,7 @@ void TestBoundsOverlapOp::operator()(
     const Vector3& h_source,
     const CollisionGroupMask& group_source,
     const CollisionGroupMask& mask_source,
-    const engine::pass::PairStructure& structure,
+    const policy::scan::PairStructure& structure,
     LaneMask* overlap_out
 ) const {
   using xsimd::abs;

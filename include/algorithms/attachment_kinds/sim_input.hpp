@@ -8,9 +8,10 @@
 #include "algorithms/aba/aba_step.hpp"
 #include "algorithms/broad_phase/broad_phase_step.hpp"
 #include "domain/attachment/sim_quantities.hpp"
-#include "engine/algorithm_contract.hpp"
-#include "engine/assembler.hpp"
-#include "engine/memory/binding.hpp"
+#include "engine/algorithm.hpp"
+#include "engine/assembly/assembler.hpp"
+#include "engine/binding.hpp"
+#include "engine/spec/step_contract.hpp"
 
 // What names sim data for an attachment: a field of a hosted Algorithm, and
 // which field holds each quantity a kind can ask for
@@ -70,15 +71,18 @@ namespace detail {
 template <typename AlgorithmT, auto F>
 struct SourceTraitsOf;
 
-template <engine::FieldEnumLike EnumT, template <EnumT> class Traits, EnumT F>
+template <
+    engine::spec::FieldEnumLike EnumT,
+    template <EnumT>
+    class Traits,
+    EnumT F>
 struct SourceTraitsOf<engine::Algorithm<EnumT, Traits>, F> {
   using Type = Traits<F>;
-  static constexpr bool kShared =
-      engine::memory::FieldIsShared<EnumT, Traits, F>;
-  using Ordering = engine::memory::FieldOrderingT<EnumT, Traits, F>;
-  using Layout = engine::memory::FieldLayoutT<EnumT, Traits, F>;
-  using Indexing = engine::memory::FieldIndexingT<EnumT, Traits, F>;
-  using Buffering = engine::memory::FieldBufferingT<EnumT, Traits, F>;
+  static constexpr bool kShared = engine::FieldIsShared<EnumT, Traits, F>;
+  using Ordering = engine::FieldOrderingT<EnumT, Traits, F>;
+  using Layout = engine::FieldLayoutT<EnumT, Traits, F>;
+  using Indexing = engine::FieldIndexingT<EnumT, Traits, F>;
+  using Buffering = engine::FieldBufferingT<EnumT, Traits, F>;
 };
 
 }  // namespace detail
@@ -95,7 +99,8 @@ using InputSource = detail::SourceTraitsOf<
 // own input, its quantity's Value (which its field is checked to give).
 template <typename Input>
 struct InputValueOf {
-  using Type = engine::AssembledT<typename InputSource<Input>::Type::Assembler>;
+  using Type = engine::assembly::AssembledT<
+      typename InputSource<Input>::Type::Assembler>;
 };
 template <typename Quantity>
 struct InputValueOf<OwnInput<Quantity>> {

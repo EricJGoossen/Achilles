@@ -9,15 +9,16 @@
 #include "domain/math/matrix.hpp"
 #include "domain/spatial/dual.hpp"
 #include "domain/spatial/transform.hpp"
-#include "engine/pass/op_invoker.hpp"
+#include "engine/op_invoker/op_initializer.hpp"
+#include "engine/op_invoker/op_invoker.hpp"
 
 namespace achilles::algorithms::aba {
 
 // Each pass below that needs to seed the reserved base row a root joint's
 // parent index points at owns that responsibility itself, via
 // kInitInputs/kInitOutputs/Initialize (see OpHasInit,
-// engine/op_contract.hpp) -- rather than a separate SeedBaseOp/Seeds pass
-// that would need its own, out-of-band knowledge of exactly which fields
+// engine/spec/op_contract.hpp) -- rather than a separate SeedBaseOp/Seeds
+// pass that would need its own, out-of-band knowledge of exactly which fields
 // every other pass reads from a parent index. PropagateVelocityOp seeds
 // kWorldTransform/kSpatialVelocity (x_world_parent/v_parent for a root
 // joint); PropagateInertiaOp seeds kArticulatedInertia/
@@ -36,8 +37,8 @@ namespace achilles::algorithms::aba {
 
 struct PropagateVelocityOp {
   using FieldEnum = ABAField;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 
   PropagateVelocityOp(const Transform& x_world_base, const Velocity& v_base)
       : x_world_base_(x_world_base), v_base_(v_base) {}
@@ -91,22 +92,22 @@ struct PropagateVelocityOp {
   Velocity v_base_;
 };
 static_assert(
-    engine::OpLike<PropagateVelocityOp>,
+    engine::spec::OpLike<PropagateVelocityOp>,
     "PropagateVelocityOp must satisfy OpLike concept"
 );
 static_assert(
-    engine::OpArgsMatchView<PropagateVelocityOp, ABAView>,
+    engine::spec::OpArgsMatchView<PropagateVelocityOp, ABAView>,
     "PropagateVelocityOp's operator() must line up with kInputs/kOutputs"
 );
 static_assert(
-    engine::OpHasInit<PropagateVelocityOp>,
+    engine::spec::OpHasInit<PropagateVelocityOp>,
     "PropagateVelocityOp must satisfy OpHasInit concept"
 );
 
 struct PropagateInertiaOp {
   using FieldEnum = ABAField;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 
   static constexpr std::array<ArgData, 0> kInitInputs = {};
   static constexpr std::array<ArgData, 2> kInitOutputs = {
@@ -160,22 +161,22 @@ struct PropagateInertiaOp {
   static inline const Force kPBase = Force::Zero();
 };
 static_assert(
-    engine::OpLike<PropagateInertiaOp>,
+    engine::spec::OpLike<PropagateInertiaOp>,
     "PropagateInertiaOp must satisfy OpLike concept"
 );
 static_assert(
-    engine::OpArgsMatchView<PropagateInertiaOp, ABAView>,
+    engine::spec::OpArgsMatchView<PropagateInertiaOp, ABAView>,
     "PropagateInertiaOp's operator() must line up with kInputs/kOutputs"
 );
 static_assert(
-    engine::OpHasInit<PropagateInertiaOp>,
+    engine::spec::OpHasInit<PropagateInertiaOp>,
     "PropagateInertiaOp must satisfy OpHasInit concept"
 );
 
 struct PropagateAccelerationOp {
   using FieldEnum = ABAField;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 
   explicit PropagateAccelerationOp(const Acceleration& a_base)
       : a_base_(a_base) {}
@@ -220,15 +221,15 @@ struct PropagateAccelerationOp {
   Acceleration a_base_;
 };
 static_assert(
-    engine::OpLike<PropagateAccelerationOp>,
+    engine::spec::OpLike<PropagateAccelerationOp>,
     "PropagateAccelerationOp must satisfy OpLike concept"
 );
 static_assert(
-    engine::OpArgsMatchView<PropagateAccelerationOp, ABAView>,
+    engine::spec::OpArgsMatchView<PropagateAccelerationOp, ABAView>,
     "PropagateAccelerationOp's operator() must line up with kInputs/kOutputs"
 );
 static_assert(
-    engine::OpHasInit<PropagateAccelerationOp>,
+    engine::spec::OpHasInit<PropagateAccelerationOp>,
     "PropagateAccelerationOp must satisfy OpHasInit concept"
 );
 
@@ -237,8 +238,8 @@ static_assert(
 // read last tick.
 struct ZeroJointTorqueOp {
   using FieldEnum = ABAField;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 
   static constexpr std::array<ArgData, 0> kInputs = {};
   static constexpr std::array<ArgData, 1> kOutputs = {
@@ -248,11 +249,11 @@ struct ZeroJointTorqueOp {
   void operator()(Force* next_out) const { *next_out = Force::Zero(); }
 };
 static_assert(
-    engine::OpLike<ZeroJointTorqueOp>,
+    engine::spec::OpLike<ZeroJointTorqueOp>,
     "ZeroJointTorqueOp must satisfy OpLike concept"
 );
 static_assert(
-    engine::OpArgsMatchView<ZeroJointTorqueOp, ABAView>,
+    engine::spec::OpArgsMatchView<ZeroJointTorqueOp, ABAView>,
     "ZeroJointTorqueOp's operator() must line up with kInputs/kOutputs"
 );
 

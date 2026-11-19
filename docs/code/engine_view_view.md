@@ -9,7 +9,7 @@ buffering and ordering, so fields with different policies sit side by side.
 ## Connections
 
 - The view type comes from `view_factory.hpp`, which builds one
-  `FieldBinding` per field from its traits through `engine/memory/binding.hpp`.
+  `FieldBinding` per field from its traits through `engine/binding.hpp`.
 - `sim_allocator.hpp` constructs each view with its field bases, row counts,
   parities and row tables.
 - `op_invoker.hpp` takes a `FieldCursor` per op argument and loads and
@@ -38,5 +38,5 @@ buffering and ordering, so fields with different policies sit side by side.
 ## When changing it
 
 - `op_invoker.hpp` if cursor behavior changes.
-- `engine/memory/binding.hpp` if `FieldBinding` defaults change.
+- `engine/binding.hpp` if `FieldBinding` defaults change.
 - `tests/engine_view_view.cpp`.

@@ -13,7 +13,11 @@
 #include "algorithms/sim_config.hpp"
 #include "domain/math/scalar.hpp"
 #include "domain/spatial/dual.hpp"
-#include "engine/topology/orderings.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
 #include "support/registered_sim.hpp"
 #include "support/temp_dir.hpp"
 #include "util/tmp.hpp"
@@ -37,7 +41,7 @@
 //     formulas below.
 
 using namespace achilles::algorithms;
-using achilles::engine::topology::TopologicalOrdering;
+using achilles::policy::ordering::TopologicalOrdering;
 using achilles::test_support::Dof0LimitFields;
 using achilles::test_support::kPendulumInertia;
 using achilles::test_support::kPendulumIzz;

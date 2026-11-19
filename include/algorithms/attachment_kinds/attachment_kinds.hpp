@@ -11,7 +11,7 @@
 #include "domain/actuation/dc_motor.hpp"
 #include "domain/actuation/truth_actuator.hpp"
 #include "domain/attachment/attachment.hpp"
-#include "domain/attachment/attachment_kind.hpp"
+#include "domain/attachment/attachment_contract.hpp"
 #include "domain/sensing/accelerometer.hpp"
 #include "domain/sensing/camera.hpp"
 #include "domain/sensing/encoder.hpp"
@@ -19,7 +19,11 @@
 #include "domain/sensing/lidar.hpp"
 #include "domain/sensing/magnetometer.hpp"
 #include "domain/sensing/truth_sensor.hpp"
-#include "engine/topology/orderings.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
 #include "util/tmp.hpp"
 
 // The kinds the sim hosts, and how each is stored and bound to the sim: what
@@ -71,7 +75,7 @@ template <typename Input>
 inline constexpr bool kInputOnJoints =
     InputSource<Input>::kShared && std::is_same_v<
                                        typename InputSource<Input>::Ordering,
-                                       engine::topology::TopologicalOrdering>;
+                                       policy::ordering::TopologicalOrdering>;
 template <typename Quantity>
 inline constexpr bool kInputOnJoints<OwnInput<Quantity>> = true;
 
@@ -97,7 +101,7 @@ struct ForeignInputs<util::TypeList<Inputs...>> {
 template <typename List>
 using ForeignInputsT = typename ForeignInputs<List>::Type;
 
-// The concepts as type traits, for engine::pass::SegmentOps' filter.
+// The concepts as type traits, for engine::op_invoker::SegmentOps' filter.
 template <typename S>
 struct ScansScene : std::bool_constant<SensorHasScene<S>> {};
 template <typename S>
@@ -145,7 +149,7 @@ using AttachmentKinds = util::ConcatT<SensorKinds, ActuatorKinds>;
 // registered kind's kListName, kind by kind -- each kind's rows one segment --
 // each linked to its mount joint's row.
 using AttachmentOrdering = engine::topology::
-    ListOrdering<engine::topology::TopologicalOrdering, AttachmentKinds>;
+    ListOrdering<policy::ordering::TopologicalOrdering, AttachmentKinds>;
 
 // What every attachment reads whatever its kind: the sim's clock.
 using ClockInput = SimInput<clock::ClockAlgorithm, clock::ClockField::kClock>;

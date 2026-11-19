@@ -1,0 +1,84 @@
+#include <gtest/gtest.h>
+
+#include <cstddef>
+#include <span>
+#include <vector>
+
+#include "domain/layout/joint_layout.hpp"
+#include "domain/layout/joint_records.hpp"
+
+using achilles::domain::layout::JointLayout;
+
+namespace {
+
+constexpr std::size_t kNone = achilles::domain::layout::kNoParent;
+
+// Two instances: instance 0 has two joints, instance 1 has one. Rows:
+// 0 = (0,0), 1 = (1,0), 2 = padding, 3 = (0,1).
+struct TwoInstanceLayout {
+  std::vector<std::size_t> instance_offsets = {0, 2, 3};
+  std::vector<std::size_t> sorted_rows = {0, 3, 1};
+  std::vector<achilles::domain::layout::JointRef> joints = {
+      {0, 0}, {1, 0}, {kNone, kNone}, {0, 1}
+  };
+
+  JointLayout View() const { return {instance_offsets, sorted_rows, joints}; }
+};
+
+}  // namespace
+
+TEST(JointLayout, ToSortedAndToPhysicalAreInverses) {
+  TwoInstanceLayout data;
+  JointLayout layout = data.View();
+
+  EXPECT_EQ(layout.ToSorted(0, 0), 0U);
+  EXPECT_EQ(layout.ToSorted(0, 1), 3U);
+  EXPECT_EQ(layout.ToSorted(1, 0), 1U);
+  for (std::size_t row : {0U, 1U, 3U}) {
+    EXPECT_EQ(
+        layout.ToSorted(
+            layout.ToPhysical(row).instance_index,
+            layout.ToPhysical(row).joint_index
+        ),
+        row
+    );
+  }
+}
+
+TEST(JointLayout, PaddingAndSizes) {
+  TwoInstanceLayout data;
+  JointLayout layout = data.View();
+
+  EXPECT_FALSE(layout.IsPadding(0));
+  EXPECT_TRUE(layout.IsPadding(2));
+  EXPECT_EQ(layout.PaddedSize(), 4U);
+  EXPECT_EQ(layout.BaseRowIndex(), 4U);
+  EXPECT_EQ(layout.InstanceCount(), 2U);
+}
+
+TEST(JointLayoutConstructorPrecondition, DiesWhenOffsetsDontEndAtRowCount) {
+  std::vector<std::size_t> instance_offsets = {0, 2};
+  std::vector<std::size_t> sorted_rows = {0};
+  std::vector<achilles::domain::layout::JointRef> joints = {{0, 0}};
+
+  EXPECT_DEATH(
+      JointLayout(instance_offsets, sorted_rows, joints),
+      "must end at sorted_rows.size"
+  );
+}
+
+// Instance 1 has one joint, so joint 1 of it would read instance 2's rows.
+TEST(JointLayoutAccessPrecondition, DiesOnJointPastItsInstance) {
+  TwoInstanceLayout data;
+  JointLayout layout = data.View();
+
+  EXPECT_DEATH({ (void)layout.ToSorted(1, 1); }, "first \\+ joint <");
+}
+
+// Only two instances: instance 2 has no offsets entry to start from.
+TEST(JointLayoutAccessPrecondition, DiesOnInstancePastTheLast) {
+  TwoInstanceLayout data;
+  JointLayout layout = data.View();
+
+  EXPECT_DEATH({ (void)layout.ToSorted(2, 0); }, "instance \\+ 1 <");
+}

@@ -35,7 +35,7 @@ LAYERED = ["domain", "policy", "engine"]
 SKIPPED = {"display"}
 # Shared top-level folders in algorithms/ that algorithm folders may
 # include, and top-level files they may include.
-SHARED_FOLDERS = {"row_sets"}
+SHARED_FOLDERS = {"row_sets", "base"}
 SHARED_FILES = {"conventions.hpp", "shared_slots.hpp"}
 
 SOURCE_SUFFIXES = (".hpp", ".h", ".cpp", ".hpp.in")
@@ -45,8 +45,8 @@ RULES = {
     "layer-stack": "includes only point down the util -> interface stack",
     "layer-table": "within domain/policy/engine, includes follow the layer "
                    "table, with no peers",
-    "structure": "no loose files in domain/, policy/ or engine/; engine/ is "
-                 "one level deep",
+    "structure": "no loose files in domain/ or policy/; engine/ is one "
+                 "level deep",
     "src-mirror": "every src/ .cpp has a header at the matching include/ path",
     "algorithm-files": "an algorithm folder holds 1-3 files: <folder>_data, "
                        "_ops, _step",
@@ -248,7 +248,7 @@ def check_structure(r, f):
     top = top_folder(r)
     if r.parts[0] != "include" or top not in LAYERED:
         return
-    if len(r.parts) == 3:
+    if len(r.parts) == 3 and top != "engine":
         f.add("structure", r, 1, f"file sits directly in {top}/")
     if top == "engine" and len(r.parts) > 4:
         f.add("structure", r, 1, "engine/ allows one level of subfolders")
@@ -301,7 +301,7 @@ def check_algorithm_includes(r, text, algorithms, f):
         elif target.parts[2] != mine and target.parts[2] not in \
                 SHARED_FOLDERS:
             what = "another algorithm" if target.parts[2] in algorithms \
-                else "a top-level folder other than row_sets/"
+                else "a top-level folder other than row_sets/ or base/"
             f.add("algorithm-includes", r, number,
                   f"includes {what}: {target}")
 

@@ -11,7 +11,7 @@
 #include <xsimd/xsimd.hpp>
 
 #include "activation_mask.hpp"
-#include "engine/assembler.hpp"
+#include "engine/assembly/assembler.hpp"
 #include "util/simd_ops.hpp"
 
 namespace achilles::domain::math {
@@ -754,29 +754,32 @@ struct MatrixFor {
 };
 
 template <typename T, std::size_t M, std::size_t N>
-using MatrixAssembler = engine::
-    Assembler<MatrixFor<M, N>::template Target, T, engine::RepeatTypes<M * N>>;
-static_assert(engine::BatchAssemblerLike<MatrixAssembler<float, 3, 4>>);
+using MatrixAssembler = engine::assembly::Assembler<
+    MatrixFor<M, N>::template Target,
+    T,
+    engine::assembly::RepeatTypes<M * N>>;
+static_assert(engine::assembly::BatchAssemblerLike<
+              MatrixAssembler<float, 3, 4>>);
 
 template <typename T>
 using Matrix6x6 = Matrix<T, 6, 6>;
 template <typename T>
-using Matrix6x6Assembler =
-    engine::Assembler<Matrix6x6, T, engine::RepeatTypes<36>>;
-static_assert(engine::BatchAssemblerLike<Matrix6x6Assembler<float>>);
+using Matrix6x6Assembler = engine::assembly::
+    Assembler<Matrix6x6, T, engine::assembly::RepeatTypes<36>>;
+static_assert(engine::assembly::BatchAssemblerLike<Matrix6x6Assembler<float>>);
 
 template <typename T>
 using Matrix3x3 = Matrix<T, 3, 3>;
 template <typename T>
 using Matrix3x3Assembler =
-    engine::Assembler<Matrix3x3, T, engine::RepeatTypes<9>>;
-static_assert(engine::BatchAssemblerLike<Matrix3x3Assembler<float>>);
+    engine::assembly::Assembler<Matrix3x3, T, engine::assembly::RepeatTypes<9>>;
+static_assert(engine::assembly::BatchAssemblerLike<Matrix3x3Assembler<float>>);
 
 template <typename T>
 using Matrix2x2 = Matrix<T, 2, 2>;
 template <typename T>
 using Matrix2x2Assembler =
-    engine::Assembler<Matrix2x2, T, engine::RepeatTypes<4>>;
-static_assert(engine::BatchAssemblerLike<Matrix2x2Assembler<float>>);
+    engine::assembly::Assembler<Matrix2x2, T, engine::assembly::RepeatTypes<4>>;
+static_assert(engine::assembly::BatchAssemblerLike<Matrix2x2Assembler<float>>);
 
 }  // namespace achilles::domain::math

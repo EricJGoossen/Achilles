@@ -10,7 +10,8 @@
 #include <stdexcept>
 #include <string_view>
 
-#include "domain/error/effects.hpp"
+#include "domain/error/error_model.hpp"
+#include "domain/error/loss_model.hpp"
 #include "domain/geometry/ray.hpp"
 #include "domain/geometry/swept_box.hpp"
 #include "domain/math/quaternion.hpp"

@@ -6,7 +6,7 @@
 #include <type_traits>
 #include <xsimd/xsimd.hpp>
 
-#include "engine/assembler.hpp"
+#include "engine/assembly/assembler.hpp"
 #include "util/simd_ops.hpp"
 
 namespace achilles::domain::math {
@@ -174,10 +174,10 @@ struct ActivationMaskFor {
 // own comment on why a width mismatch here silently splits one batch group
 // into two).
 template <std::size_t N, typename PairedT = std::int32_t>
-using ActivationMaskAssembler = engine::Assembler<
+using ActivationMaskAssembler = engine::assembly::Assembler<
     ActivationMaskFor<N>::template Target,
     util::MaskStorageFor<PairedT>,
-    engine::RepeatTypes<1>>;
-static_assert(engine::BatchAssemblerLike<ActivationMaskAssembler<8>>);
+    engine::assembly::RepeatTypes<1>>;
+static_assert(engine::assembly::BatchAssemblerLike<ActivationMaskAssembler<8>>);
 
 }  // namespace achilles::domain::math

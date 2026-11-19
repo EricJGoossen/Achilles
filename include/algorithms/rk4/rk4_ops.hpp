@@ -4,7 +4,8 @@
 
 #include "algorithms/conventions.hpp"
 #include "algorithms/rk4/rk4_data.hpp"
-#include "engine/pass/op_invoker.hpp"
+#include "engine/op_invoker/op_initializer.hpp"
+#include "engine/op_invoker/op_invoker.hpp"
 
 namespace achilles::algorithms::rk4 {
 
@@ -12,8 +13,8 @@ namespace achilles::algorithms::rk4 {
 // both stage sums. The current (q, qd) is left alone: it's stage 1's state.
 struct BeginStepOp {
   using FieldEnum = RK4Field;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 
   static constexpr std::array<ArgData, 2> kInputs = {
       ArgData{FieldEnum::kJointPosition, ArgIndex::kTarget},
@@ -36,10 +37,10 @@ struct BeginStepOp {
   ) const;
 };
 static_assert(
-    engine::OpLike<BeginStepOp>, "BeginStepOp must satisfy OpLike concept"
+    engine::spec::OpLike<BeginStepOp>, "BeginStepOp must satisfy OpLike concept"
 );
 static_assert(
-    engine::OpArgsMatchView<BeginStepOp, RK4View>,
+    engine::spec::OpArgsMatchView<BeginStepOp, RK4View>,
     "BeginStepOp's operator() must line up with kInputs/kOutputs"
 );
 
@@ -49,8 +50,8 @@ static_assert(
 // the running totals this adds onto.
 struct AccumulateStageOp {
   using FieldEnum = RK4Field;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 
   explicit AccumulateStageOp(ScalarOperationT weight) : weight_(weight) {}
 
@@ -74,11 +75,11 @@ struct AccumulateStageOp {
   ScalarOperationT weight_;
 };
 static_assert(
-    engine::OpLike<AccumulateStageOp>,
+    engine::spec::OpLike<AccumulateStageOp>,
     "AccumulateStageOp must satisfy OpLike concept"
 );
 static_assert(
-    engine::OpArgsMatchView<AccumulateStageOp, RK4View>,
+    engine::spec::OpArgsMatchView<AccumulateStageOp, RK4View>,
     "AccumulateStageOp's operator() must line up with kInputs/kOutputs"
 );
 
@@ -94,8 +95,8 @@ static_assert(
 // to the fourth-order claim for multi-axis joints.
 struct AdvanceStageOp {
   using FieldEnum = RK4Field;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 
   explicit AdvanceStageOp(ScalarOperationT dt) : dt_(dt) {}
 
@@ -123,10 +124,11 @@ struct AdvanceStageOp {
   ScalarOperationT dt_;
 };
 static_assert(
-    engine::OpLike<AdvanceStageOp>, "AdvanceStageOp must satisfy OpLike concept"
+    engine::spec::OpLike<AdvanceStageOp>,
+    "AdvanceStageOp must satisfy OpLike concept"
 );
 static_assert(
-    engine::OpArgsMatchView<AdvanceStageOp, RK4View>,
+    engine::spec::OpArgsMatchView<AdvanceStageOp, RK4View>,
     "AdvanceStageOp's operator() must line up with kInputs/kOutputs"
 );
 
@@ -136,8 +138,8 @@ static_assert(
 // -- one exponential of the blended twist, not four composed ones.
 struct CommitOp {
   using FieldEnum = RK4Field;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 
   explicit CommitOp(ScalarOperationT dt) : dt_(dt) {}
 
@@ -166,9 +168,11 @@ struct CommitOp {
  private:
   ScalarOperationT dt_;
 };
-static_assert(engine::OpLike<CommitOp>, "CommitOp must satisfy OpLike concept");
 static_assert(
-    engine::OpArgsMatchView<CommitOp, RK4View>,
+    engine::spec::OpLike<CommitOp>, "CommitOp must satisfy OpLike concept"
+);
+static_assert(
+    engine::spec::OpArgsMatchView<CommitOp, RK4View>,
     "CommitOp's operator() must line up with kInputs/kOutputs"
 );
 

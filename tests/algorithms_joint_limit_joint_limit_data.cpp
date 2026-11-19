@@ -13,7 +13,11 @@
 #include "domain/math/quaternion.hpp"
 #include "domain/math/vector3.hpp"
 #include "domain/spatial/transform.hpp"
-#include "engine/topology/orderings.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
 #include "support/registered_sim.hpp"
 #include "support/temp_dir.hpp"
 #include "util/simd_ops.hpp"
@@ -28,7 +32,7 @@
 //      reach the solver without a copy.
 
 using namespace achilles::algorithms;
-using achilles::engine::topology::TopologicalOrdering;
+using achilles::policy::ordering::TopologicalOrdering;
 using achilles::test_support::Dof0LimitFields;
 using achilles::test_support::kPendulumInertia;
 using achilles::test_support::MakeRegisteredSim;
@@ -55,7 +59,11 @@ TEST(JointLimitData, LimitFieldsLoadFromArowByName) {
   RegisteredSim sim = MakeRegisteredSim(
       dir,
       RevoluteZJointArow(
-          "hinge", "", kPendulumInertia, 0.0F, 0.0F,
+          "hinge",
+          "",
+          kPendulumInertia,
+          0.0F,
+          0.0F,
           Dof0LimitFields(-0.5F, 0.75F, 0.05F)
       )
   );
@@ -63,8 +71,8 @@ TEST(JointLimitData, LimitFieldsLoadFromArowByName) {
   std::size_t row = JointRow(sim);
 
   EXPECT_EQ(
-      (view.Load<JointLimitField::kJointLimited, std::int32_t>(row)
-           .AsStorage()),
+      (view.Load<JointLimitField::kJointLimited, std::int32_t>(row).AsStorage()
+      ),
       1
   );
   EXPECT_FLOAT_EQ(
@@ -92,9 +100,7 @@ TEST(JointLimitData, JointWithoutLimitFieldsIsUnlimited) {
   auto view = sim.ViewFor<JointLimitAlgorithm>();
 
   EXPECT_EQ(
-      (view.Load<JointLimitField::kJointLimited, std::int32_t>(
-               JointRow(sim)
-           )
+      (view.Load<JointLimitField::kJointLimited, std::int32_t>(JointRow(sim))
            .AsStorage()),
       0
   );
@@ -122,9 +128,8 @@ TEST(JointLimitData, SubspaceAndPositionAliasAbas) {
       )
   );
 
-  auto q = limit_view.Load<JointLimitField::kJointPosition, ScalarOperationT>(
-      row
-  );
+  auto q =
+      limit_view.Load<JointLimitField::kJointPosition, ScalarOperationT>(row);
   EXPECT_TRUE(q.Rotation().IsApprox(rotation));
   EXPECT_FLOAT_EQ(
       (limit_view.Load<JointLimitField::kJointSubspace, ScalarOperationT>(row)(
@@ -143,7 +148,11 @@ TEST(JointLimitData, OutputsAndMarginAliasTheContactSolvers) {
   RegisteredSim sim = MakeRegisteredSim(
       dir,
       RevoluteZJointArow(
-          "hinge", "", kPendulumInertia, 0.0F, 0.0F,
+          "hinge",
+          "",
+          kPendulumInertia,
+          0.0F,
+          0.0F,
           Dof0LimitFields(-1.0F, 1.0F, 0.25F)
       )
   );
@@ -151,7 +160,8 @@ TEST(JointLimitData, OutputsAndMarginAliasTheContactSolvers) {
   auto solver_view = sim.ViewFor<ContactSolverAlgorithm>();
   std::size_t group = JointRow(sim) / B::size;
 
-  joint_limit::JointCoordinates distance = joint_limit::JointCoordinates::Zero();
+  joint_limit::JointCoordinates distance =
+      joint_limit::JointCoordinates::Zero();
   distance[0] = B(-0.125F);
   joint_limit::JointCoordinates side = joint_limit::JointCoordinates::Zero();
   side[0] = B(-1.0F);
@@ -162,7 +172,8 @@ TEST(JointLimitData, OutputsAndMarginAliasTheContactSolvers) {
   );
 
   EXPECT_FLOAT_EQ(
-      (solver_view.Load<ContactSolverField::kLimitDistance, B>(group)[0].get(0)),
+      (solver_view.Load<ContactSolverField::kLimitDistance, B>(group)[0].get(0)
+      ),
       -0.125F
   );
   EXPECT_FLOAT_EQ(
@@ -176,9 +187,10 @@ TEST(JointLimitData, OutputsAndMarginAliasTheContactSolvers) {
       1
   );
   EXPECT_FLOAT_EQ(
-      (solver_view.Load<ContactSolverField::kJointLimitMargin, ScalarOperationT>(
-           JointRow(sim)
-       )
+      (solver_view
+           .Load<ContactSolverField::kJointLimitMargin, ScalarOperationT>(
+               JointRow(sim)
+           )
            .Value()),
       0.25F
   );

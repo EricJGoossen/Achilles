@@ -11,7 +11,11 @@
 #include "algorithms/joint_limit/joint_limit_step.hpp"
 #include "algorithms/sim_config.hpp"
 #include "domain/spatial/transform.hpp"
-#include "engine/topology/orderings.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
 #include "support/registered_sim.hpp"
 #include "support/temp_dir.hpp"
 #include "util/tmp.hpp"
@@ -25,7 +29,7 @@
 // algorithms_integrators.cpp's to check.
 
 using namespace achilles::algorithms;
-using achilles::engine::topology::TopologicalOrdering;
+using achilles::policy::ordering::TopologicalOrdering;
 using achilles::test_support::Dof0LimitFields;
 using achilles::test_support::kPendulumInertia;
 using achilles::test_support::MakeRegisteredSim;
@@ -58,8 +62,7 @@ LimitRow Dof0Row(const RegisteredSim& sim, std::size_t joint) {
   return {
       view.Load<JointLimitField::kLimitDistance, ScalarOperationT>(row)[0],
       view.Load<JointLimitField::kLimitSide, ScalarOperationT>(row)[0],
-      (view.Load<JointLimitField::kLimitActive, std::int32_t>(row)
-           .AsStorage() &
+      (view.Load<JointLimitField::kLimitActive, std::int32_t>(row).AsStorage() &
        1) != 0
   };
 }
@@ -73,7 +76,12 @@ TEST(JointLimitStep, DetectsAJointPastItsLimit) {
   RegisteredSim sim = MakeRegisteredSim(
       dir,
       RevoluteZJointArow(
-          "hinge", "", kPendulumInertia, 1.2F, 0.0F, Dof0LimitFields(-1.0F, 1.0F)
+          "hinge",
+          "",
+          kPendulumInertia,
+          1.2F,
+          0.0F,
+          Dof0LimitFields(-1.0F, 1.0F)
       )
   );
   RunDetector(sim);
@@ -92,10 +100,19 @@ TEST(JointLimitStep, EachJointGetsItsOwnRow) {
   RegisteredSim sim = MakeRegisteredSim(
       dir,
       RevoluteZJointArow(
-          "upper", "", kPendulumInertia, 0.9F, 0.0F, Dof0LimitFields(-1.0F, 0.5F)
+          "upper",
+          "",
+          kPendulumInertia,
+          0.9F,
+          0.0F,
+          Dof0LimitFields(-1.0F, 0.5F)
       ) +
           RevoluteZJointArow(
-              "lower", "upper", kPendulumInertia, -0.1F, 0.0F,
+              "lower",
+              "upper",
+              kPendulumInertia,
+              -0.1F,
+              0.0F,
               Dof0LimitFields(0.0F, 2.0F)
           )
   );
@@ -119,7 +136,12 @@ TEST(JointLimitStep, ReadsThePoseAtTheTimeItRuns) {
   RegisteredSim sim = MakeRegisteredSim(
       dir,
       RevoluteZJointArow(
-          "hinge", "", kPendulumInertia, 1.2F, 0.0F, Dof0LimitFields(-1.0F, 1.0F)
+          "hinge",
+          "",
+          kPendulumInertia,
+          1.2F,
+          0.0F,
+          Dof0LimitFields(-1.0F, 1.0F)
       )
   );
   RunDetector(sim);

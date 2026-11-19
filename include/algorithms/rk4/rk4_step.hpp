@@ -1,13 +1,17 @@
 #pragma once
 
+#include "algorithms/base/every_row_step.hpp"
 #include "algorithms/conventions.hpp"
 #include "algorithms/rk4/rk4_data.hpp"
 #include "algorithms/rk4/rk4_ops.hpp"
 #include "algorithms/sim_config.hpp"
-#include "engine/algorithm_contract.hpp"
-#include "engine/pass/algorithm_step.hpp"
-#include "engine/pass/traversals.hpp"
-#include "engine/pass/view_step.hpp"
+#include "engine/algorithm.hpp"
+#include "engine/op_invoker/algorithm_step.hpp"
+#include "engine/spec/step_contract.hpp"
+#include "policy/traversal/base_traversal.hpp"
+#include "policy/traversal/global_traversal.hpp"
+#include "policy/traversal/pair_traversal.hpp"
+#include "policy/traversal/row_traversal.hpp"
 #include "util/tmp.hpp"
 
 namespace achilles::algorithms::rk4 {
@@ -61,29 +65,31 @@ namespace achilles::algorithms::rk4 {
 //
 // Like vi/pi, each pass is independent per row, so it runs as a
 // LinearTraversal over view.Size().
-using ForwardBatched =
-    engine::pass::LinearTraversal<engine::pass::Direction::kForward, kLanes>;
+using ForwardBatched = policy::traversal::
+    LinearTraversal<policy::traversal::Direction::kForward, kLanes>;
 
 using RK4Algorithm = engine::Algorithm<RK4Field, RK4FieldTraits>;
 static_assert(engine::AlgorithmLike<RK4Algorithm>);
 
 // Snapshots (q_n, qd_n) and zeroes both sums.
-struct BeginStep : engine::pass::ViewStep<BeginStep, RK4Algorithm> {
+struct BeginStep : base::EveryRowStep<BeginStep, RK4Algorithm> {
   static auto
   MakeOps(const SimConfig& /*sim_config*/, ScalarOperationT /*dt*/) {
-    using engine::pass::Pass;
-    return engine::pass::Ops<Pass<BeginStepOp, ForwardBatched>>{BeginStepOp()};
+    using engine::op_invoker::OpWalk;
+    return engine::op_invoker::Ops<OpWalk<BeginStepOp, ForwardBatched>>{
+        BeginStepOp()
+    };
   }
 };
 
 // Adds Weight * (k_v, k_a) of the stage ABA just evaluated into the sums.
 template <typename Weight>
 struct AccumulateStep
-    : engine::pass::ViewStep<AccumulateStep<Weight>, RK4Algorithm> {
+    : base::EveryRowStep<AccumulateStep<Weight>, RK4Algorithm> {
   static auto
   MakeOps(const SimConfig& /*sim_config*/, ScalarOperationT /*dt*/) {
-    using engine::pass::Pass;
-    return engine::pass::Ops<Pass<AccumulateStageOp, ForwardBatched>>{
+    using engine::op_invoker::OpWalk;
+    return engine::op_invoker::Ops<OpWalk<AccumulateStageOp, ForwardBatched>>{
         AccumulateStageOp(util::kRatioValueV<ScalarOperationT, Weight>)
     };
   }
@@ -92,21 +98,21 @@ struct AccumulateStep
 // Writes the next stage's state, advanced from (q_n, qd_n) by the previous
 // stage's derivatives over DtFraction * dt.
 template <typename DtFraction>
-struct AdvanceStep
-    : engine::pass::ViewStep<AdvanceStep<DtFraction>, RK4Algorithm> {
+struct AdvanceStep : base::EveryRowStep<AdvanceStep<DtFraction>, RK4Algorithm> {
   static auto MakeOps(const SimConfig& /*sim_config*/, ScalarOperationT dt) {
-    using engine::pass::Pass;
-    return engine::pass::Ops<Pass<AdvanceStageOp, ForwardBatched>>{
+    using engine::op_invoker::OpWalk;
+    return engine::op_invoker::Ops<OpWalk<AdvanceStageOp, ForwardBatched>>{
         AdvanceStageOp(dt * util::kRatioValueV<ScalarOperationT, DtFraction>)
     };
   }
 };
 
 // Blends the sums into (q_{n+1}, qd_{n+1}).
-struct CommitStep : engine::pass::ViewStep<CommitStep, RK4Algorithm> {
+struct CommitStep : base::EveryRowStep<CommitStep, RK4Algorithm> {
   static auto MakeOps(const SimConfig& /*sim_config*/, ScalarOperationT dt) {
-    using engine::pass::Pass;
-    return engine::pass::Ops<Pass<CommitOp, ForwardBatched>>{CommitOp(dt)};
+    using engine::op_invoker::OpWalk;
+    return engine::op_invoker::Ops<OpWalk<CommitOp, ForwardBatched>>{CommitOp(dt
+    )};
   }
 };
 

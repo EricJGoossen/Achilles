@@ -7,7 +7,8 @@
 #include <vector>
 
 #include "domain/attachment/attachment_config.hpp"
-#include "domain/error/effects.hpp"
+#include "domain/error/error_model.hpp"
+#include "domain/error/loss_model.hpp"
 #include "domain/math/vector3.hpp"
 #include "domain/spatial/transform.hpp"
 

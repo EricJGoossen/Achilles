@@ -8,10 +8,14 @@
 #include "algorithms/attachment_kinds/attachment_kinds.hpp"
 #include "algorithms/conventions.hpp"
 #include "algorithms/shared_slots.hpp"
-#include "engine/algorithm_contract.hpp"
-#include "engine/pass/algorithm_step.hpp"
-#include "engine/pass/sim_context.hpp"
-#include "engine/pass/traversals.hpp"
+#include "engine/algorithm.hpp"
+#include "engine/context/sim_context.hpp"
+#include "engine/op_invoker/algorithm_step.hpp"
+#include "engine/spec/step_contract.hpp"
+#include "policy/traversal/base_traversal.hpp"
+#include "policy/traversal/global_traversal.hpp"
+#include "policy/traversal/pair_traversal.hpp"
+#include "policy/traversal/row_traversal.hpp"
 #include "util/tmp.hpp"
 
 namespace achilles::algorithms::attachment {
@@ -30,17 +34,17 @@ static_assert(engine::AlgorithmLike<AttachmentAlgorithm>);
 struct DriveStep {
   using FieldEnum = AttachmentField;
 
-  template <engine::pass::SimContextLike SimStateT, typename Config>
+  template <engine::context::SimContextLike SimStateT, typename Config>
   static void Step(
       const SimStateT& sim_state,
       const Config& /*sim_config*/,
       ScalarOperationT dt
   ) {
-    engine::pass::Step(
-        engine::pass::SegmentOps<
+    engine::op_invoker::Step(
+        engine::op_invoker::SegmentOps<
             DriveOp,
             AttachmentKinds,
-            engine::pass::LinkedSegmentTraversal,
+            policy::traversal::LinkedSegmentTraversal,
             IsActuator>(dt),
         sim_state.template ViewFor<AttachmentView>(),
         sim_state.template TopologyFor<AttachmentOrdering>()
@@ -49,37 +53,37 @@ struct DriveStep {
 };
 
 // Runs every sensor on the sim's current state -- each pass one per kind, over
-// its own segment (engine::pass::SegmentOps): for a scanning kind, its Observe
-// against every body; then every kind's Read. Then it publishes the outputs:
-// the flip comes after the passes, so what the user reads once the tick returns
-// is this tick's reading (the mirror of an input buffer like actuator torque,
-// flipped before the passes that read it). Given the bodies' layout second, for
-// the scanning passes to pair against.
+// its own segment (engine::op_invoker::SegmentOps): for a scanning kind, its
+// Observe against every body; then every kind's Read. Then it publishes the
+// outputs: the flip comes after the passes, so what the user reads once the
+// tick returns is this tick's reading (the mirror of an input buffer like
+// actuator torque, flipped before the passes that read it). Given the bodies'
+// layout second, for the scanning passes to pair against.
 struct ReadStep {
   using FieldEnum = AttachmentField;
 
-  template <engine::pass::SimContextLike SimStateT, typename Config>
+  template <engine::context::SimContextLike SimStateT, typename Config>
   static void Step(
       const SimStateT& sim_state,
       const Config& /*sim_config*/,
       ScalarOperationT dt
   ) {
-    engine::pass::Step(
-        engine::pass::JoinOps(
-            engine::pass::SegmentOps<
+    engine::op_invoker::Step(
+        engine::op_invoker::JoinOps(
+            engine::op_invoker::SegmentOps<
                 ObserveOp,
                 AttachmentKinds,
-                engine::pass::LinkedSegmentScanTraversal,
+                policy::traversal::LinkedSegmentScanTraversal,
                 ScansScene>(dt),
-            engine::pass::SegmentOps<
+            engine::op_invoker::SegmentOps<
                 ReadOp,
                 AttachmentKinds,
-                engine::pass::LinkedSegmentTraversal,
+                policy::traversal::LinkedSegmentTraversal,
                 IsSensor>(dt)
         ),
         sim_state.template ViewFor<AttachmentView>(),
         sim_state.template TopologyFor<AttachmentOrdering>(),
-        sim_state.template LayoutFor<engine::topology::TopologicalOrdering>()
+        sim_state.template LayoutFor<policy::ordering::TopologicalOrdering>()
     );
     sim_state.template FlipParity<AttachmentOutputSlot>();
   }
@@ -91,17 +95,17 @@ struct ReadStep {
 struct InitStep {
   using FieldEnum = AttachmentField;
 
-  template <engine::pass::SimContextLike SimStateT, typename Config>
+  template <engine::context::SimContextLike SimStateT, typename Config>
   static void Step(
       const SimStateT& sim_state,
       const Config& /*sim_config*/,
       ScalarOperationT /*dt*/
   ) {
-    engine::pass::Step(
-        engine::pass::SegmentOps<
+    engine::op_invoker::Step(
+        engine::op_invoker::SegmentOps<
             InitOp,
             AttachmentKinds,
-            engine::pass::LinkedSegmentTraversal>(),
+            policy::traversal::LinkedSegmentTraversal>(),
         sim_state.template ViewFor<AttachmentView>(),
         sim_state.template TopologyFor<AttachmentOrdering>()
     );

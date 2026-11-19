@@ -5,19 +5,29 @@
 #include <string_view>
 
 #include "algorithms/conventions.hpp"
-#include "algorithms/orderings/collision_pairs.hpp"
+#include "algorithms/row_sets/collision_pairs.hpp"
 #include "algorithms/shared_slots.hpp"
-#include "domain/joint_topology.hpp"
 #include "domain/math/activation_mask.hpp"
 #include "domain/math/scalar.hpp"
 #include "domain/math/vector3.hpp"
 #include "domain/spatial/transform.hpp"
-#include "engine/field_contract.hpp"
-#include "engine/topology/indexing_policy.hpp"
-#include "engine/topology/layout_policy.hpp"
-#include "engine/topology/orderings.hpp"
-#include "engine/view/view_contract.hpp"
+#include "domain/topology/joint_topology.hpp"
+#include "domain/topology/topology_contract.hpp"
+#include "engine/spec/field_contract.hpp"
+#include "engine/spec/view_contract.hpp"
 #include "engine/view/view_factory.hpp"
+#include "policy/indexing/base_indexing.hpp"
+#include "policy/indexing/global_indexing.hpp"
+#include "policy/indexing/group_indexing.hpp"
+#include "policy/indexing/row_indexing.hpp"
+#include "policy/layout/base_layout.hpp"
+#include "policy/layout/planar_layout.hpp"
+#include "policy/layout/segmented_layout.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
 
 namespace achilles::algorithms::narrow_phase {
 
@@ -64,7 +74,7 @@ static_assert(
 // groups of pairs does the same work in every thread.
 //
 // Up to kSweptBoxContactSlots contacts per pair, as three per-pair fields
-// -- one value per row of CollisionPairs (orderings/collision_pairs.hpp), so
+// -- one value per row of CollisionPairs (row_sets/collision_pairs.hpp), so
 // per pair, read a lane group of pairs at a time:
 //
 //   - kContactNormal: world unit vector from the source body toward the
@@ -104,7 +114,7 @@ enum class NarrowPhaseField : uint8_t {
 
   kCount
 };
-static_assert(engine::FieldEnumLike<NarrowPhaseField>);
+static_assert(engine::spec::FieldEnumLike<NarrowPhaseField>);
 
 template <NarrowPhaseField F>
 struct NarrowPhaseFieldTraits;
@@ -113,7 +123,7 @@ struct NarrowPhaseFieldTraits;
 // the same reason every BroadPhaseField does (see broad_phase_data.hpp): it
 // shares rows with the broad phase's own fields, so it has to share the
 // ordering that numbered them. The per-pair ones bind the pairs,
-// CollisionPairs (orderings/collision_pairs.hpp).
+// CollisionPairs (row_sets/collision_pairs.hpp).
 template <>
 struct NarrowPhaseFieldTraits<NarrowPhaseField::kWorldShapePose> {
   // SharedAs = WorldShapePoseSlot so this is the broad phase's own
@@ -121,31 +131,31 @@ struct NarrowPhaseFieldTraits<NarrowPhaseField::kWorldShapePose> {
   // here per pair.
   using Assembler = spatial::TransformAssembler<ScalarOperationT>;
   using SharedAs = WorldShapePoseSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
 };
 template <>
 struct NarrowPhaseFieldTraits<NarrowPhaseField::kCollisionExtents> {
   using Assembler = math::Vector3Assembler<ScalarOperationT>;
   using SharedAs = CollisionExtentsSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "collision_extents";
 };
 template <>
 struct NarrowPhaseFieldTraits<NarrowPhaseField::kCollisionRadius> {
   using Assembler = math::ScalarAssembler<ScalarOperationT>;
   using SharedAs = CollisionRadiusSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "collision_radius";
 };
 template <>
 struct NarrowPhaseFieldTraits<NarrowPhaseField::kCollisionMargin> {
   using Assembler = math::ScalarAssembler<ScalarOperationT>;
   using SharedAs = CollisionMarginSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "collision_margin";
 };
 template <>
@@ -154,50 +164,50 @@ struct NarrowPhaseFieldTraits<NarrowPhaseField::kBoundsOverlap> {
   // read-only here.
   using Assembler = math::ActivationMaskAssembler<kLanes>;
   using SharedAs = BoundsOverlapSlot;
-  using Ordering = CollisionPairs;
-  using Indexing = engine::topology::LaneGroupIndexing<kLanes>;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = row_sets::CollisionPairs;
+  using Indexing = policy::indexing::GroupIndexing<kLanes>;
+  using Layout = policy::layout::PlanarLayout;
 };
 template <>
 struct NarrowPhaseFieldTraits<NarrowPhaseField::kContactDistance> {
   using Assembler =
       math::MatrixAssembler<ScalarOperationT, kSweptBoxContactSlots, 1>;
   using SharedAs = ContactDistanceSlot;
-  using Ordering = CollisionPairs;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = row_sets::CollisionPairs;
+  using Layout = policy::layout::PlanarLayout;
 };
 template <>
 struct NarrowPhaseFieldTraits<NarrowPhaseField::kContactNormal> {
   using Assembler = math::Vector3Assembler<ScalarOperationT>;
   using SharedAs = ContactNormalSlot;
-  using Ordering = CollisionPairs;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = row_sets::CollisionPairs;
+  using Layout = policy::layout::PlanarLayout;
 };
 template <>
 struct NarrowPhaseFieldTraits<NarrowPhaseField::kContactPoint> {
   using Assembler =
       math::MatrixAssembler<ScalarOperationT, 3, kSweptBoxContactSlots>;
   using SharedAs = ContactPointSlot;
-  using Ordering = CollisionPairs;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = row_sets::CollisionPairs;
+  using Layout = policy::layout::PlanarLayout;
 };
 template <>
 struct NarrowPhaseFieldTraits<NarrowPhaseField::kContactActive> {
   using Assembler =
       math::ActivationMaskAssembler<kLanes * kSweptBoxContactSlots>;
   using SharedAs = ContactActiveSlot;
-  using Ordering = CollisionPairs;
-  using Indexing = engine::topology::LaneGroupIndexing<kLanes>;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = row_sets::CollisionPairs;
+  using Indexing = policy::indexing::GroupIndexing<kLanes>;
+  using Layout = policy::layout::PlanarLayout;
 };
 static_assert(engine::
                   FieldTraitsLike<NarrowPhaseField, NarrowPhaseFieldTraits>);
 
 using NarrowPhaseView =
     engine::view::ViewFactory<NarrowPhaseField, NarrowPhaseFieldTraits>;
-static_assert(engine::view::ViewLike<NarrowPhaseView, NarrowPhaseField>);
+static_assert(engine::spec::ViewLike<NarrowPhaseView, NarrowPhaseField>);
 
-using NarrowPhaseTopology = domain::JointTopology;
-static_assert(domain::TopologyLike<NarrowPhaseTopology>);
+using NarrowPhaseTopology = domain::topology::JointTopology;
+static_assert(domain::topology::TopologyLike<NarrowPhaseTopology>);
 
 }  // namespace achilles::algorithms::narrow_phase

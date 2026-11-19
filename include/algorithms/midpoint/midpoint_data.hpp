@@ -5,15 +5,22 @@
 
 #include "algorithms/conventions.hpp"
 #include "algorithms/shared_slots.hpp"
-#include "domain/joint_topology.hpp"
 #include "domain/math/matrix.hpp"
 #include "domain/spatial/dual.hpp"
 #include "domain/spatial/transform.hpp"
-#include "engine/field_contract.hpp"
-#include "engine/topology/layout_policy.hpp"
-#include "engine/topology/orderings.hpp"
-#include "engine/view/view_contract.hpp"
+#include "domain/topology/joint_topology.hpp"
+#include "domain/topology/topology_contract.hpp"
+#include "engine/spec/field_contract.hpp"
+#include "engine/spec/view_contract.hpp"
 #include "engine/view/view_factory.hpp"
+#include "policy/layout/base_layout.hpp"
+#include "policy/layout/planar_layout.hpp"
+#include "policy/layout/segmented_layout.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
 
 namespace achilles::algorithms::midpoint {
 
@@ -34,7 +41,7 @@ enum class MidpointField : uint8_t {
 
   kCount
 };
-static_assert(engine::FieldEnumLike<MidpointField>);
+static_assert(engine::spec::FieldEnumLike<MidpointField>);
 
 template <MidpointField F>
 struct MidpointFieldTraits;
@@ -48,8 +55,8 @@ template <>
 struct MidpointFieldTraits<MidpointField::kJointSubspace> {
   using Assembler = math::Matrix6x6Assembler<ScalarOperationT>;
   using SharedAs = JointSubspaceSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "joint_subspace";
 };
 template <>
@@ -57,51 +64,52 @@ struct MidpointFieldTraits<MidpointField::kJointAcceleration> {
   using Assembler =
       domain::spatial::SpatialAccelerationAssembler<ScalarOperationT>;
   using SharedAs = JointAccelerationSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "joint_acceleration";
 };
 template <>
 struct MidpointFieldTraits<MidpointField::kJointPosition> {
   using Assembler = domain::spatial::TransformAssembler<ScalarOperationT>;
   using SharedAs = JointPositionSlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "joint_position";
 };
 template <>
 struct MidpointFieldTraits<MidpointField::kJointVelocity> {
   using Assembler = domain::spatial::SpatialVelocityAssembler<ScalarOperationT>;
   using SharedAs = JointVelocitySlot;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
   static constexpr std::string_view kName = "joint_velocity";
 };
 template <>
 struct MidpointFieldTraits<MidpointField::kStartPosition> {
   using Assembler = domain::spatial::TransformAssembler<ScalarOperationT>;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
 };
 template <>
 struct MidpointFieldTraits<MidpointField::kStartVelocity> {
   using Assembler = domain::spatial::SpatialVelocityAssembler<ScalarOperationT>;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
 };
 template <>
 struct MidpointFieldTraits<MidpointField::kNextVelocity> {
   using Assembler = domain::spatial::SpatialVelocityAssembler<ScalarOperationT>;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
 };
-static_assert(engine::FieldTraitsLike<MidpointField, MidpointFieldTraits>);
+static_assert(engine::spec::
+                  FieldTraitsLike<MidpointField, MidpointFieldTraits>);
 
 using MidpointView =
     engine::view::ViewFactory<MidpointField, MidpointFieldTraits>;
-static_assert(engine::view::ViewLike<MidpointView, MidpointField>);
+static_assert(engine::spec::ViewLike<MidpointView, MidpointField>);
 
-using MidpointTopology = domain::JointTopology;
-static_assert(domain::TopologyLike<MidpointTopology>);
+using MidpointTopology = domain::topology::JointTopology;
+static_assert(domain::topology::TopologyLike<MidpointTopology>);
 
 }  // namespace achilles::algorithms::midpoint

@@ -5,7 +5,7 @@
 #include <cstddef>
 #include <xsimd/xsimd.hpp>
 
-#include "engine/assembler.hpp"
+#include "engine/assembly/assembler.hpp"
 #include "matrix.hpp"
 #include "util/simd_ops.hpp"
 
@@ -156,7 +156,8 @@ class Vector6 {
 };
 
 template <typename T>
-using Vector6Assembler = engine::Assembler<Vector6, T, engine::RepeatTypes<6>>;
-static_assert(engine::BatchAssemblerLike<Vector6Assembler<float>>);
+using Vector6Assembler =
+    engine::assembly::Assembler<Vector6, T, engine::assembly::RepeatTypes<6>>;
+static_assert(engine::assembly::BatchAssemblerLike<Vector6Assembler<float>>);
 
 }  // namespace achilles::domain::math

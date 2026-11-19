@@ -10,14 +10,20 @@ indexing, buffering). Used polymorphically by the engine at compile time.
 - Each policy type has its own subfolder, and each subfolder is a layer. It
   includes only `util`, `domain`, itself and lower layers, never higher ones
   or peers in the same layer.
-- The subfolder's concept lives in a file named after the subfolder
-  (`traversal.hpp`), and each policy gets its own file
+- Every policy type has a concept. It lives in `base_<type>.hpp`
+  (`base_traversal.hpp`), with any logic or types the type's policies share
+  (like `Direction`), whether in a base class or not.
+- A policy type has a base class only when its policies share logic, and
+  then every policy of that type derives from it. Nothing is ever used
+  polymorphically through a base.
+- Every policy is named `<Kind><Type>` (`RowTraversal`, `AllRange`,
+  `DoubleBuffering`) and has its own file named the same way
   (`row_traversal.hpp`).
 
 | Layer | Folders |
 |---|---|
-| 0 | `layout`, `buffering`, `indexing`, `ordering` |
-| 1 | `row` |
+| 0 | `layout`, `buffering`, `indexing`, `filter` |
+| 1 | `ordering`, `source`, `range`, `scan` |
 | 2 | `traversal` |
 
 ## Policies

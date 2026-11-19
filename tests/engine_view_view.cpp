@@ -9,21 +9,33 @@
 
 #include "domain/math/scalar.hpp"
 #include "domain/math/vector3.hpp"
-#include "engine/memory/buffering_policy.hpp"
-#include "engine/memory/sim_allocator.hpp"
-#include "engine/topology/indexing_policy.hpp"
-#include "engine/topology/layout_policy.hpp"
-#include "engine/topology/orderings.hpp"
+#include "engine/allocation/sim_allocator.hpp"
+#include "engine/spec/field_binding.hpp"
 #include "engine/view/view.hpp"
+#include "policy/buffering/base_buffering.hpp"
+#include "policy/buffering/double_buffering.hpp"
+#include "policy/buffering/single_buffering.hpp"
+#include "policy/indexing/base_indexing.hpp"
+#include "policy/indexing/global_indexing.hpp"
+#include "policy/indexing/group_indexing.hpp"
+#include "policy/indexing/row_indexing.hpp"
+#include "policy/layout/base_layout.hpp"
+#include "policy/layout/planar_layout.hpp"
+#include "policy/layout/segmented_layout.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
 #include "support/toy_buffered_field.hpp"
 #include "support/toy_field.hpp"
 #include "support/toy_reduce_field.hpp"
 
 using achilles::domain::math::Scalar;
 using achilles::domain::math::Vector3;
-using achilles::engine::memory::SimAllocator;
-using achilles::engine::topology::BroadcastIndex;
-using achilles::engine::topology::LinearOrdering;
+using achilles::engine::allocation::SimAllocator;
+using achilles::policy::indexing::BroadcastIndex;
+using achilles::policy::ordering::LinearOrdering;
 using achilles::test_support::MakeToyBufferedSim;
 using achilles::test_support::MakeToyReduceSim;
 using achilles::test_support::MakeToySim;
@@ -51,13 +63,13 @@ std::size_t ExpectedViewSize(const SimAllocator<ToyAlgorithm>& sim) {
 }  // namespace
 
 // ToyField never names an Ordering (see toy_field.hpp), so it resolves to
-// the default topology::LinearOrdering -- the real row placement SimAllocator
-// built is the one source of truth these tests compare View::Size()/
-// NumBatches() against, rather than assuming a requested instance count
-// passes through unchanged: a real View always carries the ordering
+// the default policy::ordering::LinearOrdering -- the real row placement
+// SimAllocator built is the one source of truth these tests compare
+// View::Size()/ NumBatches() against, rather than assuming a requested instance
+// count passes through unchanged: a real View always carries the ordering
 // policy's own lane padding plus one reserved base row on top of whatever
 // instance count was asked for (see
-// topology::OrderingPlan::ViewInstanceCount()).
+// policy::ordering::OrderingPlan::ViewInstanceCount()).
 
 TEST(ViewSize, SizeAndLaneSize) {
   SimAllocator<ToyAlgorithm> sim = MakeToySim(8);
@@ -366,10 +378,10 @@ TEST(ViewDoubleBuffered, DiesOnAWriteSlotPastTheLastRow) {
 
 namespace {
 
-using achilles::engine::memory::SingleBuffered;
-using achilles::engine::topology::PlanarLayout;
-using achilles::engine::topology::RowIndexing;
-using achilles::engine::topology::TopologicalOrdering;
+using achilles::policy::buffering::SingleBuffering;
+using achilles::policy::indexing::RowIndexing;
+using achilles::policy::layout::PlanarLayout;
+using achilles::policy::ordering::TopologicalOrdering;
 
 enum class TwoSpaceField : std::uint8_t { kBody, kPair, kCount };
 
@@ -378,17 +390,17 @@ using FloatAssembler = achilles::domain::math::ScalarAssembler<float>;
 // them -- sized by different counts.
 using TwoSpaceView = achilles::engine::view::View<
     TwoSpaceField,
-    achilles::engine::view::FieldBinding<
+    achilles::engine::spec::FieldBinding<
         PlanarLayout,
         FloatAssembler,
         RowIndexing,
-        SingleBuffered,
+        SingleBuffering,
         TopologicalOrdering>,
-    achilles::engine::view::FieldBinding<
+    achilles::engine::spec::FieldBinding<
         PlanarLayout,
         FloatAssembler,
         RowIndexing,
-        SingleBuffered,
+        SingleBuffering,
         LinearOrdering>>;
 
 template <typename V>

@@ -3,13 +3,13 @@
 #include <gtest/gtest.h>
 
 #include "domain/attachment/attachment.hpp"
-#include "domain/sim_clock.hpp"
+#include "domain/clock/sim_clock.hpp"
 
-using achilles::domain::SimClock;
 using achilles::domain::attachment::Attachment;
 using achilles::domain::attachment::AttachmentOptions;
 using achilles::domain::attachment::AttachmentTick;
 using achilles::domain::attachment::Reading;
+using achilles::domain::clock::SimClock;
 
 namespace {
 

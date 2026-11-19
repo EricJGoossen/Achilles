@@ -4,7 +4,8 @@
 
 #include "algorithms/conventions.hpp"
 #include "algorithms/verlet/verlet_data.hpp"
-#include "engine/pass/op_invoker.hpp"
+#include "engine/op_invoker/op_initializer.hpp"
+#include "engine/op_invoker/op_invoker.hpp"
 
 namespace achilles::algorithms::verlet {
 
@@ -14,8 +15,8 @@ namespace achilles::algorithms::verlet {
 // value is the velocity the kick adds onto.
 struct KickVelocityOp {
   using FieldEnum = VerletField;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 
   explicit KickVelocityOp(ScalarOperationT dt) : dt_(dt) {}
 
@@ -32,10 +33,11 @@ struct KickVelocityOp {
   ScalarOperationT dt_;
 };
 static_assert(
-    engine::OpLike<KickVelocityOp>, "KickVelocityOp must satisfy OpLike concept"
+    engine::spec::OpLike<KickVelocityOp>,
+    "KickVelocityOp must satisfy OpLike concept"
 );
 static_assert(
-    engine::OpArgsMatchView<KickVelocityOp, VerletView>,
+    engine::spec::OpArgsMatchView<KickVelocityOp, VerletView>,
     "KickVelocityOp's operator() must line up with kInputs/kOutputs"
 );
 
@@ -44,8 +46,8 @@ static_assert(
 // update as pi's IntegratePositionOp.
 struct DriftPositionOp {
   using FieldEnum = VerletField;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 
   explicit DriftPositionOp(ScalarOperationT dt) : dt_(dt) {}
 
@@ -65,11 +67,11 @@ struct DriftPositionOp {
   ScalarOperationT dt_;
 };
 static_assert(
-    engine::OpLike<DriftPositionOp>,
+    engine::spec::OpLike<DriftPositionOp>,
     "DriftPositionOp must satisfy OpLike concept"
 );
 static_assert(
-    engine::OpArgsMatchView<DriftPositionOp, VerletView>,
+    engine::spec::OpArgsMatchView<DriftPositionOp, VerletView>,
     "DriftPositionOp's operator() must line up with kInputs/kOutputs"
 );
 

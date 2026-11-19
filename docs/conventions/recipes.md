@@ -54,11 +54,11 @@ For a value that sensors or state handles can't reach yet.
 
 ## Add a policy
 
-1. If it is a new policy type, create `policy/<type>/` with the concept file
-   named after the folder, and place it in the layer table in
-   [policy.md](policy.md).
-2. Add the policy in its own file, as an empty struct with only `static`
-   members, ending with its concept `static_assert`.
+1. If it is a new policy type, create `policy/<type>/` with
+   `base_<type>.hpp`, holding its empty base class and its concept, and
+   place it in the layer table in [policy.md](policy.md).
+2. Add the policy in its own file, as an empty struct deriving from its base
+   with only `static` members, ending with its concept `static_assert`.
 3. If engine traits can omit it, document the default in `engine/`.
 4. Write a concept archetype for a new concept, and a test for each shape
    of the policy ([testing.md](testing.md) §4, §9.2).

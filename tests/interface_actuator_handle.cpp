@@ -17,14 +17,18 @@
 #include "algorithms/sim_config.hpp"
 #include "domain/archetype/archetype.hpp"
 #include "domain/archetype/archetype_set.hpp"
-#include "domain/joint_data.hpp"
+#include "domain/layout/joint_records.hpp"
 #include "domain/math/vector3.hpp"
 #include "domain/sensing/encoder.hpp"
-#include "engine/memory/sim_allocator.hpp"
-#include "engine/topology/orderings.hpp"
+#include "engine/allocation/sim_allocator.hpp"
 #include "interface/attachment_handle.hpp"
 #include "interface/attachments.hpp"
 #include "interface/writable_handle.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
 
 // Covers interface::ActuatorHandle: a truth actuator's effort projected onto a
 // joint's generalized coordinates (effort * S^T e), the errors Configure raises
@@ -42,18 +46,18 @@ using achilles::algorithms::aba::ABAAlgorithm;
 using achilles::algorithms::aba::ABAField;
 using achilles::algorithms::aba::SwapTorqueStep;
 using achilles::algorithms::attachment::DriveStep;
-using achilles::domain::JointAttachment;
-using achilles::domain::JointField;
-using achilles::domain::JointRef;
 using achilles::domain::archetype::Archetype;
 using achilles::domain::archetype::ArchetypeSet;
+using achilles::domain::layout::JointAttachment;
+using achilles::domain::layout::JointField;
+using achilles::domain::layout::JointRef;
 using achilles::domain::math::Vector3;
-using achilles::engine::memory::SimAllocatorForT;
-using achilles::engine::topology::TopologicalOrdering;
+using achilles::engine::allocation::SimAllocatorForT;
 using achilles::interface::AngularActuator;
 using achilles::interface::ConfigureAttachments;
 using achilles::interface::LinearActuator;
 using achilles::interface::WritableHandle;
+using achilles::policy::ordering::TopologicalOrdering;
 
 // An actuator's handle is written with its command, as a writable state
 // handle is with its value; a sensor's has nothing to write.
@@ -120,7 +124,7 @@ Archetype MakeJoint(
   fields.push_back(JointField{"joint_subspace", 36, Subspace(columns)});
   return {
       "body",
-      {achilles::domain::kNoParent},
+      {achilles::domain::layout::kNoParent},
       {JointRef{0, 0}},
       true,
       std::move(fields),
@@ -343,7 +347,7 @@ TEST(ActuatorHandle, WritesOnlyTheTargetedInstancesRow) {
       MakeJoint({kYaw}),
       Archetype(
           "child",
-          {achilles::domain::kNoParent},
+          {achilles::domain::layout::kNoParent},
           std::vector<JointRef>(3, JointRef{0, 0}),
           false,
           std::move(fields),

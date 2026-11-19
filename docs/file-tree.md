@@ -26,13 +26,6 @@ adding, moving or deleting a file updates this tree in the same commit.
 
 ## `include/domain/`
 
-- `joint_data.hpp`: per-joint addressing and data as loaded: `JointAddress`,
-  `JointRef`, `JointField`, `JointAttachment`.
-- `joint_layout.hpp`: maps each joint to its sorted row and back.
-- `joint_topology.hpp`: each row's parent, plus segmented and pair
-  topologies.
-- `sim_clock.hpp`: the sim's one clock: time reached and ticks taken.
-
 ### `math/`
 
 - `scalar.hpp`: one value per instance, as a field type.
@@ -46,6 +39,24 @@ adding, moving or deleting a file updates this tree in the same commit.
 - `counter_rng.hpp`: a counter-based generator; each draw depends only on
   stream, counter and index.
 - `seed.hpp`: a seed from the system's random source.
+
+### `clock/`
+
+- `sim_clock.hpp`: the sim's one clock: time reached and ticks taken.
+
+### `layout/`
+
+- `joint_records.hpp`: per-joint addressing and data as loaded:
+  `JointAddress`, `JointRef`, `JointField`, `JointAttachment`.
+- `joint_layout.hpp`: maps each joint to its sorted row and back.
+
+### `topology/`
+
+- `topology_contract.hpp`: `TopologyLike`, what a walked topology provides.
+- `joint_topology.hpp`: each row's parent or link.
+- `segmented_topology.hpp`: a topology split into consecutive segments.
+- `pair_topology.hpp`: a topology whose rows pair another ordering's rows.
+- `ordering_plan.hpp`: an ordering's row placement, before it's in the arena.
 
 ### `spatial/`
 
@@ -63,8 +74,15 @@ adding, moving or deleting a file updates this tree in the same commit.
 
 ### `error/`
 
-- `effects.hpp`: the error-model building blocks: scale, bias, random walk,
-  noise, saturation, quantization.
+- `effect_contract.hpp`: what an error or rate effect provides, and the
+  per-axis helpers they share.
+- `scale_error.hpp`, `constant_bias.hpp`, `random_walk.hpp`,
+  `gaussian_noise.hpp`, `sample_noise.hpp`, `saturate.hpp`, `quantize.hpp`,
+  `delay.hpp`: the error effects.
+- `error_model.hpp`: the error effects in order: a sensor's error model.
+- `speed_curve.hpp`, `viscous_friction.hpp`, `coulomb_friction.hpp`,
+  `transmission_loss.hpp`: the rate effects.
+- `loss_model.hpp`: the rate effects in order: an actuator's loss model.
 
 ### `archetype/`
 
@@ -75,9 +93,10 @@ adding, moving or deleting a file updates this tree in the same commit.
 ### `attachment/`
 
 - `attachment.hpp`: what sensors and actuators share: options, readings,
-  ticks and the `Attachment` base.
+  ticks, `EffortKind`, and the `Attachment` base with its state and output
+  initialization.
 - `attachment_config.hpp`: an attachment's `.arow` settings, read by name.
-- `attachment_kind.hpp`: what a kind must declare to be one.
+- `attachment_contract.hpp`: what a sensor or actuator kind must declare.
 - `sim_quantities.hpp`: the sim quantities kinds and state handles can
   reach.
 
@@ -94,47 +113,121 @@ adding, moving or deleting a file updates this tree in the same commit.
 - `dc_motor.hpp`: a DC motor and its driver.
 - `truth_actuator.hpp`: exact force and torque actuators.
 
+## `include/policy/`
+
+Each folder's `base_<type>.hpp` holds its type's concept, and any logic its
+policies share. A base class exists only where they share logic.
+
+### `layout/`
+
+- `base_layout.hpp`: `LayoutPolicyLike`, `NoRowTable`, and `BaseLayout`
+  with the leaf access every layout shares.
+- `planar_layout.hpp`: rows one after another, a fixed stride apart.
+- `segmented_layout.hpp`: rows in segments, each its own record type.
+
+### `buffering/`
+
+- `base_buffering.hpp`: the buffering concepts, `BufferParity`,
+  `BufferSide` and `WriteHalfOffset`.
+- `single_buffering.hpp`: one block, read in place.
+- `double_buffering.hpp`: two halves, swapped by flipping a parity.
+
+### `indexing/`
+
+- `base_indexing.hpp`: `IndexingPolicyLike`, `BroadcastIndex`, and
+  `BaseIndexing` with the do-nothing padding seed.
+- `row_indexing.hpp`, `group_indexing.hpp`, `global_indexing.hpp`: one
+  element per row, per lane group, or for the whole sim.
+
+### `filter/`
+
+- `base_filter.hpp`: `PairFilterLike`.
+- `group_mask_filter.hpp`: admits pairs by collision group and mask.
+
+### `ordering/`
+
+- `base_ordering.hpp` `(.cpp)`: `OrderingPolicyLike`, `TopologyOfT`, and
+  `BaseOrdering` with the consolidation the tree orderings share; the `.cpp`
+  holds every ordering's definitions.
+- `topological_ordering.hpp`, `linear_ordering.hpp`, `list_ordering.hpp`,
+  `pair_ordering.hpp`: the orderings.
+
+### `source/`
+
+- `base_source.hpp`: `SourceLike`, and `BaseSource` with the default
+  `InitRow`.
+- `self_source.hpp`, `parent_source.hpp`, `link_source.hpp`,
+  `pair_source.hpp`: the sources.
+
+### `range/`
+
+- `base_range.hpp`: `RangeLike`.
+- `all_range.hpp`, `segment_range.hpp`: every row group, or one segment.
+
+### `scan/`
+
+- `base_scan.hpp`: `ScanLike`, and `BaseScan` with the default `HasWork`.
+- `no_scan.hpp`, `row_scan.hpp`, `pair_scan.hpp`: the scans.
+
+### `traversal/`
+
+- `base_traversal.hpp`: `TraversalLike`, `Direction`, and `BaseTraversal`
+  with the direction and stride every traversal declares.
+- `row_traversal.hpp`: tree, linear, linked and segment traversals.
+- `pair_traversal.hpp`: pairs of a pair ordering.
+- `global_traversal.hpp`: one call for the whole sim.
+
 ## `include/engine/`
 
+- `algorithm.hpp`: `Algorithm` and `AlgorithmLike`.
+- `binding.hpp`: reads each field's traits: sharing, ordering, indexing,
+  layout, buffering.
+
+### `assembly/`
+
+- `assembler_contract.hpp`: what an assembler and the types it assembles
+  provide.
+- `leaf_assembler.hpp`: one leaf, a record read and written whole.
 - `assembler.hpp`: converts domain types to and from flat scalar leaves.
-- `field_contract.hpp`: what a well-formed field enum is.
-- `op_contract.hpp`: what an op must declare: `ArgData`, `ArgIndex`,
-  `OpLike`.
-- `algorithm_contract.hpp`: `StepLike`, `Algorithm` and `AlgorithmLike`.
 
 ### `memory/`
 
 - `arena.hpp` `(.cpp)`: the one fixed, bump-allocated block.
-- `binding.hpp`: reads each field's traits: sharing, ordering, indexing,
-  layout, buffering.
-- `buffering_policy.hpp`: single and double buffering.
-- `sim_allocator.hpp`: builds the arena and the SimContext from the
-  archetypes at init.
+- `buffered_scalar.hpp`: a handle to one scalar of a write half.
 
-### `topology/`
+### `spec/`
 
-- `layout_policy.hpp`: planar and segmented field layouts.
-- `indexing_policy.hpp`: per-row, per-lane-group and global indexing.
-- `orderings.hpp` `(.cpp)`: the ordering policies: linear, topological,
-  list, pair.
-- `ordering_plan.hpp`: an ordering's init-time row placement.
-- `group_mask_filter.hpp`: which pairs a collision group and mask allow.
+- `field_contract.hpp`: what a well-formed field enum is.
+- `arg_data.hpp`: `ArgData` and `ArgIndex`.
+- `op_contract.hpp`: what an op must declare.
+- `view_contract.hpp`: what a view and its cursors must provide.
+- `step_contract.hpp`: `StepLike`.
+- `field_binding.hpp`: one field's resolved policies and assembler.
 
 ### `view/`
 
-- `view_contract.hpp`: what a view and its cursors must provide.
 - `view.hpp`: an algorithm's typed access to its fields.
 - `view_factory.hpp`: builds a view type from an algorithm's traits.
 
-### `pass/`
+### `op_invoker/`
 
-- `row_policies.hpp`: the pieces traversals are built from: sources,
-  ranges, scans.
-- `traversals.hpp`: row, tree, linear, segment and pair traversals.
-- `op_invoker.hpp`: calls an op with the field values a traversal points at.
-- `algorithm_step.hpp`: runs a list of passes in order.
+- `op_invoker.hpp`: calls an op with the values a traversal points at.
+- `op_initializer.hpp`: calls an op's `Initialize` at the base row.
+- `algorithm_step.hpp`: `OpWalk`, and runs a list of walks in order.
+
+### `context/`
+
 - `sim_context.hpp`: holds every view and topology, and runs step lists.
-- `view_step.hpp`: an optional base for steps that run over a whole view.
+
+### `allocation/`
+
+- `sim_allocator.hpp`: builds the arena and the SimContext at init.
+- `allocation_maps.hpp`: the maps kept per ordering plan and shared slot.
+- `field_builder.hpp`: carves, seeds, populates and replicates one field.
+- `algorithm_builder.hpp`: builds one algorithm's fields and view.
+- `topology_builder.hpp`: plans every ordering, places its topology, and
+  measures the arena.
+- `plan_copy.hpp`: copies an ordering plan into the arena.
 
 ## `include/algorithms/`
 
@@ -146,7 +239,8 @@ adding, moving or deleting a file updates this tree in the same commit.
   selection.
 - `sim_config.hpp`: whole-sim config: base transform, velocity and
   acceleration.
-- `orderings/collision_pairs.hpp`: the collision pair row set.
+- `base/every_row_step.hpp`: a base for steps that run over every row.
+- `row_sets/collision_pairs.hpp`: the collision pair row set.
 - `attachment_kinds/attachment_kinds.hpp`: the registered sensor and
   actuator kinds.
 - `attachment_kinds/sim_input.hpp`: binds each sim quantity to the field

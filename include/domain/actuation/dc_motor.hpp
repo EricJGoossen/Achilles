@@ -7,7 +7,8 @@
 #include <string_view>
 
 #include "domain/actuation/actuator.hpp"
-#include "domain/error/effects.hpp"
+#include "domain/error/error_model.hpp"
+#include "domain/error/loss_model.hpp"
 #include "domain/random/counter_rng.hpp"
 
 namespace achilles::domain::actuation {
@@ -26,8 +27,8 @@ struct DcMotorCommand {
 struct DcMotorState {
   domain::error::SpeedCurve::State speed_curve;
   domain::error::Saturate<float>::State current_limit;
-  domain::error::LossChain::State losses;
-  domain::error::ErrorChain<float>::State error;
+  domain::error::LossModel::State losses;
+  domain::error::ErrorModel<float>::State error;
 };
 
 // One update: the torque the joint got, and what a controller's current
@@ -59,7 +60,7 @@ class DcMotor : public Actuator<
  public:
   using Velocity = input::JointVelocity::Value;
   using Subspace = input::JointSubspace::Value;
-  using ErrorModel = domain::error::ErrorChain<float>;
+  using ErrorModel = domain::error::ErrorModel<float>;
 
   static constexpr EffortKind kEffort = EffortKind::kAngular;
   static constexpr std::string_view kListName = "dc_motor";
@@ -71,7 +72,7 @@ class DcMotor : public Actuator<
     float bus_voltage = 0.0F;        // V
     float max_current = 0.0F;        // A, the driver's limit
     float gear_ratio = 1.0F;         // output turns per rotor turn
-    domain::error::LossChain::Params losses;
+    domain::error::LossModel::Params losses;
     ErrorModel::Params error;
   };
 
@@ -153,7 +154,7 @@ class DcMotor : public Actuator<
       DcMotorState* state,
       DcMotorOutput* out
   ) const {
-    using domain::error::LossChain;
+    using domain::error::LossModel;
     using domain::error::Saturate;
     using domain::error::SpeedCurve;
     domain::random::CounterRng rng(tick.stream, tick.tick);
@@ -174,7 +175,7 @@ class DcMotor : public Actuator<
     );
     out->current = current;
 
-    const float rotor_torque = LossChain::Apply(
+    const float rotor_torque = LossModel::Apply(
         params_.losses,
         state->losses,
         rng,

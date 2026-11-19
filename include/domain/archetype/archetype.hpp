@@ -6,7 +6,7 @@
 #include <utility>
 #include <vector>
 
-#include "domain/joint_data.hpp"
+#include "domain/layout/joint_records.hpp"
 
 namespace achilles::domain::archetype {
 
@@ -26,11 +26,11 @@ struct Archetype {
   Archetype(
       std::string name_in,
       std::vector<std::size_t> tree_structure_in,
-      std::vector<JointRef> root_parents_in,
+      std::vector<layout::JointRef> root_parents_in,
       bool is_root_archetype_in,
-      std::vector<JointField> fields_in,
+      std::vector<layout::JointField> fields_in,
       std::vector<std::string> joint_names_in = {},
-      std::vector<JointAttachment> attachments_in = {}
+      std::vector<layout::JointAttachment> attachments_in = {}
   )
       : name(std::move(name_in)),
         tree_structure(std::move(tree_structure_in)),
@@ -43,7 +43,7 @@ struct Archetype {
         (joint_names.empty() || joint_names.size() == tree_structure.size()) &&
         "Archetype: joint_names, if given, must name every joint."
     );
-    for (const JointAttachment& attachment : attachments) {
+    for (const layout::JointAttachment& attachment : attachments) {
       assert(
           attachment.joint < tree_structure.size() &&
           "Archetype: an attachment names a joint this archetype doesn't have."
@@ -54,12 +54,12 @@ struct Archetype {
   // Public on purpose: plain data, and the constructor above only checks it.
   std::string name;
   std::vector<std::size_t> tree_structure;
-  std::vector<JointRef> root_parents;
+  std::vector<layout::JointRef> root_parents;
   bool is_root_archetype;
-  std::vector<JointField> fields;
+  std::vector<layout::JointField> fields;
   // By local joint index; empty for an Archetype built without joint names.
   std::vector<std::string> joint_names;
-  std::vector<JointAttachment> attachments;
+  std::vector<layout::JointAttachment> attachments;
 };
 
 }  // namespace achilles::domain::archetype

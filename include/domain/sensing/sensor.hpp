@@ -9,7 +9,7 @@
 #include "domain/attachment/attachment.hpp"
 #include "domain/attachment/attachment_config.hpp"
 #include "domain/attachment/sim_quantities.hpp"
-#include "domain/sim_clock.hpp"
+#include "domain/clock/sim_clock.hpp"
 #include "util/tmp.hpp"
 
 namespace achilles::domain::sensing {
@@ -87,7 +87,7 @@ class Sensor<Derived, attachment::SimInputs<Inputs...>, StateT, OutputT>
 
   // One tick: reads when a sample is due, else carries `last` forward.
   void Update(
-      const SimClock& clock,
+      const clock::SimClock& clock,
       float dt,
       const typename Inputs::Value&... inputs,
       const attachment::Reading<OutputT>& last,
@@ -104,7 +104,7 @@ class Sensor<Derived, attachment::SimInputs<Inputs...>, StateT, OutputT>
   // same clock and last reading here as in Update, so the two agree.
   template <typename... Values>
   void Scan(
-      const SimClock& clock,
+      const clock::SimClock& clock,
       float dt,
       const attachment::Reading<OutputT>& last,
       StateT* state,

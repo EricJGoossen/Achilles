@@ -5,16 +5,23 @@
 
 #include "algorithms/conventions.hpp"
 #include "algorithms/shared_slots.hpp"
-#include "domain/joint_topology.hpp"
 #include "domain/math/activation_mask.hpp"
 #include "domain/math/matrix.hpp"
 #include "domain/math/scalar.hpp"
 #include "domain/spatial/transform.hpp"
-#include "engine/field_contract.hpp"
-#include "engine/topology/layout_policy.hpp"
-#include "engine/topology/orderings.hpp"
-#include "engine/view/view_contract.hpp"
+#include "domain/topology/joint_topology.hpp"
+#include "domain/topology/topology_contract.hpp"
+#include "engine/spec/field_contract.hpp"
+#include "engine/spec/view_contract.hpp"
 #include "engine/view/view_factory.hpp"
+#include "policy/layout/base_layout.hpp"
+#include "policy/layout/planar_layout.hpp"
+#include "policy/layout/segmented_layout.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
 
 namespace achilles::algorithms::joint_limit {
 
@@ -73,7 +80,7 @@ enum class JointLimitField : uint8_t {
 
   kCount
 };
-static_assert(engine::FieldEnumLike<JointLimitField>);
+static_assert(engine::spec::FieldEnumLike<JointLimitField>);
 
 template <JointLimitField F>
 struct JointLimitFieldTraits;
@@ -83,8 +90,8 @@ struct JointLimitFieldTraits;
 template <typename A>
 struct RowField {
   using Assembler = A;
-  using Ordering = engine::topology::TopologicalOrdering;
-  using Layout = engine::topology::PlanarLayout;
+  using Ordering = policy::ordering::TopologicalOrdering;
+  using Layout = policy::layout::PlanarLayout;
 };
 template <typename A, typename Slot>
 struct SharedRowField : RowField<A> {
@@ -144,13 +151,14 @@ struct JointLimitFieldTraits<JointLimitField::kLimitSide>
 template <>
 struct JointLimitFieldTraits<JointLimitField::kLimitActive>
     : SharedRowField<MaskAssembler, JointLimitActiveSlot> {};
-static_assert(engine::FieldTraitsLike<JointLimitField, JointLimitFieldTraits>);
+static_assert(engine::spec::
+                  FieldTraitsLike<JointLimitField, JointLimitFieldTraits>);
 
 using JointLimitView =
     engine::view::ViewFactory<JointLimitField, JointLimitFieldTraits>;
-static_assert(engine::view::ViewLike<JointLimitView, JointLimitField>);
+static_assert(engine::spec::ViewLike<JointLimitView, JointLimitField>);
 
-using JointLimitTopology = domain::JointTopology;
-static_assert(domain::TopologyLike<JointLimitTopology>);
+using JointLimitTopology = domain::topology::JointTopology;
+static_assert(domain::topology::TopologyLike<JointLimitTopology>);
 
 }  // namespace achilles::algorithms::joint_limit

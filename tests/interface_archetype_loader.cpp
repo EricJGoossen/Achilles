@@ -7,7 +7,7 @@
 
 #include "domain/archetype/archetype.hpp"
 #include "domain/archetype/archetype_set.hpp"
-#include "domain/joint_data.hpp"
+#include "domain/layout/joint_records.hpp"
 #include "interface/archetype_loader.hpp"
 #include "support/temp_dir.hpp"
 
@@ -55,7 +55,7 @@ joints:
   const auto* subspace = ArchetypeSet::FindField(base, "subspace");
   ASSERT_NE(subspace, nullptr);
   EXPECT_EQ(subspace->scalars_per_leaf, 6U);
-  EXPECT_DOUBLE_EQ(JointFieldAt(*subspace, 0, 0, 2, 1), 1.0);
+  EXPECT_DOUBLE_EQ(subspace->At(0, 0, 2, 1), 1.0);
 }
 
 TEST(LoadArchetypes, TwoJointLocalTreeResolvesParentByName) {
@@ -75,7 +75,7 @@ joints:
   ASSERT_EQ(archetypes.size(), 1U);
   const auto& tree = archetypes.front();
   ASSERT_EQ(tree.tree_structure.size(), 2U);
-  EXPECT_EQ(tree.tree_structure[0], achilles::domain::kNoParent);
+  EXPECT_EQ(tree.tree_structure[0], achilles::domain::layout::kNoParent);
   EXPECT_EQ(tree.tree_structure[1], 0U);
 }
 
@@ -123,7 +123,7 @@ joints:
   EXPECT_EQ(transform->scalars_per_leaf, 7U);
   for (std::size_t leaf = 0; leaf < 7; ++leaf) {
     EXPECT_DOUBLE_EQ(
-        JointFieldAt(*transform, 0, 0, leaf, 1), static_cast<double>(leaf + 1)
+        transform->At(0, 0, leaf, 1), static_cast<double>(leaf + 1)
     );
   }
 }
@@ -141,9 +141,9 @@ joints:
   std::vector<Archetype> archetypes = LoadArchetypes(file);
   const auto* mask = ArchetypeSet::FindField(archetypes.front(), "mask");
   ASSERT_NE(mask, nullptr);
-  EXPECT_DOUBLE_EQ(JointFieldAt(*mask, 0, 0, 0, 1), 1.0);
-  EXPECT_DOUBLE_EQ(JointFieldAt(*mask, 0, 0, 1, 1), 0.0);
-  EXPECT_DOUBLE_EQ(JointFieldAt(*mask, 0, 0, 2, 1), 1.0);
+  EXPECT_DOUBLE_EQ(mask->At(0, 0, 0, 1), 1.0);
+  EXPECT_DOUBLE_EQ(mask->At(0, 0, 1, 1), 0.0);
+  EXPECT_DOUBLE_EQ(mask->At(0, 0, 2, 1), 1.0);
 }
 
 // The chassis (root, 1 copy) is pulled in via `includes`; every one of the

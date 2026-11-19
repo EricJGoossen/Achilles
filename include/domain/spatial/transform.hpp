@@ -3,7 +3,7 @@
 #include "domain/math/quaternion.hpp"
 #include "domain/math/vector3.hpp"
 #include "dual.hpp"
-#include "engine/assembler.hpp"
+#include "engine/assembly/assembler.hpp"
 #include "inertia.hpp"
 #include "util/simd_ops.hpp"
 
@@ -168,11 +168,11 @@ class Transform {
 };
 
 template <typename T>
-using TransformAssembler = engine::Assembler<
+using TransformAssembler = engine::assembly::Assembler<
     Transform,
     T,
     math::Vector3Assembler<T>,
     math::QuaternionAssembler<T>>;
-static_assert(engine::BatchAssemblerLike<TransformAssembler<float>>);
+static_assert(engine::assembly::BatchAssemblerLike<TransformAssembler<float>>);
 
 }  // namespace achilles::domain::spatial

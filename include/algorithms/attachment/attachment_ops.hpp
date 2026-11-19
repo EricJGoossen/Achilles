@@ -7,8 +7,9 @@
 #include "algorithms/attachment/attachment_data.hpp"
 #include "algorithms/attachment_kinds/attachment_kinds.hpp"
 #include "algorithms/conventions.hpp"
-#include "domain/sim_clock.hpp"
-#include "engine/op_contract.hpp"
+#include "domain/clock/sim_clock.hpp"
+#include "engine/spec/arg_data.hpp"
+#include "engine/spec/op_contract.hpp"
 #include "util/tmp.hpp"
 
 namespace achilles::algorithms::attachment {
@@ -21,8 +22,8 @@ struct ReadOpImpl;
 template <typename S, typename... Inputs>
 struct ReadOpImpl<S, util::TypeList<Inputs...>> {
   using FieldEnum = AttachmentField;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 
   explicit ReadOpImpl(ScalarOperationT dt) : dt_(dt) {}
 
@@ -39,7 +40,7 @@ struct ReadOpImpl<S, util::TypeList<Inputs...>> {
 
   void operator()(
       const S& sensor,
-      const domain::SimClock& clock,
+      const domain::clock::SimClock& clock,
       const InputValueT<Inputs>&... inputs,
       const KindOutput<S>& last,
       KindState<S>* state,
@@ -63,8 +64,8 @@ struct ObserveOpImpl<
     util::TypeList<Inputs...>,
     util::TypeList<SceneIns...>> {
   using FieldEnum = AttachmentField;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 
   explicit ObserveOpImpl(ScalarOperationT dt) : dt_(dt) {}
 
@@ -83,7 +84,7 @@ struct ObserveOpImpl<
 
   void operator()(
       const S& sensor,
-      const domain::SimClock& clock,
+      const domain::clock::SimClock& clock,
       const InputValueT<Inputs>&... inputs,
       const InputValueT<SceneIns>&... scene,
       const KindOutput<S>& last,
@@ -102,8 +103,8 @@ struct DriveOpImpl;
 template <typename S, typename... Inputs>
 struct DriveOpImpl<S, util::TypeList<Inputs...>> {
   using FieldEnum = AttachmentField;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
   using Subspace = InputValueT<SubspaceInput>;
   using Torque = InputValueT<TorqueTarget>;
 
@@ -125,7 +126,7 @@ struct DriveOpImpl<S, util::TypeList<Inputs...>> {
 
   void operator()(
       const S& actuator,
-      const domain::SimClock& clock,
+      const domain::clock::SimClock& clock,
       const Subspace& subspace,
       const InputValueT<Inputs>&... inputs,
       const KindOutput<S>& last,
@@ -156,8 +157,8 @@ struct InitOpImpl;
 template <typename S, typename... Inputs>
 struct InitOpImpl<S, util::TypeList<Inputs...>> {
   using FieldEnum = AttachmentField;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 
   static constexpr std::array<ArgData, sizeof...(Inputs) + 1> kInputs = {
       ArgData{AttachmentField::kConfig, ArgIndex::kTarget},
@@ -181,8 +182,8 @@ struct InitOpImpl<S, util::TypeList<Inputs...>> {
     // camera's images), too big for the temporary an assignment makes.
     std::construct_at(state);
     *out = KindOutput<S>{};
-    domain::attachment::InitializeState(attachment, &state->value);
-    domain::attachment::InitializeOutput(
+    domain::attachment::Attachment::InitializeState(attachment, &state->value);
+    domain::attachment::Attachment::InitializeOutput(
         attachment, &out->value.value, inputs...
     );
   }
@@ -193,7 +194,7 @@ struct InitOpImpl<S, util::TypeList<Inputs...>> {
 // One (instance, body) pair of a scanning kind: on a tick it samples, hands
 // the instance its own inputs (at its mount joint) and that body's scene
 // values to accumulate into its state. Run over the kind's segment against
-// every body (engine::pass::LinkedSegmentScanTraversal).
+// every body (policy::traversal::LinkedSegmentScanTraversal).
 template <SensorHasScene S>
 using ObserveOp = detail::ObserveOpImpl<S, KindInputs<S>, KindScene<S>>;
 

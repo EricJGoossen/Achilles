@@ -16,7 +16,7 @@
 #include <vector>
 
 #include "domain/archetype/archetype.hpp"
-#include "domain/joint_data.hpp"
+#include "domain/layout/joint_records.hpp"
 #include "domain/random/counter_rng.hpp"
 
 namespace achilles::domain::archetype {
@@ -36,10 +36,10 @@ class ArchetypeSet {
   std::span<const Archetype> All() const { return archetypes_; }
 
   // `archetype`'s field named `field_name`, or null.
-  static const JointField* FindField(
+  static const layout::JointField* FindField(
       const Archetype& archetype, std::string_view field_name
   ) {
-    for (const JointField& field : archetype.fields) {
+    for (const layout::JointField& field : archetype.fields) {
       if (field.name == field_name) {
         return &field;
       }
@@ -66,15 +66,16 @@ class ArchetypeSet {
   // out-of-range instance: this resolves user input, so a miss is an expected
   // error, not a bug.
   template <typename Layout>
-  std::size_t RowOf(const JointAddress& address, const Layout& layout) const {
-    const JointRef joint = ResolveJoint(address);
+  std::size_t RowOf(const layout::JointAddress& address, const Layout& layout)
+      const {
+    const layout::JointRef joint = ResolveJoint(address);
     return layout.ToSorted(joint.instance_index, joint.joint_index);
   }
 
   // Where instance `instance` of the attachment named `name` sits in `list`:
   // a list numbers its entries archetype by archetype, instance by instance,
   // in each archetype's own declaration order (the order
-  // engine::topology::CollectAttachments gives them rows in). Throws
+  // policy::ordering::CollectAttachments gives them rows in). Throws
   // std::invalid_argument for an unknown name, an out-of-range instance, or
   // an attachment of another list: this resolves user input, so a miss is an
   // expected error, not a bug.
@@ -85,9 +86,9 @@ class ArchetypeSet {
     const Archetype& archetype = archetypes_[found.index];
     CheckInstance(archetype, instance, "'" + std::string(name) + "'");
 
-    const std::span<const JointAttachment> own = archetype.attachments;
-    const JointAttachment* target = &Named(archetype, name, list);
-    const auto in_list = [&](const JointAttachment& a) {
+    const std::span<const layout::JointAttachment> own = archetype.attachments;
+    const layout::JointAttachment* target = &Named(archetype, name, list);
+    const auto in_list = [&](const layout::JointAttachment& a) {
       return a.list == list;
     };
     // Entries of this list before this archetype, then before this instance
@@ -108,7 +109,7 @@ class ArchetypeSet {
 
   // The attachment named `name`, checked to be of `list`. Throws
   // std::invalid_argument as AttachmentEntry does.
-  const JointAttachment& Attachment(
+  const layout::JointAttachment& Attachment(
       std::string_view name, std::string_view list
   ) const {
     return Named(archetypes_[LocateAttachment(name).index], name, list);
@@ -135,8 +136,8 @@ class ArchetypeSet {
   // Every joint of every instance, as the address RowOf takes: archetype by
   // archetype, instance by instance, in each archetype's own joint order.
   // None for an Archetype built without joint names.
-  std::vector<JointAddress> JointAddresses() const {
-    std::vector<JointAddress> addresses;
+  std::vector<layout::JointAddress> JointAddresses() const {
+    std::vector<layout::JointAddress> addresses;
     for (const Archetype& archetype : archetypes_) {
       for (std::size_t instance = 0; instance < archetype.root_parents.size();
            ++instance) {
@@ -158,7 +159,7 @@ class ArchetypeSet {
   void ForEachField(std::string_view field_name, const Fn& fn) const {
     ForEachWithFirstInstance([&](const Archetype& archetype,
                                  std::size_t first_instance) {
-      if (const JointField* field = FindField(archetype, field_name)) {
+      if (const layout::JointField* field = FindField(archetype, field_name)) {
         fn(*field,
            first_instance,
            archetype.root_parents.size(),
@@ -181,7 +182,8 @@ class ArchetypeSet {
     ForEachWithFirstInstance([&](const Archetype& archetype,
                                  std::size_t first_instance) {
       for (std::size_t i = 0; i < archetype.root_parents.size(); ++i) {
-        for (const JointAttachment& attachment : archetype.attachments) {
+        for (const layout::JointAttachment& attachment :
+             archetype.attachments) {
           fn(attachment,
              first_instance + i,
              i,
@@ -194,7 +196,7 @@ class ArchetypeSet {
   }
 
  private:
-  JointRef ResolveJoint(const JointAddress& address) const {
+  layout::JointRef ResolveJoint(const layout::JointAddress& address) const {
     const std::optional<Located> found = Find([&](const Archetype& archetype) {
       return archetype.name == address.archetype;
     });
@@ -258,7 +260,7 @@ class ArchetypeSet {
     const std::optional<Located> found = Find([&](const Archetype& archetype) {
       return std::ranges::any_of(
           archetype.attachments,
-          [&](const JointAttachment& a) { return a.name == name; }
+          [&](const layout::JointAttachment& a) { return a.name == name; }
       );
     });
     if (!found.has_value()) {
@@ -271,12 +273,12 @@ class ArchetypeSet {
 
   // `archetype`'s attachment named `name`, which it must carry; throws
   // std::invalid_argument if it isn't of `list`.
-  static const JointAttachment& Named(
+  static const layout::JointAttachment& Named(
       const Archetype& archetype, std::string_view name, std::string_view list
   ) {
-    const JointAttachment& attachment = *std::ranges::find_if(
+    const layout::JointAttachment& attachment = *std::ranges::find_if(
         archetype.attachments,
-        [&](const JointAttachment& a) { return a.name == name; }
+        [&](const layout::JointAttachment& a) { return a.name == name; }
     );
     if (attachment.list != list) {
       throw std::invalid_argument(

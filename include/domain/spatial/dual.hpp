@@ -7,7 +7,7 @@
 #include "domain/math/matrix.hpp"
 #include "domain/math/vector3.hpp"
 #include "domain/math/vector6.hpp"
-#include "engine/assembler.hpp"
+#include "engine/assembly/assembler.hpp"
 #include "util/simd_ops.hpp"
 
 namespace achilles::domain::spatial {
@@ -206,8 +206,9 @@ class SpatialPosition : public Dual<SpatialPosition, T> {
 };
 template <typename T>
 using SpatialPositionAssembler =
-    engine::Assembler<SpatialPosition, T, math::Vector6Assembler<T>>;
-static_assert(engine::BatchAssemblerLike<SpatialPositionAssembler<float>>);
+    engine::assembly::Assembler<SpatialPosition, T, math::Vector6Assembler<T>>;
+static_assert(engine::assembly::BatchAssemblerLike<
+              SpatialPositionAssembler<float>>);
 
 template <util::ArithmeticLike T>
 class SpatialVelocity : public Dual<SpatialVelocity, T> {
@@ -231,8 +232,9 @@ class SpatialVelocity : public Dual<SpatialVelocity, T> {
 };
 template <typename T>
 using SpatialVelocityAssembler =
-    engine::Assembler<SpatialVelocity, T, math::Vector6Assembler<T>>;
-static_assert(engine::BatchAssemblerLike<SpatialVelocityAssembler<float>>);
+    engine::assembly::Assembler<SpatialVelocity, T, math::Vector6Assembler<T>>;
+static_assert(engine::assembly::BatchAssemblerLike<
+              SpatialVelocityAssembler<float>>);
 
 template <util::ArithmeticLike T>
 class SpatialAcceleration : public Dual<SpatialAcceleration, T> {
@@ -244,9 +246,10 @@ class SpatialAcceleration : public Dual<SpatialAcceleration, T> {
   }
 };
 template <typename T>
-using SpatialAccelerationAssembler =
-    engine::Assembler<SpatialAcceleration, T, math::Vector6Assembler<T>>;
-static_assert(engine::BatchAssemblerLike<SpatialAccelerationAssembler<float>>);
+using SpatialAccelerationAssembler = engine::assembly::
+    Assembler<SpatialAcceleration, T, math::Vector6Assembler<T>>;
+static_assert(engine::assembly::BatchAssemblerLike<
+              SpatialAccelerationAssembler<float>>);
 
 template <util::ArithmeticLike T>
 class SpatialMomentum : public Dual<SpatialMomentum, T> {
@@ -255,8 +258,9 @@ class SpatialMomentum : public Dual<SpatialMomentum, T> {
 };
 template <typename T>
 using SpatialMomentumAssembler =
-    engine::Assembler<SpatialMomentum, T, math::Vector6Assembler<T>>;
-static_assert(engine::BatchAssemblerLike<SpatialMomentumAssembler<float>>);
+    engine::assembly::Assembler<SpatialMomentum, T, math::Vector6Assembler<T>>;
+static_assert(engine::assembly::BatchAssemblerLike<
+              SpatialMomentumAssembler<float>>);
 
 template <util::ArithmeticLike T>
 class SpatialForce : public Dual<SpatialForce, T> {
@@ -270,8 +274,9 @@ class SpatialForce : public Dual<SpatialForce, T> {
 };
 template <typename T>
 using SpatialForceAssembler =
-    engine::Assembler<SpatialForce, T, math::Vector6Assembler<T>>;
-static_assert(engine::BatchAssemblerLike<SpatialForceAssembler<float>>);
+    engine::assembly::Assembler<SpatialForce, T, math::Vector6Assembler<T>>;
+static_assert(engine::assembly::BatchAssemblerLike<
+              SpatialForceAssembler<float>>);
 
 // The first row of a motion subspace's angular block (roll, pitch, yaw) and
 // of its linear block (x, y, z): Dual's row order is angular first, then

@@ -38,7 +38,7 @@
 #include "display/views/lidar_view.hpp"
 #include "display/views/reading_view.hpp"
 #include "display/window_set.hpp"
-#include "domain/attachment/attachment_kind.hpp"
+#include "domain/attachment/attachment_contract.hpp"
 #include "domain/sensing/camera.hpp"
 #include "domain/sensing/lidar.hpp"
 #include "interface/simulation.hpp"

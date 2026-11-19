@@ -4,7 +4,8 @@
 
 #include "algorithms/conventions.hpp"
 #include "algorithms/pi/pi_data.hpp"
-#include "engine/pass/op_invoker.hpp"
+#include "engine/op_invoker/op_initializer.hpp"
+#include "engine/op_invoker/op_invoker.hpp"
 
 namespace achilles::algorithms::pi {
 
@@ -20,8 +21,8 @@ namespace achilles::algorithms::pi {
 // of its own.
 struct IntegratePositionOp {
   using FieldEnum = PIField;
-  using ArgData = engine::ArgData<FieldEnum>;
-  using ArgIndex = engine::ArgIndex;
+  using ArgData = engine::spec::ArgData<FieldEnum>;
+  using ArgIndex = engine::spec::ArgIndex;
 
   explicit IntegratePositionOp(ScalarOperationT dt) : dt_(dt) {}
 
@@ -41,11 +42,11 @@ struct IntegratePositionOp {
   ScalarOperationT dt_;
 };
 static_assert(
-    engine::OpLike<IntegratePositionOp>,
+    engine::spec::OpLike<IntegratePositionOp>,
     "IntegratePositionOp must satisfy OpLike concept"
 );
 static_assert(
-    engine::OpArgsMatchView<IntegratePositionOp, PIView>,
+    engine::spec::OpArgsMatchView<IntegratePositionOp, PIView>,
     "IntegratePositionOp's operator() must line up with kInputs/kOutputs"
 );
 

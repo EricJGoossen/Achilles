@@ -13,7 +13,7 @@
 #include "algorithms/sim_config.hpp"
 #include "domain/archetype/archetype.hpp"
 #include "domain/archetype/archetype_set.hpp"
-#include "engine/memory/sim_allocator.hpp"
+#include "engine/allocation/sim_allocator.hpp"
 #include "interface/archetype_loader.hpp"
 #include "temp_dir.hpp"
 
@@ -23,7 +23,7 @@ namespace achilles::test_support {
 // -- for a test about how algorithms share memory or step together, built
 // from real .arow text through the real LoadArchetypes path.
 using RegisteredSim =
-    engine::memory::SimAllocatorForT<algorithms::RegisteredAlgorithms>;
+    engine::allocation::SimAllocatorForT<algorithms::RegisteredAlgorithms>;
 
 // One revolute-Z joint body (subspace entry (2, 0), DOF 0), as one entry of
 // an .arow `joints:` list. `inertia` is rigid_body_inertia's [m, h_x, h_y,

@@ -5,7 +5,7 @@
 #include <type_traits>
 #include <xsimd/xsimd.hpp>
 
-#include "engine/assembler.hpp"
+#include "engine/assembly/assembler.hpp"
 #include "matrix.hpp"
 #include "util/simd_ops.hpp"
 #include "vector3.hpp"
@@ -277,8 +277,8 @@ class Quaternion {
 };
 
 template <typename T>
-using QuaternionAssembler =
-    engine::Assembler<Quaternion, T, engine::RepeatTypes<4>>;
-static_assert(engine::BatchAssemblerLike<QuaternionAssembler<float>>);
+using QuaternionAssembler = engine::assembly::
+    Assembler<Quaternion, T, engine::assembly::RepeatTypes<4>>;
+static_assert(engine::assembly::BatchAssemblerLike<QuaternionAssembler<float>>);
 
 }  // namespace achilles::domain::math

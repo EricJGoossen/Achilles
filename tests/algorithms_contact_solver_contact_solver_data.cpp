@@ -11,7 +11,11 @@
 #include "algorithms/conventions.hpp"
 #include "algorithms/narrow_phase/narrow_phase_data.hpp"
 #include "algorithms/narrow_phase/narrow_phase_step.hpp"
-#include "engine/topology/orderings.hpp"
+#include "policy/ordering/base_ordering.hpp"
+#include "policy/ordering/linear_ordering.hpp"
+#include "policy/ordering/list_ordering.hpp"
+#include "policy/ordering/pair_ordering.hpp"
+#include "policy/ordering/topological_ordering.hpp"
 #include "support/registered_sim.hpp"
 #include "support/temp_dir.hpp"
 #include "util/simd_ops.hpp"
@@ -29,7 +33,7 @@
 //      its side, in algorithms_joint_limit_joint_limit_data.cpp.
 
 using namespace achilles::algorithms;
-using achilles::engine::topology::TopologicalOrdering;
+using achilles::policy::ordering::TopologicalOrdering;
 using achilles::test_support::kPendulumInertia;
 using achilles::test_support::MakeRegisteredSim;
 using achilles::test_support::RegisteredSim;
@@ -98,12 +102,10 @@ TEST(ContactSolverData, UnsetParametersReadAsZero) {
   );
   EXPECT_TRUE((view.Load<ContactSolverField::kContactSolref, F>(row).IsZero()));
   EXPECT_TRUE((view.Load<ContactSolverField::kContactSolimp, F>(row).IsZero()));
-  EXPECT_TRUE(
-      (view.Load<ContactSolverField::kJointLimitSolref, F>(row).IsZero())
-  );
-  EXPECT_TRUE(
-      (view.Load<ContactSolverField::kJointLimitSolimp, F>(row).IsZero())
-  );
+  EXPECT_TRUE((view.Load<ContactSolverField::kJointLimitSolref, F>(row).IsZero()
+  ));
+  EXPECT_TRUE((view.Load<ContactSolverField::kJointLimitSolimp, F>(row).IsZero()
+  ));
 }
 
 // Each of ABA's blocks the solver names is ABA's own memory: a value ABA's
@@ -123,7 +125,13 @@ TEST(ContactSolverData, AbaFactorsAndStateAliasAbas) {
       Vector3(B(0.0F), B(-4.0F), B(0.0F)), Vector3::Zero()
   );
   Inertia inertia(
-      B(3.0F), Vector3::Zero(), B(1.0F), B(1.0F), B(1.0F), B(0.0F), B(0.0F),
+      B(3.0F),
+      Vector3::Zero(),
+      B(1.0F),
+      B(1.0F),
+      B(1.0F),
+      B(0.0F),
+      B(0.0F),
       B(0.0F)
   );
 
@@ -137,24 +145,26 @@ TEST(ContactSolverData, AbaFactorsAndStateAliasAbas) {
   aba_view.Store<ABAField::kDInvTerm, B>(group, InertiaOperator<true>(marker));
 
   auto all = [](const auto& mask) { return achilles::util::AllTrue(mask); };
-  EXPECT_TRUE(all(solver_view.Load<ContactSolverField::kRigidBodyInertia, B>(group)
+  EXPECT_TRUE(all(solver_view
+                      .Load<ContactSolverField::kRigidBodyInertia, B>(group)
                       .IsApprox(inertia)));
-  EXPECT_TRUE(all(
-      solver_view.Load<ContactSolverField::kParentToBodyTransform, B>(group)
-          .Translation()
-          .IsApprox(pose.Translation())
-  ));
-  EXPECT_TRUE(all(solver_view.Load<ContactSolverField::kWorldTransform, B>(group)
+  EXPECT_TRUE(
+      all(solver_view.Load<ContactSolverField::kParentToBodyTransform, B>(group)
+              .Translation()
+              .IsApprox(pose.Translation()))
+  );
+  EXPECT_TRUE(all(solver_view
+                      .Load<ContactSolverField::kWorldTransform, B>(group)
                       .Translation()
                       .IsApprox(pose.Translation())));
-  EXPECT_TRUE(all(solver_view.Load<ContactSolverField::kSpatialVelocity, B>(group)
+  EXPECT_TRUE(all(solver_view
+                      .Load<ContactSolverField::kSpatialVelocity, B>(group)
                       .IsApprox(velocity)));
   EXPECT_TRUE(all(solver_view.Load<ContactSolverField::kJointVelocity, B>(group)
                       .IsApprox(velocity)));
-  EXPECT_TRUE(all(
-      solver_view.Load<ContactSolverField::kJointAcceleration, B>(group)
-          .IsApprox(acceleration)
-  ));
+  EXPECT_TRUE(all(solver_view
+                      .Load<ContactSolverField::kJointAcceleration, B>(group)
+                      .IsApprox(acceleration)));
   EXPECT_TRUE(all(solver_view.Load<ContactSolverField::kUTerm, B>(group)
                       .AsMatrix()
                       .IsApprox(marker)));
@@ -175,13 +185,13 @@ TEST(ContactSolverData, NarrowPhaseContactsAliasTheNarrowPhases) {
   using narrow_phase::NarrowPhaseAlgorithm;
   using narrow_phase::NarrowPhaseField;
   TempDir dir;
-  RegisteredSim sim =
-      MakeHinge(dir, "      collision_margin: [0.125]\n");
+  RegisteredSim sim = MakeHinge(dir, "      collision_margin: [0.125]\n");
   auto narrow_view = sim.ViewFor<NarrowPhaseAlgorithm>();
   auto solver_view = sim.ViewFor<ContactSolverAlgorithm>();
   std::size_t pair = 0;
 
-  narrow_phase::ContactDistances distance = narrow_phase::ContactDistances::Zero();
+  narrow_phase::ContactDistances distance =
+      narrow_phase::ContactDistances::Zero();
   distance(2, 0) = B(-0.25F);
   narrow_phase::ContactPoints point = narrow_phase::ContactPoints::Zero();
   point(1, 3) = B(4.0F);
@@ -199,11 +209,13 @@ TEST(ContactSolverData, NarrowPhaseContactsAliasTheNarrowPhases) {
       -0.25F
   );
   EXPECT_FLOAT_EQ(
-      (solver_view.Load<ContactSolverField::kContactPoint, B>(pair)(1, 3).get(0)),
+      (solver_view.Load<ContactSolverField::kContactPoint, B>(pair)(1, 3).get(0)
+      ),
       4.0F
   );
   EXPECT_FLOAT_EQ(
-      (solver_view.Load<ContactSolverField::kContactNormal, B>(pair).Y().get(0)),
+      (solver_view.Load<ContactSolverField::kContactNormal, B>(pair).Y().get(0)
+      ),
       1.0F
   );
   EXPECT_EQ(

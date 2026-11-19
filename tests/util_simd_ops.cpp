@@ -13,7 +13,7 @@
 
 // Covers util::SimdAccumulate: the lane reduction every BroadcastIndex
 // output (topology/indexing_policy.hpp) bottoms out in, one leaf at a time
-// (Assembler::Accumulate, engine/assembler.hpp).
+// (Assembler::Accumulate, engine/assembly/assembler.hpp).
 
 using achilles::util::SimdAccumulate;
 
