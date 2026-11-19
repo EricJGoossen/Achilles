@@ -19,6 +19,9 @@ integrator.
   (`attachment_handle.hpp`, `state_handle.hpp`) from names, through
   `domain::archetype::ArchetypeSet`.
 - Examples and the display use only this object and its handles.
+- `simulation.cpp` defines everything that runs once, outside the tick:
+  loading, `Init`, `Attachments`, `Joints`, `Up` and the private lookups.
+  `SetIntegrator`, `Step` and the handle templates stay in the header.
 
 ## Invariants
 

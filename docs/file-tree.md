@@ -142,7 +142,7 @@ adding, moving or deleting a file updates this tree in the same commit.
 - `shared_slots.hpp`: the shared-slot tags.
 - `physics_algorithms.hpp`: the hosting list of physics algorithms.
 - `registry.hpp`: the full hosting list: physics, then attachments.
-- `integrators.hpp`: the tick lists, the setup list and integrator
+- `integrators.hpp` `(.cpp)`: the tick lists, the setup list and integrator
   selection.
 - `sim_config.hpp`: whole-sim config: base transform, velocity and
   acceleration.
@@ -174,8 +174,8 @@ Each has `<name>_data.hpp`, `<name>_ops.hpp` `(.cpp)` and
 
 ## `include/interface/`
 
-- `simulation.hpp`: the `Simulation` object: load, init, step, and handle
-  lookups.
+- `simulation.hpp` `(.cpp)`: the `Simulation` object: load, init, step, and
+  handle lookups.
 - `archetype_loader.hpp` `(.cpp)`: loads `.arow` files into archetypes.
 - `sim_config_loader.hpp` `(.cpp)`: loads `sim_config.yaml`.
 - `attachments.hpp`: configures every declared sensor and actuator at init.
