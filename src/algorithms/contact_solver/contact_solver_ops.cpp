@@ -107,44 +107,22 @@ MathematicalT ClampImpedance(const MathematicalT& value) {
   );
 }
 
-// getimpedance: the solimp sigmoid at x = |r| / width, from d0 at x = 0 to
-// dwidth at x >= 1 -- a^-1 x^p below the midpoint, 1 - b^-1 (1 - x)^p above
-// it -- or the mean of the two when it's flat (d0 = dwidth, or no width).
-MathematicalT Impedance(
-    const MathematicalT& r,
-    const MathematicalT& d0,
-    const MathematicalT& dwidth,
-    const MathematicalT& width,
-    const MathematicalT& midpoint,
-    const MathematicalT& power
-) {
-  MathematicalT one(1);
-  MathematicalT x = xsimd::min(
-      xsimd::abs(r) / xsimd::max(width, MathematicalT(kMinVal)), one
-  );
-  MathematicalT a = one / xsimd::pow(midpoint, power - one);
-  MathematicalT b = one / xsimd::pow(one - midpoint, power - one);
-  MathematicalT y = util::Select(
-      x <= midpoint,
-      a * xsimd::pow(x, power),
-      one - b * xsimd::pow(one - x, power)
-  );
-  Mask flat = (d0 == dwidth) | (width <= MathematicalT(kMinVal));
-  return util::Select(
-      flat, MathematicalT(0.5F) * (d0 + dwidth), d0 + y * (dwidth - d0)
-  );
-}
-
 // A constraint's solref/solimp, as mj_referenceConstraint and
 // mj_makeImpedance use them: getsolparam's clamps, refsafe's
 // timeconst >= 2 dt, and K = 1 / (dw^2 tc^2 dr^2), B = 2 / (dw tc). Built
 // by MakeSoftConstraint below.
+//
+// The impedance sigmoid's two scales, 1 / midpoint^(p - 1) and
+// 1 / (1 - midpoint)^(p - 1), depend only on solimp, so they're worked out
+// here once per constraint rather than once per row.
 struct SoftConstraint {
   MathematicalT d0;
   MathematicalT dwidth;
   MathematicalT width;
   MathematicalT midpoint;
   MathematicalT power;
+  MathematicalT lower_scale;  // 1 / midpoint^(p - 1)
+  MathematicalT upper_scale;  // 1 / (1 - midpoint)^(p - 1)
   MathematicalT stiffness;
   MathematicalT damping;
 };
@@ -156,12 +134,17 @@ SoftConstraint MakeSoftConstraint(
   MathematicalT timeconst = xsimd::max(solref(0, 0), MathematicalT(2.0F * dt));
   MathematicalT dampratio = solref(1, 0);
   MathematicalT dw_tc = dwidth * timeconst;
+  MathematicalT one(1);
+  MathematicalT midpoint = ClampImpedance(solimp(3, 0));
+  MathematicalT power = xsimd::max(solimp(4, 0), one);
   return {
       .d0 = ClampImpedance(solimp(0, 0)),
       .dwidth = dwidth,
       .width = xsimd::max(solimp(2, 0), MathematicalT(0)),
-      .midpoint = ClampImpedance(solimp(3, 0)),
-      .power = xsimd::max(solimp(4, 0), MathematicalT(1)),
+      .midpoint = midpoint,
+      .power = power,
+      .lower_scale = one / xsimd::pow(midpoint, power - one),
+      .upper_scale = one / xsimd::pow(one - midpoint, power - one),
       .stiffness = MathematicalT(1) / xsimd::max(
                                           MathematicalT(kMinVal),
                                           dw_tc * dw_tc * dampratio * dampratio
@@ -170,9 +153,26 @@ SoftConstraint MakeSoftConstraint(
   };
 }
 
+// getimpedance: the solimp sigmoid at x = |r| / width, from d0 at x = 0 to
+// dwidth at x >= 1 -- a^-1 x^p below the midpoint, 1 - b^-1 (1 - x)^p above
+// it -- or the mean of the two when it's flat (d0 = dwidth, or no width).
+// Only one of the two powers is ever kept, so this takes the one: t^p with
+// t = x below the midpoint and 1 - x above it.
 MathematicalT ImpedanceAt(const SoftConstraint& soft, const MathematicalT& r) {
-  return Impedance(
-      r, soft.d0, soft.dwidth, soft.width, soft.midpoint, soft.power
+  MathematicalT one(1);
+  MathematicalT x = xsimd::min(
+      xsimd::abs(r) / xsimd::max(soft.width, MathematicalT(kMinVal)), one
+  );
+  Mask lower = x <= soft.midpoint;
+  MathematicalT t_pow = xsimd::pow(util::Select(lower, x, one - x), soft.power);
+  MathematicalT y = util::Select(
+      lower, soft.lower_scale * t_pow, one - (soft.upper_scale * t_pow)
+  );
+  Mask flat = (soft.d0 == soft.dwidth) | (soft.width <= MathematicalT(kMinVal));
+  return util::Select(
+      flat,
+      MathematicalT(0.5F) * (soft.d0 + soft.dwidth),
+      soft.d0 + y * (soft.dwidth - soft.d0)
   );
 }
 
