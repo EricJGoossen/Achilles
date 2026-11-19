@@ -216,7 +216,7 @@ available memory allow (2 GB each); set `CHECK_TIDY_JOBS` to override.
 - **CI:** [.github/workflows/ci.yml](.github/workflows/ci.yml) runs format,
   tidy, tidy-analyzer, and build & test on every PR and on every push to
   `main`.
-- **Tests:** read [tests/TESTING.md](tests/TESTING.md) before adding a
+- **Tests:** read [docs/conventions/testing.md](docs/conventions/testing.md) before adding a
   test. Any new `tests/*.cpp` file is picked up and registered with CTest
   automatically.
 
