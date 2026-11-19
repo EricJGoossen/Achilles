@@ -32,7 +32,11 @@ joints:
 - A value is a flat list or nested lists and maps of numbers, flattened in
   order. Its leaves follow the field's assembler order. A transform is
   `translation [x, y, z]`, then `rotation [w, x, y, z]`.
-- Every copy shares the same field values.
+- Every copy shares a joint's field value, unless it's written
+  `{per_copy: [v_0, v_1, ...]}`: then copy `i` gets `v_i`, and the list has
+  exactly `copies` entries of one leaf count. Sibling bodies that differ
+  only in their values, like the rollers around a wheel, can then be one
+  archetype's copies and share SIMD lanes.
 
 ### Sensor or actuator
 

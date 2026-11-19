@@ -461,3 +461,94 @@ TEST(LoadArchetypes, ThrowsOnMissingFile) {
       ArchetypeLoadError
   );
 }
+
+// per_copy gives copy i its own value, while a field written plainly is
+// still shared by every copy -- on the same joint, in the same archetype.
+TEST(LoadArchetypes, PerCopyFieldGivesEachCopyItsOwnValue) {
+  TempDir dir;
+  dir.Write("world.arow", R"(
+archetype: world
+joints:
+  - name: origin
+    fields: { x: [0, 0], y: [0] }
+)");
+  auto root = dir.Write("roller.arow", R"(
+archetype: roller
+copies: 3
+includes: [world.arow]
+attach: {archetype: world, joint: origin}
+joints:
+  - name: spin
+    fields:
+      x: {per_copy: [[1, 2], [3, 4], [5, 6]]}
+      y: [7]
+)");
+
+  std::vector<Archetype> archetypes = LoadArchetypes(root);
+  const Archetype& roller = FindByName(archetypes, "roller");
+
+  const auto* x = ArchetypeSet::FindField(roller, "x");
+  ASSERT_NE(x, nullptr);
+  EXPECT_EQ(x->scalars_per_leaf, 2U);
+  for (std::size_t copy = 0; copy < 3; ++copy) {
+    EXPECT_DOUBLE_EQ(JointFieldAt(*x, copy, 0, 0, 1), (2.0 * copy) + 1.0);
+    EXPECT_DOUBLE_EQ(JointFieldAt(*x, copy, 0, 1, 1), (2.0 * copy) + 2.0);
+  }
+  const auto* y = ArchetypeSet::FindField(roller, "y");
+  ASSERT_NE(y, nullptr);
+  for (std::size_t copy = 0; copy < 3; ++copy) {
+    EXPECT_DOUBLE_EQ(JointFieldAt(*y, copy, 0, 0, 1), 7.0);
+  }
+}
+
+// A per_copy list that doesn't give exactly one value per copy is an error,
+// not a silent repeat or truncation.
+TEST(LoadArchetypes, ThrowsWhenPerCopyCountDiffersFromCopies) {
+  TempDir dir;
+  dir.Write("world.arow", R"(
+archetype: world
+joints:
+  - name: origin
+    fields: { x: [0] }
+)");
+  auto root = dir.Write("roller.arow", R"(
+archetype: roller
+copies: 3
+includes: [world.arow]
+attach: {archetype: world, joint: origin}
+joints:
+  - name: spin
+    fields:
+      x: {per_copy: [[1], [2]]}
+)");
+
+  try {
+    LoadArchetypes(root);
+    FAIL() << "expected ArchetypeLoadError";
+  } catch (const ArchetypeLoadError& e) {
+    EXPECT_NE(std::string(e.what()).find("per_copy"), std::string::npos);
+  }
+}
+
+// Every copy's per_copy value must have the field's one leaf count.
+TEST(LoadArchetypes, ThrowsWhenPerCopyLeafCountsDiffer) {
+  TempDir dir;
+  dir.Write("world.arow", R"(
+archetype: world
+joints:
+  - name: origin
+    fields: { x: [0] }
+)");
+  auto root = dir.Write("roller.arow", R"(
+archetype: roller
+copies: 2
+includes: [world.arow]
+attach: {archetype: world, joint: origin}
+joints:
+  - name: spin
+    fields:
+      x: {per_copy: [[1], [2, 3]]}
+)");
+
+  EXPECT_THROW(LoadArchetypes(root), ArchetypeLoadError);
+}
