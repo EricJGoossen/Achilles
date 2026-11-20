@@ -13,10 +13,12 @@
 #include "domain/attachment/attachment.hpp"
 #include "domain/attachment/attachment_kind.hpp"
 #include "domain/sensing/accelerometer.hpp"
+#include "domain/sensing/attitude.hpp"
 #include "domain/sensing/camera.hpp"
 #include "domain/sensing/encoder.hpp"
 #include "domain/sensing/gyroscope.hpp"
 #include "domain/sensing/lidar.hpp"
+#include "domain/sensing/limit_switch.hpp"
 #include "domain/sensing/magnetometer.hpp"
 #include "domain/sensing/truth_sensor.hpp"
 #include "engine/topology/orderings.hpp"
@@ -111,9 +113,9 @@ struct IsActuator : std::bool_constant<ActuatorLike<S>> {};
 // kListName. A kind with no instances costs one empty loop per pass, nothing
 // more.
 //
-// The modelled sensors -- a joint encoder, an IMU's three parts, a scanning
-// lidar and a camera -- then the truth sensors, each attached under its
-// quantity's name.
+// The modelled sensors -- a joint encoder, an IMU's three parts and its
+// attitude estimate, a scanning lidar, a camera and a limit switch -- then
+// the truth sensors, each attached under its quantity's name.
 using SensorKinds = util::TypeList<
     domain::sensing::Encoder,
     domain::sensing::Gyroscope,
@@ -121,6 +123,8 @@ using SensorKinds = util::TypeList<
     domain::sensing::Magnetometer,
     domain::sensing::Lidar,
     domain::sensing::Camera,
+    domain::sensing::Attitude,
+    domain::sensing::LimitSwitch,
     domain::sensing::truth::JointPosition,
     domain::sensing::truth::JointVelocity,
     domain::sensing::truth::JointAcceleration,

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
@@ -28,13 +29,17 @@ struct DcMotorState {
   domain::error::Saturate<float>::State current_limit;
   domain::error::LossChain::State losses;
   domain::error::ErrorChain<float>::State error;
+  // The winding's temperature (degC), seeded at ambient by the first update.
+  float temperature = 0.0F;
+  bool thermal_started = false;
 };
 
 // One update: the torque the joint got, and what a controller's current
-// feedback reports.
+// and temperature feedback report.
 struct DcMotorOutput {
-  float effort = 0.0F;   // N*m, at the joint
-  float current = 0.0F;  // A, in the winding
+  float effort = 0.0F;       // N*m, at the joint
+  float current = 0.0F;      // A, in the winding
+  float temperature = 0.0F;  // degC, of the winding
 };
 
 // A DC motor driving its joint through a gearbox: a brushed motor, or a
@@ -50,6 +55,12 @@ struct DcMotorOutput {
 // Every constant is at the rotor, as datasheets give them. `gear_ratio` is
 // output turns per rotor turn, so 19:1 is 1/19: the joint turns gear_ratio
 // times as fast and gets 1/gear_ratio times the torque.
+//
+// The winding heats with its I^2 R loss through a first-order thermal model
+// -- a thermal resistance to ambient and a time constant, as a datasheet's
+// thermal section gives them -- and reports its temperature, as a motor
+// controller's feedback does. With no thermal resistance it stays at
+// ambient.
 class DcMotor : public Actuator<
                     DcMotor,
                     SimInputs<input::JointVelocity, input::JointSubspace>,
@@ -71,6 +82,9 @@ class DcMotor : public Actuator<
     float bus_voltage = 0.0F;        // V
     float max_current = 0.0F;        // A, the driver's limit
     float gear_ratio = 1.0F;         // output turns per rotor turn
+    float ambient_temperature = 25.0F;    // degC
+    float thermal_resistance = 0.0F;      // K/W, winding to ambient; 0: no heating
+    float thermal_time_constant = 60.0F;  // s
     domain::error::LossChain::Params losses;
     ErrorModel::Params error;
   };
@@ -102,10 +116,15 @@ class DcMotor : public Actuator<
       );
     }
     if (params_.back_emf_constant < 0.0F || losses.viscous.coefficient < 0.0F ||
-        losses.coulomb.level < 0.0F) {
+        losses.coulomb.level < 0.0F || params_.thermal_resistance < 0.0F) {
       throw std::invalid_argument(
-          "DcMotor: back_emf_constant, viscous_friction and coulomb_friction "
-          "must not be negative."
+          "DcMotor: back_emf_constant, viscous_friction, coulomb_friction and "
+          "thermal_resistance must not be negative."
+      );
+    }
+    if (params_.thermal_time_constant <= 0.0F) {
+      throw std::invalid_argument(
+          "DcMotor: thermal_time_constant must be positive."
       );
     }
     speed_curve_.stall = params_.bus_voltage / params_.resistance;
@@ -118,8 +137,9 @@ class DcMotor : public Actuator<
 
   // Settings: period, axis (required), torque_constant, back_emf_constant,
   // resistance, bus_voltage, max_current, gear_ratio, gearbox_efficiency,
-  // viscous_friction, coulomb_friction, coulomb_smoothing, and the error
-  // model's on the joint's torque (see AttachmentConfig::ErrorModel).
+  // viscous_friction, coulomb_friction, coulomb_smoothing,
+  // ambient_temperature, thermal_resistance, thermal_time_constant, and the
+  // error model's on the joint's torque (see AttachmentConfig::ErrorModel).
   static DcMotor FromConfig(AttachmentConfig& config) {
     const AttachmentOptions options = config.Options();
     const domain::math::Vector3<float> axis = config.RequiredVector("axis");
@@ -132,6 +152,12 @@ class DcMotor : public Actuator<
     params.bus_voltage = config.Scalar("bus_voltage", params.bus_voltage);
     params.max_current = config.Scalar("max_current", params.max_current);
     params.gear_ratio = config.Scalar("gear_ratio", params.gear_ratio);
+    params.ambient_temperature =
+        config.Scalar("ambient_temperature", params.ambient_temperature);
+    params.thermal_resistance =
+        config.Scalar("thermal_resistance", params.thermal_resistance);
+    params.thermal_time_constant =
+        config.Scalar("thermal_time_constant", params.thermal_time_constant);
     auto& losses = params.losses;
     losses.transmission.efficiency =
         config.Scalar("gearbox_efficiency", losses.transmission.efficiency);
@@ -173,6 +199,7 @@ class DcMotor : public Actuator<
         current_limit_, state->current_limit, rng, tick.dt, current
     );
     out->current = current;
+    out->temperature = Heat(tick.dt, current, state);
 
     const float rotor_torque = LossChain::Apply(
         params_.losses,
@@ -191,7 +218,28 @@ class DcMotor : public Actuator<
     );
   }
 
+  const Params& GetParams() const { return params_; }
+
  private:
+  // One step of the winding's first-order thermal model: toward ambient
+  // plus its I^2 R loss through the thermal resistance, with the time
+  // constant -- integrated exactly over dt, so any step is stable.
+  float Heat(float dt, float current, DcMotorState* state) const {
+    if (!state->thermal_started) {
+      state->thermal_started = true;
+      state->temperature = params_.ambient_temperature;
+    }
+    if (params_.thermal_resistance > 0.0F) {
+      const float loss = current * current * params_.resistance;
+      const float settled =
+          params_.ambient_temperature + (loss * params_.thermal_resistance);
+      const float blend =
+          1.0F - std::exp(-dt / params_.thermal_time_constant);
+      state->temperature += (settled - state->temperature) * blend;
+    }
+    return state->temperature;
+  }
+
   Params params_;
   domain::error::SpeedCurve::Params speed_curve_;
   domain::error::Saturate<float>::Params current_limit_;
