@@ -78,6 +78,8 @@
   lane group, or one global value.
 - **Traversal**: how rows are walked: forward or backward over a tree,
   linearly, or over pairs.
+- **Gate** (`PairGate`): a per-lane-group word field a gated pair traversal
+  reads to decide which groups to visit; a zero word skips the group.
 
 ## Running
 

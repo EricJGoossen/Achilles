@@ -1,5 +1,6 @@
 #pragma once
 
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 
@@ -248,6 +249,67 @@ struct PairedRows {
       }
     }
     callable(group, source, partner_group, PairStructure{lanes});
+  }
+  template <typename... Rest>
+  static constexpr bool HasWork(const Rest&... /*rest*/) {
+    return true;
+  }
+};
+
+// Which lane groups of a pair ordering a gated pass visits this tick: those
+// whose word in Field -- one per lane group (topology::LaneGroupIndexing),
+// such as a broad phase's overlap bits or a narrow phase's contact bits --
+// isn't zero. Read through the field's cursor at its own scalar type.
+template <typename Cursor, typename Word>
+struct PairGate {
+  Cursor cursor;
+
+  bool Open(size_t group) const {
+    const auto word = cursor.template Load<Word>(group);
+    return word != decltype(word){};
+  }
+};
+
+template <typename T>
+concept PairGateLike = requires(const T& gate, size_t group) {
+  { gate.Open(group) } -> std::convertible_to<bool>;
+};
+
+// The gate on field F of `view`, for a Step to hand a gated pass after the
+// pair topology (see GatedPairTraversal, traversals.hpp).
+template <auto F, typename View>
+auto MakePairGate(const View& view) {
+  return PairGate<
+      typename View::template FieldCursor<F>,
+      typename View::template Scalar<F>>{view.template Field<F>()};
+}
+
+// PairedRows, for only the lane groups `gate` opens: a group whose gate
+// word is zero isn't visited at all, so a pass's cost follows the groups
+// that matter this tick, not every pair. Nothing is loaded or stored for a
+// skipped group: an Op run this way must leave nothing a skipped group
+// would have changed -- its reductions add zero there, and its per-pair
+// outputs are read only by passes gated the same way (see
+// GatedPairTraversal).
+struct GatedPairedRows {
+  static constexpr bool kBatchable = true;
+
+  template <
+      size_t Stride,
+      typename Callable,
+      PairGateLike Gate,
+      typename... Rest>
+  static constexpr void Visit(
+      const Callable& callable,
+      const domain::PairTopology& pairs,
+      size_t group,
+      const topology::BroadcastIndex& source,
+      const Gate& gate,
+      const Rest&... rest
+  ) {
+    if (gate.Open(group)) {
+      PairedRows::Visit<Stride>(callable, pairs, group, source, rest...);
+    }
   }
   template <typename... Rest>
   static constexpr bool HasWork(const Rest&... /*rest*/) {

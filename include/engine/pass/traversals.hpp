@@ -34,6 +34,11 @@ struct TraversalProbe {
   explicit operator size_t() const { return 0; }
 };
 
+// The least a gated pass's gate can be (PairGateLike).
+struct PairGateProbe {
+  bool Open(size_t /*group*/) const { return true; }
+};
+
 }  // namespace detail
 
 // A traversal op's counterpart to OpLike: default-constructible, exposing
@@ -79,6 +84,26 @@ concept TraversalLike =
              const domain::PairTopology& pairs
          ) {
            { T::InitOp(callable, topology, pairs) } -> std::same_as<void>;
+         }
+     ) ||
+     // A gated pass over pairs (GatedPairTraversal) takes a gate after the
+     // pair topology.
+     (
+         requires(
+             void (&callable)(size_t, size_t),
+             detail::TraversalProbe topology,
+             const domain::PairTopology& pairs,
+             detail::PairGateProbe gate
+         ) {
+           { T::Apply(callable, topology, pairs, gate) } -> std::same_as<void>;
+         } &&
+         requires(
+             void (&callable)(size_t),
+             detail::TraversalProbe topology,
+             const domain::PairTopology& pairs,
+             detail::PairGateProbe gate
+         ) {
+           { T::InitOp(callable, topology, pairs, gate) } -> std::same_as<void>;
          }
      ));
 
@@ -241,6 +266,45 @@ struct PairTraversal {
   }
 };
 
+// PairTraversal, visiting only the lane groups a gate opens (see PairGate
+// and GatedPairedRows, row_policies.hpp): a Step over pairs hands the gate
+// right after the pair topology -- e.g. one on the narrow phase's contact
+// bits, so a solver's pair passes cost what its contacts do rather than
+// every pair. Each pass gated on the same field skips the same groups, so
+// a group's per-pair values, stale once skipped, are only ever read by
+// passes that skip it too. Its Op's Initialize runs as PairTraversal's.
+template <Direction Dir, size_t Stride>
+struct GatedPairTraversal {
+  static constexpr Direction kDirection = Dir;
+  static constexpr size_t kStride = Stride;
+  using Walk = RowTraversal<Dir, Stride, PairSource, AllRows, GatedPairedRows>;
+
+  template <
+      typename Callable,
+      typename Rows,
+      PairGateLike Gate,
+      typename... Rest>
+  static constexpr void Apply(
+      const Callable& callable,
+      const Rows& /*rows*/,
+      const domain::PairTopology& pairs,
+      const Gate& gate,
+      const Rest&... /*rest*/
+  ) {
+    Walk::Apply(callable, pairs, gate);
+  }
+
+  template <typename Callable, typename Rows, typename... Rest>
+  static constexpr void InitOp(
+      const Callable& callable,
+      const Rows& /*rows*/,
+      const domain::PairTopology& pairs,
+      const Rest&... /*rest*/
+  ) {
+    callable.Initialize(PairSource::InitRow<Stride>(pairs));
+  }
+};
+
 using ForwardTreeTraversal = TreeTraversal<Direction::kForward, 1>;
 using BackwardTreeTraversal = TreeTraversal<Direction::kBackward, 1>;
 using ForwardLinearTraversal = LinearTraversal<Direction::kForward, 1>;
@@ -310,6 +374,10 @@ static_assert(
 static_assert(
     TraversalLike<BackwardPairTraversal>,
     "BackwardPairTraversal must satisfy TraversalLike concept"
+);
+static_assert(
+    TraversalLike<GatedPairTraversal<Direction::kForward, 1>>,
+    "GatedPairTraversal must satisfy TraversalLike concept"
 );
 
 }  // namespace achilles::engine::pass
