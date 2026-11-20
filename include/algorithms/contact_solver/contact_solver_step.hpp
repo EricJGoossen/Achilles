@@ -25,17 +25,22 @@ using BackwardBatched =
     engine::pass::TreeTraversal<engine::pass::Direction::kBackward, kLanes>;
 using LinearBatched =
     engine::pass::LinearTraversal<engine::pass::Direction::kForward, kLanes>;
+// The pair passes visit only the lane groups with a contact this tick
+// (kContactActive, the narrow phase's). Skipping the rest changes nothing:
+// a row with no contact has D = 0 and a zero residual (SetupRowsOp), so it
+// adds nothing to any body or whole-sim sum, and a skipped group's per-pair
+// values are read only by these same passes, which skip it too.
 using PairBatched =
-    engine::pass::PairTraversal<engine::pass::Direction::kForward, kLanes>;
+    engine::pass::GatedPairTraversal<engine::pass::Direction::kForward, kLanes>;
 using Global = engine::pass::GlobalTraversal;
 
 // Every solver Step: one engine::pass::Step over the ContactSolverView, the
 // TopologicalOrdering topology and CollisionPairs'
 // (orderings/collision_pairs.hpp), of whatever Ops Derived::MakeOps returns --
 // tree, linear, pair and global passes alike: the body passes walk the first,
-// the pair passes the second. The Steps below are the solver's own stages; how
-// often each runs is the tick's step list (algorithms/integrators.hpp), never a
-// loop in here.
+// the pair passes the second, gated on kContactActive. The Steps below are the
+// solver's own stages; how often each runs is the tick's step list
+// (algorithms/integrators.hpp), never a loop in here.
 template <typename Derived>
 struct SolverStep {
   using FieldEnum = ContactSolverField;
@@ -51,7 +56,13 @@ struct SolverStep {
         sim_state.template TopologyFor<engine::topology::TopologicalOrdering>();
     const domain::PairTopology& pairs =
         sim_state.template TopologyFor<CollisionPairs>();
-    engine::pass::Step(Derived::MakeOps(sim_config, dt), view, topology, pairs);
+    engine::pass::Step(
+        Derived::MakeOps(sim_config, dt),
+        view,
+        topology,
+        pairs,
+        engine::pass::MakePairGate<ContactSolverField::kContactActive>(view)
+    );
   }
 };
 
