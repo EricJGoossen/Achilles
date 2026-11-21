@@ -147,6 +147,12 @@ struct InputBinding<input::CollisionRadius> {
       broad_phase::BroadPhaseAlgorithm,
       broad_phase::BroadPhaseField::kCollisionRadius>;
 };
+template <>
+struct InputBinding<input::CollisionGroup> {
+  using Type = SimInput<
+      broad_phase::BroadPhaseAlgorithm,
+      broad_phase::BroadPhaseField::kCollisionGroup>;
+};
 
 // How a body looks: only cameras read it, so the attachment algorithm keeps it.
 template <>
@@ -180,6 +186,11 @@ static_assert(kValueOfItsField<input::SpatialAcceleration>);
 static_assert(kValueOfItsField<input::CollisionPose>);
 static_assert(kValueOfItsField<input::CollisionExtents>);
 static_assert(kValueOfItsField<input::CollisionRadius>);
+static_assert(kValueOfItsField<input::CollisionGroup>);
+static_assert(
+    input::kCollisionGroupBits == broad_phase::kCollisionGroupCount,
+    "input::CollisionGroup must hold every broad-phase collision group"
+);
 
 // A quantity named for a truth sensor goes by its field's own name.
 template <typename Quantity>

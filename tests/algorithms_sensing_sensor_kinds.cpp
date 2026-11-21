@@ -275,7 +275,8 @@ TEST_F(DroppedBox, AnAccelerometerReadsNothingInFreeFallAndGravityAtRest) {
 namespace {
 
 // A single-beam lidar 1 m over the ground looking down, one looking up at
-// nothing, and a noisy one looking down.
+// nothing, and a noisy one looking down; and two looking down that ignore a
+// collision group: the ground's (group 1), or one nothing is in.
 class LidarOverGround : public ::testing::Test {
  protected:
   void Build(Simulation& sim, std::uint64_t seed) {
@@ -284,7 +285,8 @@ class LidarOverGround : public ::testing::Test {
         .name = "ground",
         .parent = "world",
         .translation = {0, 0, -0.1F},
-        .extents = {2, 2, 0.1F}
+        .extents = {2, 2, 0.1F},
+        .group = 1
     };
     SceneJoint post{
         .name = "post", .parent = "world", .translation = {0, 0, 1.0F}
@@ -294,7 +296,12 @@ class LidarOverGround : public ::testing::Test {
         Archetype(
             "scene",
             {world, ground, post},
-            {"down.arow", "up.arow", "noisy.arow", "coarse.arow"}
+            {"down.arow",
+             "up.arow",
+             "noisy.arow",
+             "coarse.arow",
+             "blind.arow",
+             "other.arow"}
         )
     );
     // Sensor +x onto the body's -z (down) or +z (up): a quarter turn about
@@ -335,6 +342,26 @@ class LidarOverGround : public ::testing::Test {
             {down, one_beam, narrow, "range_bias: 0.06", "resolution: 0.25"}
         )
     );
+    dir_.Write(
+        "blind.arow",
+        SensorFile(
+            "blind",
+            "lidar",
+            "scene",
+            "post",
+            {down, one_beam, narrow, "ignore_groups: 1"}
+        )
+    );
+    dir_.Write(
+        "other.arow",
+        SensorFile(
+            "other",
+            "lidar",
+            "scene",
+            "post",
+            {down, one_beam, narrow, "ignore_groups: 2"}
+        )
+    );
     dir_.Write("config.yaml", kZUpConfig);
     ASSERT_TRUE(sim.LoadArowFile((dir_.Path() / "scene.arow").string()));
     ASSERT_TRUE(sim.LoadConfigFile((dir_.Path() / "config.yaml").string()));
@@ -357,6 +384,15 @@ TEST_F(LidarOverGround, ABeamReadsTheDistanceToWhatItHits) {
   Simulation sim;
   Build(sim, 1);
   EXPECT_NEAR(Range(sim, "down"), 1.0F, 1e-3F);
+}
+
+// A body in a group the lidar ignores isn't seen; one in any other group
+// is.
+TEST_F(LidarOverGround, ABodyInAnIgnoredGroupIsntSeen) {
+  Simulation sim;
+  Build(sim, 1);
+  EXPECT_TRUE(std::isinf(Range(sim, "blind")));
+  EXPECT_NEAR(Range(sim, "other"), 1.0F, 1e-3F);
 }
 
 TEST_F(LidarOverGround, ABeamThatHitsNothingReadsInfinity) {

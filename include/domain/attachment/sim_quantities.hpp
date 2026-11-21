@@ -1,7 +1,10 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <string_view>
 
+#include "domain/math/activation_mask.hpp"
 #include "domain/math/matrix.hpp"
 #include "domain/math/scalar.hpp"
 #include "domain/math/vector3.hpp"
@@ -56,6 +59,12 @@ struct CollisionExtents {
 };
 struct CollisionRadius {
   using Value = math::Scalar<float>;
+};
+// The collision groups it belongs to, a bit each (the broad phase's
+// collision_group): kCollisionGroupBits of them.
+inline constexpr std::size_t kCollisionGroupBits = 16;
+struct CollisionGroup {
+  using Value = math::ActivationMask<std::int32_t, kCollisionGroupBits>;
 };
 
 // How the body is seen (domain/geometry/visual_shape.hpp).
