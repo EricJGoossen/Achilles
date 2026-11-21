@@ -172,6 +172,7 @@ struct BroadPhaseFieldTraits<BroadPhaseField::kCollisionMargin> {
 template <>
 struct BroadPhaseFieldTraits<BroadPhaseField::kCollisionGroup> {
   using Assembler = math::ActivationMaskAssembler<kCollisionGroupCount>;
+  using SharedAs = CollisionGroupSlot;
   using Ordering = engine::topology::TopologicalOrdering;
   using Layout = engine::topology::PlanarLayout;
   static constexpr std::string_view kName = CollisionMaskFields::kGroup;

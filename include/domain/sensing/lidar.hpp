@@ -45,6 +45,7 @@ using LidarPose = input::WorldTransform;
 using LidarShapePose = input::CollisionPose;
 using LidarShapeExtents = input::CollisionExtents;
 using LidarShapeRadius = input::CollisionRadius;
+using LidarShapeGroup = input::CollisionGroup;
 
 // A scanning lidar: casts a fan (or, with several channels, a stack of
 // fans) of beams from its mount against every body's collision shape, and
@@ -52,7 +53,10 @@ using LidarShapeRadius = input::CollisionRadius;
 // once per body -- placing its shape in world, culling it with one compare
 // when its bounding sphere is out of range, otherwise casting every beam
 // against it -- and Read applies its error effects to each range. A beam
-// starting inside a body (the lidar's own housing) doesn't see that body. Set
+// starting inside a body (the lidar's own housing) doesn't see that body,
+// and a body in any of ignore_groups' collision groups isn't seen at all --
+// the robot the lidar rides, say, which a real one sees out past through
+// gaps the robot's collision shapes don't have. Set
 // a period (e.g. 0.1 s for 10 Hz): a lidar
 // costs nothing on the ticks it isn't sampling.
 class Lidar
@@ -62,10 +66,12 @@ class Lidar
       LidarPose,
       LidarShapePose,
       LidarShapeExtents,
-      LidarShapeRadius>;
+      LidarShapeRadius,
+      LidarShapeGroup>;
   using Pose = LidarPose::Value;
   using Extents = LidarShapeExtents::Value;
   using Radius = LidarShapeRadius::Value;
+  using Group = LidarShapeGroup::Value;
 
   static constexpr std::string_view kListName = "lidar";
 
@@ -83,6 +89,9 @@ class Lidar
     float vertical_fov = 0.0F;
     float min_range = 0.05F;
     float max_range = 30.0F;
+    // Collision groups not seen (a bit per group, as collision_group): 0
+    // sees every body.
+    std::uint32_t ignore_groups = 0;
     // Range errors, in meters, per beam (domain/error).
     domain::error::ConstantBias<float>::Params range_bias;
     domain::error::SampleNoise<float>::Params range_noise;
@@ -110,7 +119,7 @@ class Lidar
 
   // Settings: period, mount (a pose in the body's frame, identity when
   // absent), horizontal_samples, channels, horizontal_fov, vertical_fov,
-  // min_range, max_range, range_bias, range_noise, resolution.
+  // min_range, max_range, ignore_groups, range_bias, range_noise, resolution.
   static Lidar FromConfig(AttachmentConfig& config) {
     const AttachmentOptions options = config.Options();
     Params params;
@@ -123,6 +132,7 @@ class Lidar
     params.vertical_fov = config.Scalar("vertical_fov", params.vertical_fov);
     params.min_range = config.Scalar("min_range", params.min_range);
     params.max_range = config.Scalar("max_range", params.max_range);
+    params.ignore_groups = config.Count("ignore_groups", params.ignore_groups);
     params.range_bias.bias = config.Scalar("range_bias", 0.0F);
     params.range_noise.sigma = config.Scalar("range_noise", 0.0F);
     params.resolution.resolution = config.Scalar("resolution", 0.0F);
@@ -149,8 +159,13 @@ class Lidar
       const Pose& shape_pose,
       const Extents& extents,
       const Radius& radius,
+      const Group& group,
       LidarReturns* returns
   ) const {
+    if ((group & Group(static_cast<std::int32_t>(params_.ignore_groups))) !=
+        Group::Zero()) {
+      return;
+    }
     const domain::geometry::SweptBox<float> shape(extents, radius.Value());
     const float bound = extents.Norm() + radius.Value();
     if (bound <= 0.0F) {

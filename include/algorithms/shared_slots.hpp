@@ -49,6 +49,9 @@ struct WorldTransformSlot;
 // re-deriving the other's work.
 struct CollisionExtentsSlot;
 struct CollisionRadiusSlot;
+// The collision groups a body belongs to -- shared so a lidar
+// (sensing/lidar.hpp) can skip the groups it's set to ignore.
+struct CollisionGroupSlot;
 // The shape's frame in its body's (static scene data) -- shared so a
 // lidar (sensing/lidar.hpp) can place each body's shape in world itself.
 struct CollisionPoseSlot;
