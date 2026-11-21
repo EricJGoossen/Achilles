@@ -23,7 +23,9 @@ What becomes what:
 - **floating** becomes a six-DOF free joint; **planar** isn't supported.
   The URDF's root link becomes a welded root.
 - **Shapes.** Achilles gives each body one collision shape (a sphere-swept
-  box) and one visual shape (box, sphere or cylinder). A body's first
+  box) and one visual shape (box, sphere or cylinder), a visual's pose at
+  its base rather than its centre (Achilles draws it out along the pose's
+  +y by its half-height). A body's first
   collision and first visual go on its own joint; every other shape goes on
   a welded, nearly massless carrier joint (`<link>__shape<i>`). Collision:
   box -> box, sphere -> sphere, cylinder -> a capsule (long) or a rounded
@@ -269,7 +271,22 @@ def collision_shape(link_name, geom_el, gaps):
 
 
 def visual_shape(link_name, geom_el, gaps):
-    """(pose, half extents, shape code, rgb) or None."""
+    """(pose, half extents, shape code, rgb) or None.
+
+    An Achilles visual is drawn from its pose outward along that pose's +y,
+    by its own half-height (a limb hanging off its joint; see
+    domain/sensing/camera.hpp's Observe): the pose names the shape's base,
+    not its centre. A URDF's names its centre, so the pose written is the
+    URDF's moved down its own y by that half-height."""
+    found = _visual_shape(link_name, geom_el, gaps)
+    if found is None:
+        return None
+    pose, ext, code, rgb = found
+    return pose * Pose(t=(0.0, -ext[1], 0.0)), ext, code, rgb
+
+
+def _visual_shape(link_name, geom_el, gaps):
+    """visual_shape's, with the pose at the shape's centre."""
     pose = parse_origin(geom_el)
     g = geom_el.find("geometry")
     shape = g[0] if g is not None and len(g) else None
