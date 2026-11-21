@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 
 #include "algorithms/aba/aba_data.hpp"
@@ -10,9 +11,11 @@
 #include "algorithms/contact_solver/contact_solver_step.hpp"
 #include "algorithms/conventions.hpp"
 #include "algorithms/integrators.hpp"
+#include "algorithms/narrow_phase/narrow_phase_data.hpp"
 #include "algorithms/sim_config.hpp"
 #include "domain/math/scalar.hpp"
 #include "domain/spatial/dual.hpp"
+#include "domain/spatial/transform.hpp"
 #include "engine/topology/orderings.hpp"
 #include "support/registered_sim.hpp"
 #include "support/temp_dir.hpp"

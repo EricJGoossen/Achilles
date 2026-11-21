@@ -552,11 +552,11 @@ using achilles::engine::pass::PairGate;
 using achilles::engine::pass::PairGateLike;
 
 // The least a gate can be: PairGateLike's archetype.
-struct MinimalPairGate {
+struct PairGateArchetype {
   bool open = true;
   bool Open(size_t /*group*/) const { return open; }
 };
-static_assert(PairGateLike<MinimalPairGate>);
+static_assert(PairGateLike<PairGateArchetype>);
 
 // Opens exactly the groups listed.
 struct ListGate {
@@ -603,7 +603,7 @@ TEST(GatedPairTraversalApply, AnOpenGateVisitsAsPairTraversalDoes) {
   std::vector<PairCall> gated;
   std::vector<PairCall> plain;
   GatedPairTraversal<Direction::kBackward, 4>::Apply(
-      RecordingPairs{&gated}, size_t{99}, pairs.Topology(), MinimalPairGate{}
+      RecordingPairs{&gated}, size_t{99}, pairs.Topology(), PairGateArchetype{}
   );
   PairTraversal<Direction::kBackward, 4>::Apply(
       RecordingPairs{&plain}, size_t{99}, pairs.Topology()
@@ -624,7 +624,7 @@ TEST(GatedPairTraversalApply, AClosedGateMakesNoCalls) {
       RecordingPairs{&calls},
       size_t{99},
       pairs.Topology(),
-      MinimalPairGate{false}
+      PairGateArchetype{false}
   );
   EXPECT_TRUE(calls.empty());
 }
@@ -638,7 +638,7 @@ TEST(GatedPairTraversalInitOp, InitializesEvenWithEveryGroupClosed) {
       RecordingInitOp{&seen},
       size_t{99},
       pairs.Topology(),
-      MinimalPairGate{false}
+      PairGateArchetype{false}
   );
   EXPECT_EQ(seen, 0U);
 }
