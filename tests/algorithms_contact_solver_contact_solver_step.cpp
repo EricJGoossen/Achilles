@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 
 #include "algorithms/aba/aba_data.hpp"
@@ -10,9 +11,11 @@
 #include "algorithms/contact_solver/contact_solver_step.hpp"
 #include "algorithms/conventions.hpp"
 #include "algorithms/integrators.hpp"
+#include "algorithms/narrow_phase/narrow_phase_data.hpp"
 #include "algorithms/sim_config.hpp"
 #include "domain/math/scalar.hpp"
 #include "domain/spatial/dual.hpp"
+#include "domain/spatial/transform.hpp"
 #include "engine/topology/orderings.hpp"
 #include "support/registered_sim.hpp"
 #include "support/temp_dir.hpp"
@@ -707,6 +710,90 @@ TEST(Solve, BallClearOfTheGroundFallsFreely) {
   RunSteps<Forward>(sim, config);
 
   EXPECT_EQ(ActiveContactRows(sim), 0U);
+  EXPECT_NEAR(Qdd(sim, 2), -9.8F, 1e-4F);
+}
+
+// Static slabs far from the ball pair with it, but never touch it: the
+// narrow phase and the solve skip their lane groups (no candidate, no
+// contact), and that must change nothing -- the ball lands on exactly what
+// it does with the ground alone.
+TEST(Solve, FarStaticBodiesChangeNothing) {
+  TempDir lone_dir;
+  RegisteredSim lone = MakeBallOnGround(lone_dir, 0.09F);
+  SimConfig config = DownwardGravity();
+  RunSteps<SetupList>(lone, config, 0.0F);
+  RunSteps<Forward>(lone, config);
+  const F expected = Qdd(lone, 2);
+  ASSERT_GT(expected, -9.0F);  // premise: the ground holds the ball
+
+  std::string joints =
+      WeldedJoint("world", "", 0.0F, CollisionFields("[0, 0, 0]", 0.0F, 0, 0)) +
+      WeldedJoint(
+          "ground", "world", -0.1F, CollisionFields("[1, 0.1, 1]", 0.0F, 1, 2)
+      );
+  // More slabs than two lane groups hold, all 50 m above.
+  for (std::size_t i = 0; i < (2 * kLanes) + 1; ++i) {
+    joints += WeldedJoint(
+        "slab" + std::to_string(i),
+        "world",
+        50.0F + static_cast<float>(i),
+        CollisionFields("[1, 0.1, 1]", 0.0F, 1, 2)
+    );
+  }
+  joints += BallJoint(0.09F);
+  TempDir dir;
+  RegisteredSim sim = MakeRegisteredSim(dir, joints);
+  RunSteps<SetupList>(sim, config, 0.0F);
+
+  RunSteps<Forward>(sim, config);
+
+  EXPECT_EQ(Qdd(sim, 2 + (2 * kLanes) + 1), expected);
+}
+
+namespace {
+
+// How many (slot, lane) contact bits are set, over every lane group of
+// pairs: the narrow phase's kContactActive, which the solve gates on.
+std::size_t ContactBits(const RegisteredSim& sim) {
+  using Word = std::int32_t;
+  auto view = sim.ViewFor<ContactSolverAlgorithm>();
+  std::size_t bits = 0;
+  for (std::size_t g = 0;
+       g < view.NumBatches<ContactSolverField::kContactActive, Word>();
+       ++g) {
+    const auto word = view.Load<ContactSolverField::kContactActive, Word>(g);
+    for (std::size_t b = 0; b < kLanes * narrow_phase::kSweptBoxContactSlots;
+         ++b) {
+      bits += word[b] ? 1 : 0;
+    }
+  }
+  return bits;
+}
+
+}  // namespace
+
+// A ball that rested on the ground last tick and is lifted clear this one:
+// its pair is no longer a broad-phase candidate, so the narrow phase skips
+// it -- and must still clear the contact it found last tick, or the solve
+// would push on a ball that touches nothing. (Its group's solver rows keep
+// last tick's values: nothing reads them while it has no contact.)
+TEST(Solve, ABallLiftedClearLosesLastTicksContact) {
+  TempDir dir;
+  RegisteredSim sim = MakeBallOnGround(dir, 0.09F);
+  SimConfig config = DownwardGravity();
+  RunSteps<SetupList>(sim, config, 0.0F);
+  RunSteps<Forward>(sim, config);
+  ASSERT_GT(ContactBits(sim), 0U);  // premise: in contact
+
+  sim.ViewFor<aba::ABAAlgorithm>().Store<aba::ABAField::kJointPosition, F>(
+      Row(sim, 2),
+      achilles::domain::spatial::Transform<F>(
+          0.0F, 0.5F, 0.0F, 1.0F, 0.0F, 0.0F, 0.0F
+      )
+  );
+  RunSteps<Forward>(sim, config);
+
+  EXPECT_EQ(ContactBits(sim), 0U);
   EXPECT_NEAR(Qdd(sim, 2), -9.8F, 1e-4F);
 }
 

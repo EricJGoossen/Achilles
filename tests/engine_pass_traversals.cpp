@@ -559,6 +559,151 @@ TEST(PairTraversalInitOp, InitializesEvenWithNoPairs) {
 }
 
 // ---------------------------------------------------------------------------
+// GatedPairTraversal and PairGate
+// ---------------------------------------------------------------------------
+
+namespace {
+
+using achilles::engine::pass::GatedPairTraversal;
+using achilles::engine::pass::PairGate;
+using achilles::engine::pass::PairGateLike;
+
+// The least a gate can be: PairGateLike's archetype.
+struct PairGateArchetype {
+  bool open = true;
+  bool Open(size_t /*group*/) const { return open; }
+};
+static_assert(PairGateLike<PairGateArchetype>);
+
+// Opens exactly the groups listed.
+struct ListGate {
+  std::vector<bool> open;
+  bool Open(size_t group) const { return open.at(group); }
+};
+static_assert(PairGateLike<ListGate>);
+
+// A field cursor holding one int word per group, as a LaneGroupIndexing
+// field's cursor hands them out.
+struct WordCursor {
+  std::vector<int> words;
+  template <typename T>
+  T Load(size_t index) const {
+    return static_cast<T>(words.at(index));
+  }
+};
+
+}  // namespace
+
+static_assert(
+    TraversalLike<GatedPairTraversal<Direction::kForward, 4>>,
+    "GatedPairTraversal must satisfy TraversalLike concept"
+);
+
+TEST(GatedPairTraversalApply, VisitsOnlyTheGroupsTheGateOpens) {
+  TwoGroups pairs;
+  std::vector<PairCall> calls;
+  GatedPairTraversal<Direction::kForward, 4>::Apply(
+      RecordingPairs{&calls},
+      size_t{99},
+      pairs.Topology(),
+      ListGate{{false, true}}
+  );
+  ASSERT_EQ(calls.size(), 1U);
+  EXPECT_EQ(calls[0].group, 1U);
+  EXPECT_EQ(calls[0].source, 5U);
+  EXPECT_EQ(calls[0].partner_group, 2U);
+  EXPECT_EQ(calls[0].lanes, 0b0001U);
+}
+
+TEST(GatedPairTraversalApply, AnOpenGateVisitsAsPairTraversalDoes) {
+  TwoGroups pairs;
+  std::vector<PairCall> gated;
+  std::vector<PairCall> plain;
+  GatedPairTraversal<Direction::kBackward, 4>::Apply(
+      RecordingPairs{&gated}, size_t{99}, pairs.Topology(), PairGateArchetype{}
+  );
+  PairTraversal<Direction::kBackward, 4>::Apply(
+      RecordingPairs{&plain}, size_t{99}, pairs.Topology()
+  );
+  ASSERT_EQ(gated.size(), plain.size());
+  for (size_t i = 0; i < plain.size(); ++i) {
+    EXPECT_EQ(gated[i].group, plain[i].group);
+    EXPECT_EQ(gated[i].source, plain[i].source);
+    EXPECT_EQ(gated[i].partner_group, plain[i].partner_group);
+    EXPECT_EQ(gated[i].lanes, plain[i].lanes);
+  }
+}
+
+TEST(GatedPairTraversalApply, AClosedGateMakesNoCalls) {
+  TwoGroups pairs;
+  std::vector<PairCall> calls;
+  GatedPairTraversal<Direction::kForward, 4>::Apply(
+      RecordingPairs{&calls},
+      size_t{99},
+      pairs.Topology(),
+      PairGateArchetype{false}
+  );
+  EXPECT_TRUE(calls.empty());
+}
+
+// A reduction's Initialize still starts its value when every group is
+// skipped: the passes over bodies may add to it after.
+TEST(GatedPairTraversalInitOp, InitializesEvenWithEveryGroupClosed) {
+  TwoGroups pairs;
+  size_t seen = 999;
+  GatedPairTraversal<Direction::kForward, 4>::InitOp(
+      RecordingInitOp{&seen},
+      size_t{99},
+      pairs.Topology(),
+      PairGateArchetype{false}
+  );
+  EXPECT_EQ(seen, 0U);
+}
+
+namespace {
+
+// Two lane groups of Stride pairs each, every lane a pair: source row 0
+// against rows Stride.., then source row 1 against rows 2 * Stride.. --
+// visited with only the second group open.
+template <size_t Stride>
+void ExpectOnlyTheSecondGroupVisited() {
+  std::vector<size_t> sources(2 * Stride, 0);
+  std::vector<size_t> partners(2 * Stride);
+  for (size_t i = 0; i < 2 * Stride; ++i) {
+    sources[i] = i < Stride ? 0 : 1;
+    partners[i] = Stride + i;
+  }
+  const PairTopology pairs(JointTopology(sources, Stride), partners);
+  std::vector<PairCall> calls;
+  GatedPairTraversal<Direction::kForward, Stride>::Apply(
+      RecordingPairs{&calls}, size_t{99}, pairs, ListGate{{false, true}}
+  );
+  ASSERT_EQ(calls.size(), 1U);
+  EXPECT_EQ(calls[0].group, 1U);
+  EXPECT_EQ(calls[0].source, 1U);
+  EXPECT_EQ(calls[0].partner_group, 2U);
+  EXPECT_EQ(calls[0].lanes, (std::uint64_t{1} << Stride) - 1);
+}
+
+}  // namespace
+
+TEST(GatedPairTraversalStride, VisitsOnlyOpenGroupsAtLaneEight) {
+  ExpectOnlyTheSecondGroupVisited<8>();
+}
+
+TEST(GatedPairTraversalStride, VisitsOnlyOpenGroupsAtLaneThirtyTwo) {
+  ExpectOnlyTheSecondGroupVisited<32>();
+}
+
+TEST(PairGateOpen, OpensWhereTheGroupsWordIsNonzero) {
+  const PairGate<WordCursor, int> gate{WordCursor{{0, 3, 0, -1}}};
+  EXPECT_FALSE(gate.Open(0));
+  EXPECT_TRUE(gate.Open(1));
+  EXPECT_FALSE(gate.Open(2));
+  EXPECT_TRUE(gate.Open(3));
+}
+
+// ---------------------------------------------------------------------------
 // Linked, segment and scanning passes over a list ordering
 // ---------------------------------------------------------------------------
 

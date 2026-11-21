@@ -18,13 +18,16 @@ namespace achilles::algorithms::narrow_phase {
 // own NarrowPhaseView, looked up via ViewFor<NarrowPhaseView>() the same way
 // BroadPhaseStep looks up its own (see broad_phase_step.hpp).
 //
-// ComputeSweptBoxContactOp over PairBatched -- the same PairTraversal, with
-// the same Stride over the same pairs (CollisionPairs,
-// orderings/collision_pairs.hpp) the broad phase's own pair test ran over, so
-// each call lines up with exactly the kBoundsOverlap word that test wrote for
-// it. Every lane is computed and kBoundsOverlap masks the result; the
-// traversal's own PairStructure isn't read again, since every candidate bit
-// already has it ANDed in.
+// ComputeSweptBoxContactOp over the same pairs (CollisionPairs,
+// orderings/collision_pairs.hpp) and Stride the broad phase's own pair test
+// ran over, so each call lines up with exactly the kBoundsOverlap word that
+// test wrote for it -- but only on the lane groups with a candidate in that
+// word (GatedPairBatched): a group with none has no contact to find, so
+// ClearContactsOp, over every group, clears its contact bits instead. A
+// static shape (a wall) pairs with every body, so most groups have no
+// candidate on most ticks. Within a visited group every lane is computed and
+// kBoundsOverlap masks the result; the traversal's own PairStructure isn't
+// read again, since every candidate bit already has it ANDed in.
 //
 // The one shape type pair today has the one Pass. Another type pair would
 // add its own contact Op here, writing the same contact fields (see
@@ -37,6 +40,8 @@ struct NarrowPhaseStep {
 
   using PairBatched =
       engine::pass::PairTraversal<engine::pass::Direction::kForward, kLanes>;
+  using GatedPairBatched = engine::pass::
+      GatedPairTraversal<engine::pass::Direction::kForward, kLanes>;
 
   template <engine::pass::SimContextLike SimStateT>
   static void Step(
@@ -55,12 +60,15 @@ struct NarrowPhaseStep {
         sim_state.template TopologyFor<CollisionPairs>();
 
     engine::pass::Step(
-        engine::pass::Ops<Pass<ComputeSweptBoxContactOp, PairBatched>>{
-            ComputeSweptBoxContactOp{}
+        engine::pass::Ops<
+            Pass<ClearContactsOp, PairBatched>,
+            Pass<ComputeSweptBoxContactOp, GatedPairBatched>>{
+            ClearContactsOp{}, ComputeSweptBoxContactOp{}
         },
         view,
         topology,
-        pairs
+        pairs,
+        engine::pass::MakePairGate<NarrowPhaseField::kBoundsOverlap>(view)
     );
   }
 };

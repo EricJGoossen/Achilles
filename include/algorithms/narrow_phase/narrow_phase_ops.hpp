@@ -8,6 +8,33 @@
 
 namespace achilles::algorithms::narrow_phase {
 
+// Clears a lane group's contact bits: no contact in any slot of any lane.
+// The narrow phase runs ComputeSweptBoxContactOp only on the lane groups
+// the broad phase left a candidate in, so every other group's bits are
+// cleared here first, rather than left at whatever an earlier tick wrote.
+struct ClearContactsOp {
+  using FieldEnum = NarrowPhaseField;
+  using ArgData = engine::ArgData<FieldEnum>;
+  using ArgIndex = engine::ArgIndex;
+
+  static constexpr std::array<ArgData, 0> kInputs = {};
+  static constexpr std::array<ArgData, 1> kOutputs = {
+      ArgData{FieldEnum::kContactActive, ArgIndex::kTarget},
+  };
+
+  void operator()(ContactActiveMask* active_out) const {
+    *active_out = ContactActiveMask{};
+  }
+};
+static_assert(
+    engine::OpLike<ClearContactsOp>,
+    "ClearContactsOp must satisfy OpLike concept"
+);
+static_assert(
+    engine::OpArgsMatchView<ClearContactsOp, NarrowPhaseView>,
+    "ClearContactsOp's operator() must line up with kInputs/kOutputs"
+);
+
 // The contact Op for the sphere-swept box x sphere-swept box pair (see
 // broad_phase_data.hpp for the shape) -- one source body (kSource, the same
 // value in every lane) against a whole lane group of target bodies

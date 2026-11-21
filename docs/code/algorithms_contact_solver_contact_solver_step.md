@@ -12,7 +12,9 @@ solver's whole solve. Iterations past the first stop once converged
 
 - Every stage derives from `SolverStep`, which runs one `engine::pass::Step`
   over the solver's view with both the joint topology and the collision pair
-  topology (`algorithms/orderings/collision_pairs.hpp`).
+  topology (`algorithms/orderings/collision_pairs.hpp`), and a gate on
+  `kContactActive`: the pair passes (`PairBatched`, a
+  `GatedPairTraversal`) visit only lane groups with a contact this tick.
 - Reads ABA's factors and body state, the narrow phase's contacts and the
   joint limit rows through shared slots.
 - `SolveFor<Solver>` is part of the `SemiImplicitEulerWith<Solver>` tick
@@ -34,6 +36,9 @@ solver's whole solve. Iterations past the first stop once converged
 - Every update ends in `ConvergedOp`, which writes `kContinue` for the next
   check.
 - `InvWeightStep` needs ABA to have run at the initial pose first.
+- Gating the pair passes changes no result: a row without a contact has
+  `D = 0` and a zero residual (`SetupRowsOp`), so it adds nothing to a
+  sum, and every pass that reads per-pair rows is gated the same way.
 
 ## Pitfalls
 
@@ -44,6 +49,8 @@ solver's whole solve. Iterations past the first stop once converged
 - The Hessian drops cross terms between two moving bodies in contact, so
   Newton converges more slowly there, though still to the same answer.
 - Contact only exists in integrators whose tick list includes `Solve`.
+- A new pair op must keep the gating invariant: zero contribution from a
+  row without a contact, and per-pair outputs read only by gated passes.
 
 ## When changing it
 
